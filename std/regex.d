@@ -870,7 +870,7 @@ struct Parser(R, bool CTFE=false)
             ir.reserve((pat.length*5+2)/4);
         parseFlags(flags);
         _current = ' ';//a safe default for freeform parsing
-        next();
+        nextChar();
         try
         {
             parseRegex();
@@ -909,7 +909,7 @@ struct Parser(R, bool CTFE=false)
         while(isWhite(current) && _next()){ }
     }
 
-    bool next()
+    bool nextChar()
     {
         if(re_flags & RegexOption.freeform)
         {
@@ -949,7 +949,7 @@ struct Parser(R, bool CTFE=false)
             if(r >= (uint.max/10))
                 error("Overflow in decimal number");
             r = 10*r + cast(uint)(current-'0');
-            if(!next())
+            if(!nextChar())
                 break;
         }
         return r;
@@ -958,7 +958,7 @@ struct Parser(R, bool CTFE=false)
     //parse control code of form \cXXX, c assumed to be the current symbol
     dchar parseControlCode()
     {
-        enforce(next(), "Unfinished escape sequence");
+        enforce(nextChar(), "Unfinished escape sequence");
         enforce(('a' <= current && current <= 'z') || ('A' <= current && current <= 'Z'),
             "Only letters are allowed after \\c");
         return current & 0x1f;
@@ -1005,39 +1005,39 @@ struct Parser(R, bool CTFE=false)
             switch(current)
             {
             case '(':
-                next();
+                nextChar();
                 nesting++;
                 uint nglob;
                 fixupStack.push(cast(uint)ir.length);
                 if(current == '?')
                 {
-                    next();
+                    nextChar();
                     switch(current)
                     {
                     case ':':
                         put(Bytecode(IR.Nop, 0));
-                        next();
+                        nextChar();
                         break;
                     case '=':
                         genLookaround(IR.LookaheadStart);
-                        next();
+                        nextChar();
                         break;
                     case '!':
                         genLookaround(IR.NeglookaheadStart);
-                        next();
+                        nextChar();
                         break;
                     case 'P':
-                        next();
+                        nextChar();
                         if(current != '<')
                             error("Expected '<' in named group");
                         string name;
-                        while(next() && isAlpha(current))
+                        while(nextChar() && isAlpha(current))
                         {
                             name ~= current;
                         }
                         if(current != '>')
                             error("Expected '>' closing named group");
-                        next();
+                        nextChar();
                         nglob = groupStack.top++;
                         enforce(groupStack.top <= maxGroupNumber, "limit on submatches is exceeded");
                         auto t = NamedGroup(name, nglob);
@@ -1059,14 +1059,14 @@ struct Parser(R, bool CTFE=false)
                         put(Bytecode(IR.GroupStart, nglob));
                         break;
                     case '<':
-                        next();
+                        nextChar();
                         if(current == '=')
                             genLookaround(IR.LookbehindStart);
                         else if(current == '!')
                             genLookaround(IR.NeglookbehindStart);
                         else
                             error("'!' or '=' expected after '<'");
-                        next();
+                        nextChar();
                         break;
                     default:
                         error(" ':', '=', '<', 'P' or '!' expected after '(?' ");
@@ -1082,7 +1082,7 @@ struct Parser(R, bool CTFE=false)
             case ')':
                 enforce(nesting, "Unmatched ')'");
                 nesting--;
-                next();
+                nextChar();
                 fix = fixupStack.pop();
                 switch(ir[fix].code)
                 {
@@ -1124,7 +1124,7 @@ struct Parser(R, bool CTFE=false)
                 }
                 break;
             case '|':
-                next();
+                nextChar();
                 fix = fixupStack.top;
                 if(ir.length > fix && ir[fix].code == IR.Option)
                 {
@@ -1212,14 +1212,14 @@ struct Parser(R, bool CTFE=false)
             max = infinite;
             break;
         case '{':
-            enforce(next(), "Unexpected end of regex pattern");
+            enforce(nextChar(), "Unexpected end of regex pattern");
             enforce(ascii.isDigit(current), "First number required in repetition");
             min = parseDecimal();
             if(current == '}')
                 max = min;
             else if(current == ',')
             {
-                next();
+                nextChar();
                 if(ascii.isDigit(current))
                     max = parseDecimal();
                 else if(current == '}')
@@ -1244,10 +1244,10 @@ struct Parser(R, bool CTFE=false)
         uint len = cast(uint)ir.length - offset - replace;
         bool greedy = true;
         //check only if we managed to get new symbol
-        if(next() && current == '?')
+        if(nextChar() && current == '?')
         {
             greedy = false;
-            next();
+            nextChar();
         }
         if(max != infinite)
         {
@@ -1321,7 +1321,7 @@ struct Parser(R, bool CTFE=false)
             break;
         case '.':
             put(Bytecode(IR.Any, 0));
-            next();
+            nextChar();
             break;
         case '[':
             parseCharset();
@@ -1332,11 +1332,11 @@ struct Parser(R, bool CTFE=false)
             break;
         case '^':
             put(Bytecode(IR.Bol, 0));
-            next();
+            nextChar();
             break;
         case '$':
             put(Bytecode(IR.Eol, 0));
-            next();
+            nextChar();
             break;
         default:
             if(re_flags & RegexOption.casefold)
@@ -1352,7 +1352,7 @@ struct Parser(R, bool CTFE=false)
             }
             else
                 put(Bytecode(IR.Char, current));
-            next();
+            nextChar();
         }
     }
 
@@ -1387,7 +1387,7 @@ struct Parser(R, bool CTFE=false)
     };
 
     //parse unit of CodepointSet spec, most notably escape sequences and char ranges
-    //also fetches next set operation
+    //also fetches nextChar set operation
     Tuple!(CodepointSet,Operator) parseCharTerm()
     {
         enum State{ Start, Char, Escape, CharDash, CharDashEscape,
@@ -1491,7 +1491,7 @@ struct Parser(R, bool CTFE=false)
                 if(current == last)
                 {
                     op = twinSymbolOperator(last);
-                    next();//skip second twin char
+                    nextChar();//skip second twin char
                     break L_CharTermLoop;
                 }
                 goto case State.Char;// it's not a twin lets re-run normal logic
@@ -1532,11 +1532,11 @@ struct Parser(R, bool CTFE=false)
                 case 'p':
                     set.add(parseUnicodePropertySpec(false));
                     state = State.Start;
-                    continue L_CharTermLoop; //next char already fetched
+                    continue L_CharTermLoop; //nextChar char already fetched
                 case 'P':
                     set.add(parseUnicodePropertySpec(true));
                     state = State.Start;
-                    continue L_CharTermLoop; //next char already fetched
+                    continue L_CharTermLoop; //nextChar char already fetched
                 case 'x':
                     last = parseUniHex(pat, 2);
                     state = State.Char;
@@ -1592,7 +1592,7 @@ struct Parser(R, bool CTFE=false)
                  case '-'://set Difference again
                     addWithFlags(set, last, re_flags);
                     op = Operator.Difference;
-                    next();//skip '-'
+                    nextChar();//skip '-'
                     break L_CharTermLoop;
                 case '\\':
                     state = State.CharDashEscape;
@@ -1654,7 +1654,7 @@ struct Parser(R, bool CTFE=false)
                 state = State.Start;
                 break;
             }
-            enforce(next(), "unexpected end of CodepointSet");
+            enforce(nextChar(), "unexpected end of CodepointSet");
         }
         return tuple(set, op);
     }
@@ -1721,11 +1721,11 @@ struct Parser(R, bool CTFE=false)
             {
             case '[':
                 opstack.push(Operator.Open);
-                enforce(next(), "unexpected end of CodepointSet");
+                enforce(nextChar(), "unexpected end of CodepointSet");
                 if(current == '^')
                 {
                     opstack.push(Operator.Negate);
-                    enforce(next(), "unexpected end of CodepointSet");
+                    enforce(nextChar(), "unexpected end of CodepointSet");
                 }
                 //[] is prohibited
                 enforce(current != ']', "wrong CodepointSet");
@@ -1735,7 +1735,7 @@ struct Parser(R, bool CTFE=false)
                         , "CodepointSet syntax error");
                 enforce(!opstack.empty, "unmatched ']'");
                 opstack.pop();
-                next();
+                nextChar();
                 if(opstack.empty)
                     break L_CharsetLoop;
                 auto pair  = parseCharTerm();
@@ -1812,36 +1812,36 @@ struct Parser(R, bool CTFE=false)
 
         switch(current)
         {
-        case 'f':   next(); put(Bytecode(IR.Char, '\f')); break;
-        case 'n':   next(); put(Bytecode(IR.Char, '\n')); break;
-        case 'r':   next(); put(Bytecode(IR.Char, '\r')); break;
-        case 't':   next(); put(Bytecode(IR.Char, '\t')); break;
-        case 'v':   next(); put(Bytecode(IR.Char, '\v')); break;
+        case 'f':   nextChar(); put(Bytecode(IR.Char, '\f')); break;
+        case 'n':   nextChar(); put(Bytecode(IR.Char, '\n')); break;
+        case 'r':   nextChar(); put(Bytecode(IR.Char, '\r')); break;
+        case 't':   nextChar(); put(Bytecode(IR.Char, '\t')); break;
+        case 'v':   nextChar(); put(Bytecode(IR.Char, '\v')); break;
 
         case 'd':
-            next();
+            nextChar();
             charsetToIr(unicodeNd);
             break;
         case 'D':
-            next();
+            nextChar();
             charsetToIr(unicodeNd.dup.negate());
             break;
-        case 'b':   next(); put(Bytecode(IR.Wordboundary, 0)); break;
-        case 'B':   next(); put(Bytecode(IR.Notwordboundary, 0)); break;
+        case 'b':   nextChar(); put(Bytecode(IR.Wordboundary, 0)); break;
+        case 'B':   nextChar(); put(Bytecode(IR.Notwordboundary, 0)); break;
         case 's':
-            next();
+            nextChar();
             charsetToIr(unicodeWhite_Space);
             break;
         case 'S':
-            next();
+            nextChar();
             charsetToIr(unicodeWhite_Space.dup.negate());
             break;
         case 'w':
-            next();
+            nextChar();
             charsetToIr(wordCharacter);
             break;
         case 'W':
-            next();
+            nextChar();
             charsetToIr(wordCharacter.dup.negate());
             break;
         case 'p': case 'P':
@@ -1850,21 +1850,21 @@ struct Parser(R, bool CTFE=false)
             break;
         case 'x':
             uint code = parseUniHex(pat, 2);
-            next();
+            nextChar();
             put(Bytecode(IR.Char,code));
             break;
         case 'u': case 'U':
             uint code = parseUniHex(pat, current == 'u' ? 4 : 8);
-            next();
+            nextChar();
             put(Bytecode(IR.Char, code));
             break;
         case 'c': //control codes
             Bytecode code = Bytecode(IR.Char, parseControlCode());
-            next();
+            nextChar();
             put(code);
             break;
         case '0':
-            next();
+            nextChar();
             put(Bytecode(IR.Char, 0));//NUL character
             break;
         case '1': .. case '9':
@@ -1875,8 +1875,8 @@ struct Parser(R, bool CTFE=false)
             uint localLimit = maxBackref - groupStack.top;
             enforce(nref < maxBackref, "Backref to unseen group");
             //perl's disambiguation rule i.e.
-            //get next digit only if there is such group number
-            while(nref < maxBackref && next() && ascii.isDigit(current))
+            //get nextChar digit only if there is such group number
+            while(nref < maxBackref && nextChar() && ascii.isDigit(current))
             {
                 nref = nref * 10 + current - '0';
             }
@@ -1894,7 +1894,7 @@ struct Parser(R, bool CTFE=false)
             break;
         default:
             auto op = Bytecode(IR.Char, current);
-            next();
+            nextChar();
             put(op);
         }
     }
@@ -1907,10 +1907,10 @@ struct Parser(R, bool CTFE=false)
         enum MAX_PROPERTY = 128;
         char[MAX_PROPERTY] result;
         uint k=0;
-        enforce(next());
+        enforce(nextChar());
         if(current == '{')
         {
-            while(k<MAX_PROPERTY && next() && current !='}' && current !=':')
+            while(k<MAX_PROPERTY && nextChar() && current !='}' && current !=':')
                 if(current != '-' && current != ' ' && current != '_')
                     result[k++] = cast(char)ascii.toLower(current);
             enforce(k != MAX_PROPERTY, "invalid property name");
@@ -1924,7 +1924,7 @@ struct Parser(R, bool CTFE=false)
         auto s = getUnicodeSet(result[0..k], negated
                          , cast(bool)(re_flags & RegexOption.casefold));
         enforce(!s.empty, "unrecognized unicode property spec");
-        next();
+        nextChar();
         return s;
     }
 
@@ -2160,6 +2160,60 @@ bool startOfLine(dchar back, bool seenNl)
     || back == NEL || back == LS || back == PS;
 }
 
+/*
+    Generic regex execution of any matcher, based on the following primitives:    
+    addState(s, pc, counter) - schedule another state for execution
+    addstate(s, pc) - ditto 
+    nextState(s) - fetch another state or finish execution on empty
+    nextChar(s) - called when machine state has to be synchronsized on nextChar char 
+        in Thompson VM, or fetch nextChar char in Backtracking VM
+    finishState(s) - account that this state matches successfuly
+    prog(pc) - fetch bytecode at pc
+//all other stuff opDispatch'ed to regex program
+*/
+
+enum Direction { bwd=0, fwd = 1 };
+template SimpleAtom(IR ir, Direction dir, alias test, bool zeroWidth=false)
+{
+    enum step = dir == Direction.fwd ? IRL!(ir) : -1;
+    @trusted bool exec(T, U)(ref T s, ref U m)
+    {
+        debug writeln("Exec!: at ", m.index);
+        if(test(s, m))
+        {
+            s.pc += step;
+            static if(!zeroWidth){
+                m.nextChar();
+                debug writeln("nextChar");
+            }
+            return true;
+        }
+        else{
+            debug writeln("nextState");
+            return m.nextState();
+        }
+    }
+}
+
+template TableAtom(IR ir, Direction dir, string tabName)
+{
+    bool match(T, U)(ref T s, ref U m)
+    {
+        return mixin("m."~tabname~"[m.prog(s.pc).data][m.current]");
+    }
+    mixin SimpleAtom!(ir, dir, match);
+}
+
+template Instruction(IR ir, Direction dir)
+{
+    static if(ir == IR.Char)
+    {
+        bool match(T, U)(ref T s, ref U m){ return !m.atEnd && m.front == m.prog(s.pc).data; }
+        mixin SimpleAtom!(ir, dir, match, false);
+    }
+}
+
+
 //Test if bytecode starting at pc in program 're' can match given codepoint
 //Returns: length of matched atom if test is positive, 0 - can't tell, -1 if doesn't match
 int quickTestFwd(RegEx)(uint pc, dchar front, const ref RegEx re)
@@ -2279,13 +2333,13 @@ int quickTestFwd(RegEx)(uint pc, dchar front, const ref RegEx re)
                     pc += IRL!(IR.OrStart);
                     goto case;
                 case IR.Option:
-                    uint next = pc + re.ir[pc].data + IRL!(IR.Option);
+                    uint nextChar = pc + re.ir[pc].data + IRL!(IR.Option);
                     uint nOpt = 0;
-                    //queue next Option
-                    while(re.ir[next].code == IR.Option)
+                    //queue nextChar Option
+                    while(re.ir[nextChar].code == IR.Option)
                     {
                         nOpt++;
-                        next += re.ir[next].data + IRL!(IR.Option);
+                        nextChar += re.ir[nextChar].data + IRL!(IR.Option);
                     }
                     nOpt++;
                     nOpt = rand(nOpt);
@@ -2655,11 +2709,11 @@ public:
                     t.pc += IRL!(IR.OrStart);
                     goto case;
                 case IR.Option:
-                    uint next = t.pc + re.ir[t.pc].data + IRL!(IR.Option);
-                    //queue next Option
-                    if(re.ir[next].code == IR.Option)
+                    uint nextChar = t.pc + re.ir[t.pc].data + IRL!(IR.Option);
+                    //queue nextChar Option
+                    if(re.ir[nextChar].code == IR.Option)
                     {
-                        trs ~= fork(t, next, t.counter);
+                        trs ~= fork(t, nextChar, t.counter);
                     }
                     t.pc += IRL!(IR.Option);
                     break;
@@ -3011,7 +3065,7 @@ struct StreamTester(Char)
     size_t[] splits;
     size_t pos;
 
-    //adds the next chunk to the stream
+    //adds the nextChar chunk to the stream
     bool addNextChunk()
     {
         if(splits.length<pos)
@@ -3164,7 +3218,7 @@ struct StreamTester(Char)
     @property auto loopBack(){   return BackLooper(this); }
 }
 
-//both helperd below are internal, on its own are quite "explosive"
+//both helpers below are internal, on its own are quite "explosive"
 
 //unsafe, no initialization of elements
 @system T[] mallocArray(T)(size_t len)
@@ -3239,9 +3293,11 @@ template BacktrackingMatcher(bool CTregex)
 
         @property bool atStart(){ return index == 0; }
 
-        @property bool atEnd(){ return index == s.lastIndex && s.atEnd; }
+        @property bool atEnd(){ return index == s.lastIndex; }
 
-        void next()
+        Bytecode prog(size_t index){ return re.ir[index]; }
+
+        void nextChar()
         {
             if(!s.nextChar(front, index))
                 index = s.lastIndex;
@@ -3257,7 +3313,7 @@ template BacktrackingMatcher(bool CTregex)
                 }
             }
             else
-                next();
+                nextChar();
         }
 
         //
@@ -3284,7 +3340,7 @@ template BacktrackingMatcher(bool CTregex)
         this(ref RegEx program, Stream stream, void[] memBlock)
         {
             initialize(program, stream, memBlock);
-            next();
+            nextChar();
         }
 
         //
@@ -3306,14 +3362,14 @@ template BacktrackingMatcher(bool CTregex)
                 if(!(re.flags & RegexOption.global) || atEnd)
                     exhausted = true;
                 if(start == index)//empty match advances input
-                    next();
+                    nextChar();
                 return true;
             }
             else
                 return false;
         }
 
-        //lookup next match, fill matches with indices into input
+        //lookup nextChar match, fill matches with indices into input
         bool match(Group!DataIndex matches[])
         {
             debug(fred_matching)
@@ -3336,9 +3392,9 @@ template BacktrackingMatcher(bool CTregex)
                 return m;
             }
             static if(kicked)
-                auto searchFn = re.kickstart.empty ? &this.next :&this.search;
+                auto searchFn = re.kickstart.empty ? &this.nextChar :&this.search;
             else
-                auto searchFn = &this.next;
+                auto searchFn = &this.nextChar;
             for(;;)
             {
 
@@ -3406,31 +3462,29 @@ template BacktrackingMatcher(bool CTregex)
                                 goto L_backtrack;
                         }
                         pc = end;
-                        next();
+                        nextChar();
                         break;
                     case IR.Char:
-                        if(atEnd || front != re.ir[pc].data)
-                            goto L_backtrack;
-                        pc += IRL!(IR.Char);
-                        next();
+                        if(!Instruction!(IR.Char, Direction.fwd).exec(this, this))
+                            goto L_fail;//execution failed to match or backtrack
                     break;
                     case IR.Any:
                         if(atEnd || (!(re.flags & RegexOption.singleline)
                                 && (front == '\r' || front == '\n')))
                             goto L_backtrack;
                         pc += IRL!(IR.Any);
-                        next();
+                        nextChar();
                         break;
                     case IR.CodepointSet:
                         if(atEnd || !re.charsets[re.ir[pc].data].scanFor(front))
                             goto L_backtrack;
-                        next();
+                        nextChar();
                         pc += IRL!(IR.CodepointSet);
                         break;
                     case IR.Trie:
                         if(atEnd || !re.tries[re.ir[pc].data][front])
                             goto L_backtrack;
-                        next();
+                        nextChar();
                         pc += IRL!(IR.Trie);
                         break;
                     case IR.Wordboundary:
@@ -3644,7 +3698,7 @@ template BacktrackingMatcher(bool CTregex)
                         matcher.re.ir = re.ir[pc+IRL!(IR.LookaheadStart) .. pc+IRL!(IR.LookaheadStart)+len+IRL!(IR.LookaheadEnd)];
                         bool match = matcher.matchImpl() ^ (re.ir[pc].code == IR.NeglookaheadStart);
                         s.reset(save);
-                        next();
+                        nextChar();
                         if(!match)
                             goto L_backtrack;
                         else
@@ -3677,7 +3731,7 @@ template BacktrackingMatcher(bool CTregex)
                                 : s[backrefed[n].begin .. backrefed[n].end];
                         while(!atEnd && !referenced.empty && front == referenced.front)
                         {
-                            next();
+                            nextChar();
                             referenced.popFront();
                         }
                         if(referenced.empty)
@@ -3697,6 +3751,7 @@ template BacktrackingMatcher(bool CTregex)
                     L_backtrack:
                         if(!popState())
                         {
+                    L_fail:
                             s.reset(start);
                             return false;
                         }
@@ -3705,6 +3760,8 @@ template BacktrackingMatcher(bool CTregex)
             }
             assert(0);
         }
+        static if(!CTregex)
+        bool nextState(){ return popState(); }
 
         @property size_t stackAvail()
         {
@@ -3799,7 +3856,7 @@ template BacktrackingMatcher(bool CTregex)
                         writefln("Sub(%d) : %s..%s", i, m.begin, m.end);
                 }
                 s.reset(index);
-                next();
+                nextChar();
                 debug(fred_matching)
                     writefln("Backtracked (pc=%s) front: %s src: %s"
                     , pc, front, s[index..s.lastIndex]);
@@ -3842,31 +3899,31 @@ template BacktrackingMatcher(bool CTregex)
                                 goto L_backtrack;
                         }
                         pc = end;
-                        next();
+                        nextChar();
                         break;
                     case IR.Char:
                         if(atEnd || front != re.ir[pc].data)
                             goto L_backtrack;
                         pc--;
-                        next();
+                        nextChar();
                     break;
                     case IR.Any:
                         if(atEnd || (!(re.flags & RegexOption.singleline)
                                 && (front == '\r' || front == '\n')))
                             goto L_backtrack;
                         pc--;
-                        next();
+                        nextChar();
                         break;
                     case IR.CodepointSet:
                         if(atEnd || !re.charsets[re.ir[pc].data].scanFor(front))
                             goto L_backtrack;
-                        next();
+                        nextChar();
                         pc--;
                         break;
                     case IR.Trie:
                         if(atEnd || !re.tries[re.ir[pc].data][front])
                             goto L_backtrack;
-                        next();
+                        nextChar();
                         pc--;
                         break;
                     case IR.Wordboundary:
@@ -4116,7 +4173,7 @@ template BacktrackingMatcher(bool CTregex)
                         matcher.re.ir = re.ir[pc .. pc+IRL!(IR.LookbehindStart)+len];
                         bool match = matcher.matchBackImpl() ^ (re.ir[pc].code == IR.NeglookbehindStart);
                         s.reset(save);
-                        next();
+                        nextChar();
                         if(!match)
                             goto L_backtrack;
                         else
@@ -4131,7 +4188,7 @@ template BacktrackingMatcher(bool CTregex)
                                 : s[backrefed[n].begin .. backrefed[n].end];
                         while(!atEnd && !referenced.empty && front == referenced.front)
                         {
-                            next();
+                            nextChar();
                             referenced.popFront();
                         }
                         if(referenced.empty)
@@ -4163,7 +4220,7 @@ template BacktrackingMatcher(bool CTregex)
     }
 }
 
-//very shitty string formatter, $$ replaced with next argument converted to string
+//very shitty string formatter, $$ replaced with nextChar argument converted to string
 @trusted string ctSub( U...)(string format, U args)
 {
     bool seenDollar;
@@ -4491,7 +4548,7 @@ struct CtContext
                         $$
                     }
                     goto case $$;
-                case $$://restore thunk to go to the next group
+                case $$://restore thunk to go to the nextChar group
                     $$
                     goto case $$;`, saveCode(addr+1), addr+2
                         , addr+1, restoreCode(), fixup);
@@ -4570,7 +4627,7 @@ struct CtContext
                     {
                         $$
                         $$
-                    }`,   ir[i].data, addr >= 0 ? "next();" :"", nextInstr);
+                    }`,   ir[i].data, addr >= 0 ? "nextChar();" :"", nextInstr);
             }
             code ~= ctSub( `
                 $$`, bailOut);
@@ -4580,7 +4637,7 @@ struct CtContext
                     if(atEnd || front != $$)
                         $$
                     $$
-                    $$`, ir[0].data, bailOut, addr >= 0 ? "next();" :"", nextInstr);
+                    $$`, ir[0].data, bailOut, addr >= 0 ? "nextChar();" :"", nextInstr);
             break;
         case IR.Any:
             code ~= ctSub( `
@@ -4588,21 +4645,21 @@ struct CtContext
                                 && (front == '\r' || front == '\n')))
                         $$
                     $$
-                    $$`, bailOut, addr >= 0 ? "next();" :"",nextInstr);
+                    $$`, bailOut, addr >= 0 ? "nextChar();" :"",nextInstr);
             break;
         case IR.CodepointSet:
             code ~= ctSub( `
                     if(atEnd || !re.charsets[$$].scanFor(front))
                         $$
                     $$
-                $$`, ir[0].data, bailOut, addr >= 0 ? "next();" :"", nextInstr);
+                $$`, ir[0].data, bailOut, addr >= 0 ? "nextChar();" :"", nextInstr);
             break;
         case IR.Trie:
             code ~= ctSub( `
                     if(atEnd || !re.tries[$$][front])
                         $$
                     $$
-                $$`, ir[0].data, bailOut, addr >= 0 ? "next();" :"", nextInstr);
+                $$`, ir[0].data, bailOut, addr >= 0 ? "nextChar();" :"", nextInstr);
             break;
         case IR.Wordboundary:
             code ~= ctSub( `
@@ -4698,7 +4755,7 @@ struct CtContext
                     $$
                     while(!atEnd && !referenced.empty && front == referenced.front)
                     {
-                        next();
+                        nextChar();
                         referenced.popFront();
                     }
                     if(referenced.empty)
@@ -4738,7 +4795,7 @@ struct CtContext
                 stackPop(pc);
                 stackPop(index);
                 s.reset(index);
-                next();
+                nextChar();
             }
             else
             {
@@ -4773,7 +4830,7 @@ string ctGenRegExCode(Char)(Regex!Char re)
 //State of VM thread
 struct Thread(DataIndex)
 {
-    Thread* next;    //intrusive linked list
+    Thread* nextChar;    //intrusive linked list
     uint pc;
     uint counter;    //loop counter
     uint uopCounter; //counts micro operations inside one macro instruction (e.g. BackRef)
@@ -4789,12 +4846,12 @@ struct ThreadList(DataIndex)
     {
         if(tip)
         {
-            t.next = tip;
+            t.nextChar = tip;
             tip = t;
         }
         else
         {
-            t.next = null;
+            t.nextChar = null;
             tip = toe = t;
         }
     }
@@ -4803,12 +4860,12 @@ struct ThreadList(DataIndex)
     {
         if(toe)
         {
-            toe.next = t;
+            toe.nextChar = t;
             toe = t;
         }
         else
             tip = toe = t;
-        toe.next = null;
+        toe.nextChar = null;
     }
     //move head element out of list
     Thread!DataIndex* fetch()
@@ -4817,7 +4874,7 @@ struct ThreadList(DataIndex)
         if(tip == toe)
             tip = toe = null;
         else
-            tip = tip.next;
+            tip = tip.nextChar;
         return t;
     }
     //non-destructive iteration of ThreadList
@@ -4830,7 +4887,7 @@ struct ThreadList(DataIndex)
         @property popFront()
         {
             assert(ct);
-            ct = ct.next;
+            ct = ct.nextChar;
         }
     }
     @property bool empty()
@@ -4891,7 +4948,7 @@ enum OneShot { Fwd, Bwd };
     //true if it's end of input
     @property bool atEnd(){  return index == s.lastIndex && s.atEnd; }
 
-    bool next()
+    bool nextChar()
     {
         if(!s.nextChar(front, index))
         {
@@ -4964,14 +5021,14 @@ enum OneShot { Fwd, Bwd };
         }
         if(re.flags & RegexInfo.oneShot)
         {
-            next();
+            nextChar();
             exhausted = true;
             return matchOneShot!(OneShot.Fwd)(matches)==MatchResult.Match;
         }
         static if(kicked)
-            auto searchFn = re.kickstart.empty ? &this.next : &this.search;
+            auto searchFn = re.kickstart.empty ? &this.nextChar : &this.search;
         else
-            auto searchFn = &this.next;
+            auto searchFn = &this.nextChar;
         if((!matched) && clist.empty)
         {
            searchFn();
@@ -5014,7 +5071,7 @@ enum OneShot { Fwd, Bwd };
                     if(!searchFn())
                         break;
                 }
-                else if(!next()){
+                else if(!nextChar()){
                     if (!atEnd) return false;
                     exhausted = true;
                     break;
@@ -5325,11 +5382,11 @@ enum OneShot { Fwd, Bwd };
                 t.pc += IRL!(IR.OrStart);
                 goto case;
             case IR.Option:
-                uint next = t.pc + re.ir[t.pc].data + IRL!(IR.Option);
-                //queue next Option
-                if(re.ir[next].code == IR.Option)
+                uint nextChar = t.pc + re.ir[t.pc].data + IRL!(IR.Option);
+                //queue nextChar Option
+                if(re.ir[nextChar].code == IR.Option)
                 {
-                    worklist.insertFront(fork(t, next, t.counter));
+                    worklist.insertFront(fork(t, nextChar, t.counter));
                 }
                 t.pc += IRL!(IR.Option);
                 break;
@@ -5392,7 +5449,7 @@ enum OneShot { Fwd, Bwd };
                 matcher.re.ngroup = re.ir[t.pc+2].raw - re.ir[t.pc+1].raw;
                 matcher.backrefed = backrefed.empty ? t.matches : backrefed;
                 //backMatch
-                matcher.next(); //load first character from behind
+                matcher.nextChar(); //load first character from behind
                 bool match = (matcher.matchOneShot!(OneShot.Bwd)(t.matches)==MatchResult.Match) ^ (re.ir[t.pc].code == IR.LookbehindStart);
                 freelist = matcher.freelist;
                 genCounter = matcher.genCounter;
@@ -5433,7 +5490,7 @@ enum OneShot { Fwd, Bwd };
                 freelist = matcher.freelist;
                 genCounter = matcher.genCounter;
                 s.reset(index);
-                next();
+                nextChar();
                 if(nomatch)
                 {
                     recycle(t);
@@ -5593,7 +5650,7 @@ enum OneShot { Fwd, Bwd };
                 }
                 clist = nlist;
                 nlist = (ThreadList!DataIndex).init;
-                if(!next()){
+                if(!nextChar()){
                     if (!atEnd) return MatchResult.PartialMatch;
                     break;
                 }
@@ -5854,7 +5911,7 @@ enum OneShot { Fwd, Bwd };
                 assert(re.ir[t.pc].code == IR.GotoEndOr);
                 uint npc = t.pc+IRL!(IR.GotoEndOr);
                 assert(re.ir[npc].code == IR.Option);
-                worklist.insertFront(fork(t, npc + re.ir[npc].data, t.counter));//queue next branch
+                worklist.insertFront(fork(t, npc + re.ir[npc].data, t.counter));//queue nextChar branch
                 t.pc--;
                 break;
             case IR.GroupStart:
@@ -5923,7 +5980,7 @@ enum OneShot { Fwd, Bwd };
                     , s.loopBack);
                 matcher.re.ngroup = re.ir[t.pc+2].raw - re.ir[t.pc+1].raw;
                 matcher.backrefed = backrefed.empty ? t.matches : backrefed;
-                matcher.next(); //fetch a char, since direction was reversed
+                matcher.nextChar(); //fetch a char, since direction was reversed
                 bool match = (matcher.matchOneShot!(OneShot.Fwd)(t.matches, IRL!(IR.LookaheadStart)) == MatchResult.Match) ^ positive;
                 freelist = matcher.freelist;
                 if(match)
@@ -5949,7 +6006,7 @@ enum OneShot { Fwd, Bwd };
                 bool nomatch = (matcher.matchOneShot!(OneShot.Bwd)(t.matches) == MatchResult.Match) ^ positive;
                 freelist = matcher.freelist;
                 s.reset(index);
-                next();
+                nextChar();
                 if(nomatch)
                 {
                     recycle(t);
@@ -6048,7 +6105,7 @@ enum OneShot { Fwd, Bwd };
     {
         assert(freelist, "not enough preallocated memory");
         Thread!DataIndex* t = freelist;
-        freelist = freelist.next;
+        freelist = freelist.nextChar;
         return t;
     }
 
@@ -6060,14 +6117,14 @@ enum OneShot { Fwd, Bwd };
         freelist = cast(Thread!DataIndex*)&mem[0];
         size_t i;
         for(i=threadSize; i<threadSize*size; i+=threadSize)
-            (cast(Thread!DataIndex*)&mem[i-threadSize]).next = cast(Thread!DataIndex*)&mem[i];
-        (cast(Thread!DataIndex*)&mem[i-threadSize]).next = null;
+            (cast(Thread!DataIndex*)&mem[i-threadSize]).nextChar = cast(Thread!DataIndex*)&mem[i];
+        (cast(Thread!DataIndex*)&mem[i-threadSize]).nextChar = null;
     }
 
     //dispose a thread
     void recycle(Thread!DataIndex* t)
     {
-        t.next = freelist;
+        t.nextChar = freelist;
         freelist = t;
     }
 
@@ -6077,9 +6134,9 @@ enum OneShot { Fwd, Bwd };
         auto t = list.tip;
         while(t)
         {
-            auto next = t.next;
+            auto nextChar = t.nextChar;
             recycle(t);
-            t = next;
+            t = nextChar;
         }
         list = list.init;
     }
