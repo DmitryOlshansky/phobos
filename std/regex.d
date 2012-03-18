@@ -2173,23 +2173,22 @@ bool startOfLine(dchar back, bool seenNl)
 */
 
 enum Direction { bwd=0, fwd = 1 };
-template SimpleAtom(IR ir, Direction dir, alias test, bool zeroWidth=false)
+enum ZeroWidth { no=0, yes };
+template SimpleAtom(IR ir, Direction dir, alias test, ZeroWidth zeroWidth=ZeroWidth.no)
 {
     enum step = dir == Direction.fwd ? IRL!(ir) : -1;
     @trusted bool exec(T, U)(ref T s, ref U m)
     {
-        debug writeln("Exec!: at ", m.index);
+        debug writefln("Exec %s: at %s", ir, m.index);
         if(test(s, m))
         {
             s.pc += step;
             static if(!zeroWidth){
                 m.nextChar();
-                debug writeln("nextChar");
             }
             return true;
         }
         else{
-            debug writeln("nextState");
             return m.nextState();
         }
     }
@@ -2199,20 +2198,53 @@ template TableAtom(IR ir, Direction dir, string tabName)
 {
     bool match(T, U)(ref T s, ref U m)
     {
-        return mixin("m."~tabname~"[m.prog(s.pc).data][m.current]");
+        return mixin("!m.atEnd && m."~tabName~"[m.prog(s.pc).data][m.front]");
     }
     mixin SimpleAtom!(ir, dir, match);
 }
 
-template Instruction(IR ir, Direction dir)
+template Evaluator(IR ir)
 {
-    static if(ir == IR.Char)
+    template Evaluator(Direction dir)
     {
-        bool match(T, U)(ref T s, ref U m){ return !m.atEnd && m.front == m.prog(s.pc).data; }
-        mixin SimpleAtom!(ir, dir, match, false);
+        enum IR opcode = ir;
+        static if(ir == IR.Char)
+        {
+            bool match(T, U)(ref T s, ref U m){ return !m.atEnd && m.front == m.prog(s.pc).data; }
+            mixin SimpleAtom!(ir, dir, match);
+        }
+        else static if(ir == IR.Any)
+        {
+            bool match(T, U)(ref T s, ref U m){ 
+                return !m.atEnd && ((m.re.flags & RegexOption.singleline)
+                                    || (m.front != '\r' && m.front != '\n'));
+            }
+            mixin SimpleAtom!(ir, dir, match);
+        }
+        else static if(ir == IR.CodepointSet)
+        {
+            mixin TableAtom!(ir, dir, "re.charsets");
+        }
+        else static if(ir == IR.Trie)
+        {
+            mixin TableAtom!(ir, dir, "re.tries");
+        }
     }
 }
 
+//functor
+template EvalInDirection(Direction dir)
+{
+    template EvalInDirection(alias Evaluator)
+    {
+        alias Evaluator!(dir) EvalInDirection;
+    }
+}
+
+template Evaluators(Direction dir, T...)
+{
+    alias staticMap!(EvalInDirection!dir, staticMap!(Evaluator, T)) Evaluators; 
+}
 
 //Test if bytecode starting at pc in program 're' can match given codepoint
 //Returns: length of matched atom if test is positive, 0 - can't tell, -1 if doesn't match
@@ -3446,6 +3478,7 @@ template BacktrackingMatcher(bool CTregex)
                         writefln("PC: %s\tCNT: %s\t%s \tfront: %s src: %s"
                             , pc, counter, disassemble(re.ir, pc, re.dict)
                             , front, s._index);
+            L_dispatchSwitch:
                     switch(re.ir[pc].code)
                     {
                     case IR.OrChar://assumes IRL!(OrChar) == 1
@@ -3464,29 +3497,13 @@ template BacktrackingMatcher(bool CTregex)
                         pc = end;
                         nextChar();
                         break;
-                    case IR.Char:
-                        if(!Instruction!(IR.Char, Direction.fwd).exec(this, this))
-                            goto L_fail;//execution failed to match or backtrack
-                    break;
-                    case IR.Any:
-                        if(atEnd || (!(re.flags & RegexOption.singleline)
-                                && (front == '\r' || front == '\n')))
-                            goto L_backtrack;
-                        pc += IRL!(IR.Any);
-                        nextChar();
-                        break;
-                    case IR.CodepointSet:
-                        if(atEnd || !re.charsets[re.ir[pc].data].scanFor(front))
-                            goto L_backtrack;
-                        nextChar();
-                        pc += IRL!(IR.CodepointSet);
-                        break;
-                    case IR.Trie:
-                        if(atEnd || !re.tries[re.ir[pc].data][front])
-                            goto L_backtrack;
-                        nextChar();
-                        pc += IRL!(IR.Trie);
-                        break;
+                    foreach(v; Evaluators!(Direction.fwd, IR.Char, IR.Any, IR.CodepointSet, IR.Trie))
+                    {
+                        case v.opcode:
+                            if(!v.exec(this, this))
+                                goto L_fail;//execution failed to match or backtrack
+                        break L_dispatchSwitch;
+                    }
                     case IR.Wordboundary:
                         dchar back;
                         DataIndex bi;
