@@ -2174,57 +2174,104 @@ bool startOfLine(dchar back, bool seenNl)
         in Thompson VM, or fetch nextChar char in Backtracking VM
     finishState(s) - account that this state matches successfuly
     prog(pc) - fetch bytecode at pc
+
+    *Never ever try to return false from exec unless m.nextState fails*
+
 //all other stuff opDispatch'ed to regex program
 */
 
 enum Direction { bwd=0, fwd = 1 };
 enum ZeroWidth { no=0, yes };
 
-template SimpleAtom(IR ir, Direction dir, alias s, alias m, string test, ZeroWidth zeroWidth=ZeroWidth.no)
+template SimpleAtom(IR ir, Direction dir, alias s, alias m, string testFmt, ZeroWidth zeroWidth=ZeroWidth.no)
 {
     enum step = dir == Direction.fwd ? IRL!(ir) : -1;
     @trusted bool exec()
     {
-        debug writefln("Exec %s: at %s", ir, m.index);
+        //debug writefln("Atom %s: at %s", ir, m.index);
         //@@BUG@@@ hack around poor inliner, test ideally is 0-arg function alias
         static if(!zeroWidth){
-            return mixin(test) ? (s.pc += step, m.nextChar(), true) : m.nextState();
+            return mixin(ctSub(testFmt, "m.prog(s.pc).data"))
+                ? (s.pc += step, m.nextChar(), true) : m.nextState();
         }
         else 
         {
-            return mixin(test) ? (s.pc += step, true) : m.nextState();
+            return mixin(ctSub(testFmt, "m.prog(s.pc).data")) 
+                ? (s.pc += step, true) : m.nextState();
         }
     }
 }
 
-template TableAtom(IR ir, Direction dir,  alias s, alias m, string tabName)
+template TableAtom(IR ir, Direction dir, alias s, alias m, string tabName, ZeroWidth zeroWidth=ZeroWidth.no)
 {
-    enum match = "!m.atEnd && m."~tabName~"[m.prog(s.pc).data][m.front]";
-    mixin SimpleAtom!(ir, dir, s, m, match);
+    enum code =` !m.atEnd && m.re.`~tabName~`[$$][m.front]`;
+    mixin SimpleAtom!(ir, dir, s, m, code, zeroWidth);
 }
+
+//2 or more consequative atoms bundled as one
+template SimpleSequence(IR ir, Direction dir, alias s, alias m, string testFmt, ZeroWidth zeroWidth=ZeroWidth.no)
+{
+    enum step = dir == Direction.fwd ? IRL!(ir) : -1;
+    @trusted bool exec()
+    {
+        if(m.atEnd)
+            return m.nextState();
+        uint end = s.pc + step*IRL!(ir)*m.re.ir[s.pc].sequence;
+        assert(s.pc+step != end);//sequence is >= 2
+        if(!mixin(ctSub(testFmt, "m.prog(s.pc).data")) 
+            && !mixin(ctSub(testFmt,"m.prog(s.pc+step).data")))
+        {
+            uint i;
+            
+            for(i = s.pc+2*step; i!=end; i += step)
+            {
+                debug writefln("N: %s, %s front:%s", i-s.pc, cast(dchar)m.prog(i).data, m.front);
+                if(mixin(ctSub(testFmt, "m.prog(i).data")))
+                    break;
+            }
+            debug writefln("And i is %s vs end %s", i, end);
+            if(i == end)
+                return m.nextState();
+        }
+        s.pc = end;
+        static if(!zeroWidth)
+            m.nextChar();
+        return true;
+    }
+}
+
 
 template Evaluator(IR ir, Direction dir, alias s, alias m)
 {
         enum IR opcode = ir;
         static if(ir == IR.Char)
         {
-            enum match = q{ !m.atEnd && m.front == m.prog(s.pc).data };
-            mixin SimpleAtom!(ir, dir, s, m, match);
+            enum matchFmt = ` !m.atEnd && m.front == $$ `;
+            mixin SimpleAtom!(ir, dir, s, m, matchFmt);
+        }
+        else static if(ir == IR.OrChar)
+        {
+            enum matchFmt = `$$ == m.front`;
+            mixin SimpleSequence!(ir, dir, s, m, matchFmt);
         }
         else static if(ir == IR.Any)
         {
-            enum match = q{ !m.atEnd && ((m.re.flags & RegexOption.singleline)
+            enum matchFmt = q{ !m.atEnd && ((m.re.flags & RegexOption.singleline)
                                     || (m.front != '\r' && m.front != '\n'))
             };
-            mixin SimpleAtom!(ir, dir, s, m, match);
+            mixin SimpleAtom!(ir, dir, s, m, matchFmt);
         }
         else static if(ir == IR.CodepointSet)
         {
-            mixin TableAtom!(ir, dir, s, m, "re.charsets");
+            mixin TableAtom!(ir, dir, s, m, "charsets");
         }
         else static if(ir == IR.Trie)
         {
-            mixin TableAtom!(ir, dir, s, m, "re.tries");
+            mixin TableAtom!(ir, dir, s, m, "tries");
+        }
+        else static if(ir == IR.Nop)
+        {
+            mixin SimpleAtom!(ir, dir, s, m, "true", ZeroWidth.yes);
         }
 }
 
@@ -3476,23 +3523,9 @@ template BacktrackingMatcher(bool CTregex)
             L_dispatchSwitch:
                     switch(re.ir[pc].code)
                     {
-                    case IR.OrChar://assumes IRL!(OrChar) == 1
-                        if(atEnd)
-                            goto L_backtrack;
-                        uint len = re.ir[pc].sequence;
-                        uint end = pc + len;
-                        if(re.ir[pc].data != front && re.ir[pc+1].data != front)
-                        {
-                            for(pc = pc+2; pc<end; pc++)
-                                if(re.ir[pc].data == front)
-                                    break;
-                            if(pc == end)
-                                goto L_backtrack;
-                        }
-                        pc = end;
-                        nextChar();
-                        break;
-                    foreach(v; Evaluators!(Direction.fwd, ptr, ptr, IR.Char, IR.Any, IR.CodepointSet, IR.Trie))
+                    foreach(v; Evaluators!(Direction.fwd, ptr, ptr, 
+                                           IR.OrChar, IR.Char, IR.Any, 
+                                           IR.CodepointSet, IR.Trie, IR.Nop))
                     {
                         case v.opcode:
                             if(!v.exec())
@@ -3752,9 +3785,6 @@ template BacktrackingMatcher(bool CTregex)
                         else
                             goto L_backtrack;
                         break;
-                        case IR.Nop:
-                        pc += IRL!(IR.Nop);
-                        break;
                     case IR.LookaheadEnd:
                     case IR.NeglookaheadEnd:
                     case IR.End:
@@ -3883,6 +3913,7 @@ template BacktrackingMatcher(bool CTregex)
 
             bool matchBackImpl()
             {
+                alias this ptr;
                 pc = cast(uint)re.ir.length-1;
                 counter = 0;
                 lastState = 0;
@@ -3896,49 +3927,17 @@ template BacktrackingMatcher(bool CTregex)
                         writefln("PC: %s\tCNT: %s\t%s \tfront: %s src: %s"
                         , pc, counter, disassemble(re.ir, pc, re.dict)
                         , front, retro(s[index..s.lastIndex]));
-                    switch(re.ir[pc].code)
+L_dispatchSwitch:   switch(re.ir[pc].code)
                     {
-                    case IR.OrChar://assumes IRL!(OrChar) == 1
-                        if(atEnd)
-                            goto L_backtrack;
-                        uint len = re.ir[pc].sequence;
-                        uint end = pc - len;
-                        if(re.ir[pc].data != front && re.ir[pc-1].data != front)
+                        foreach(v; Evaluators!(Direction.bwd, ptr, ptr, 
+                                               IR.OrChar, IR.Char, IR.Any, 
+                                               IR.CodepointSet, IR.Trie, IR.Nop))
                         {
-                            for(pc = pc-2; pc>end; pc--)
-                                if(re.ir[pc].data == front)
-                                    break;
-                            if(pc == end)
-                                goto L_backtrack;
+                            case v.opcode:
+                                if(!v.exec())
+                                    goto L_fail;//execution failed to match or backtrack
+                                break L_dispatchSwitch;
                         }
-                        pc = end;
-                        nextChar();
-                        break;
-                    case IR.Char:
-                        if(atEnd || front != re.ir[pc].data)
-                            goto L_backtrack;
-                        pc--;
-                        nextChar();
-                    break;
-                    case IR.Any:
-                        if(atEnd || (!(re.flags & RegexOption.singleline)
-                                && (front == '\r' || front == '\n')))
-                            goto L_backtrack;
-                        pc--;
-                        nextChar();
-                        break;
-                    case IR.CodepointSet:
-                        if(atEnd || !re.charsets[re.ir[pc].data].scanFor(front))
-                            goto L_backtrack;
-                        nextChar();
-                        pc--;
-                        break;
-                    case IR.Trie:
-                        if(atEnd || !re.tries[re.ir[pc].data][front])
-                            goto L_backtrack;
-                        nextChar();
-                        pc--;
-                        break;
                     case IR.Wordboundary:
                         dchar back;
                         DataIndex bi;
@@ -4209,9 +4208,6 @@ template BacktrackingMatcher(bool CTregex)
                         else
                             goto L_backtrack;
                         break;
-                        case IR.Nop:
-                        pc --;
-                        break;
                     case IR.LookbehindStart:
                     case IR.NeglookbehindStart:
                         return true;
@@ -4222,6 +4218,7 @@ template BacktrackingMatcher(bool CTregex)
                     L_backtrack:
                         if(!popState())
                         {
+                    L_fail:
                             s.reset(start);
                             return false;
                         }
