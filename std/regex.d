@@ -2165,127 +2165,6 @@ bool startOfLine(dchar back, bool seenNl)
     || back == NEL || back == LS || back == PS;
 }
 
-/*
-    Generic regex execution of any matcher, based on the following primitives:    
-    addState(s, pc, counter) - schedule another state for execution
-    addstate(s, pc) - ditto 
-    nextState(s) - fetch another state or finish execution on empty
-    nextChar(s) - called when machine state has to be synchronsized on nextChar char 
-        in Thompson VM, or fetch nextChar char in Backtracking VM
-    finishState(s) - account that this state matches successfuly
-    prog(pc) - fetch bytecode at pc
-
-    *Never ever try to return false from exec unless m.nextState fails*
-
-//all other stuff opDispatch'ed to regex program
-*/
-
-enum Direction { bwd=0, fwd = 1 };
-enum ZeroWidth { no=0, yes };
-
-template SimpleAtom(IR ir, Direction dir, alias s, alias m, string testFmt, ZeroWidth zeroWidth=ZeroWidth.no)
-{
-    enum step = dir == Direction.fwd ? IRL!(ir) : -1;
-    @trusted bool exec()
-    {
-        //debug writefln("Atom %s: at %s", ir, m.index);
-        //@@BUG@@@ hack around poor inliner, test ideally is 0-arg function alias
-        static if(!zeroWidth){
-            return mixin(ctSub(testFmt, "m.prog(s.pc).data"))
-                ? (s.pc += step, m.nextChar(), true) : m.nextState();
-        }
-        else 
-        {
-            return mixin(ctSub(testFmt, "m.prog(s.pc).data")) 
-                ? (s.pc += step, true) : m.nextState();
-        }
-    }
-}
-
-template TableAtom(IR ir, Direction dir, alias s, alias m, string tabName, ZeroWidth zeroWidth=ZeroWidth.no)
-{
-    enum code =` !m.atEnd && m.re.`~tabName~`[$$][m.front]`;
-    mixin SimpleAtom!(ir, dir, s, m, code, zeroWidth);
-}
-
-//2 or more consequative atoms bundled as one
-template SimpleSequence(IR ir, Direction dir, alias s, alias m, string testFmt, ZeroWidth zeroWidth=ZeroWidth.no)
-{
-    enum step = dir == Direction.fwd ? IRL!(ir) : -1;
-    @trusted bool exec()
-    {
-        if(m.atEnd)
-            return m.nextState();
-        uint end = s.pc + step*IRL!(ir)*m.re.ir[s.pc].sequence;
-        assert(s.pc+step != end);//sequence is >= 2
-        if(!mixin(ctSub(testFmt, "m.prog(s.pc).data")) 
-            && !mixin(ctSub(testFmt,"m.prog(s.pc+step).data")))
-        {
-            uint i;
-            
-            for(i = s.pc+2*step; i!=end; i += step)
-            {
-                debug writefln("N: %s, %s front:%s", i-s.pc, cast(dchar)m.prog(i).data, m.front);
-                if(mixin(ctSub(testFmt, "m.prog(i).data")))
-                    break;
-            }
-            debug writefln("And i is %s vs end %s", i, end);
-            if(i == end)
-                return m.nextState();
-        }
-        s.pc = end;
-        static if(!zeroWidth)
-            m.nextChar();
-        return true;
-    }
-}
-
-
-template Evaluator(IR ir, Direction dir, alias s, alias m)
-{
-        enum IR opcode = ir;
-        static if(ir == IR.Char)
-        {
-            enum matchFmt = ` !m.atEnd && m.front == $$ `;
-            mixin SimpleAtom!(ir, dir, s, m, matchFmt);
-        }
-        else static if(ir == IR.OrChar)
-        {
-            enum matchFmt = `$$ == m.front`;
-            mixin SimpleSequence!(ir, dir, s, m, matchFmt);
-        }
-        else static if(ir == IR.Any)
-        {
-            enum matchFmt = q{ !m.atEnd && ((m.re.flags & RegexOption.singleline)
-                                    || (m.front != '\r' && m.front != '\n'))
-            };
-            mixin SimpleAtom!(ir, dir, s, m, matchFmt);
-        }
-        else static if(ir == IR.CodepointSet)
-        {
-            mixin TableAtom!(ir, dir, s, m, "charsets");
-        }
-        else static if(ir == IR.Trie)
-        {
-            mixin TableAtom!(ir, dir, s, m, "tries");
-        }
-        else static if(ir == IR.Nop)
-        {
-            mixin SimpleAtom!(ir, dir, s, m, "true", ZeroWidth.yes);
-        }
-}
-
-template Evaluators(Direction dir, alias state, alias matcher, T...)
-{
-    static if(T.length > 1)
-    {
-        alias TypeTuple!(Evaluator!(T[0], dir, state, matcher),Evaluators!(dir, matcher, state, T[1..$])) Evaluators;
-    }
-    else static if (T.length == 1)
-    {
-        alias Evaluator!(T[0], dir, state, matcher) Evaluators;
-    }
-}
 
 //Test if bytecode starting at pc in program 're' can match given codepoint
 //Returns: length of matched atom if test is positive, 0 - can't tell, -1 if doesn't match
@@ -3307,6 +3186,182 @@ struct StreamTester(Char)
     return ret;
 }
 
+
+/*
+Generic regex execution of any matcher, based on the following primitives:    
+addState(s, pc, counter) - schedule another state for execution
+addstate(s, pc) - ditto 
+nextState(s) - fetch another state or finish execution on empty
+nextChar(s) - called when machine state has to be synchronsized on nextChar char 
+in Thompson VM, or fetch nextChar char in Backtracking VM
+finishState(s) - account that this state matches successfuly
+prog(pc) - fetch bytecode at pc
+
+*Never ever try to return false from exec unless m.nextState fails*
+
+//all other stuff opDispatch'ed to regex program
+*/
+
+enum Direction { bwd=0, fwd = 1 };
+enum ZeroWidth { no=0, yes };
+
+template SimpleAtom(IR ir, Direction dir, alias s, alias m, string testFmt, ZeroWidth zeroWidth=ZeroWidth.no)
+{
+    enum step = dir == Direction.fwd ? IRL!(ir) : -1;
+    @trusted bool exec()
+    {
+        //debug writefln("Atom %s: at %s", ir, m.index);
+        //@@BUG@@@ hack around poor inliner, test ideally is 0-arg function alias
+        static if(!zeroWidth){
+            return mixin(ctSub(testFmt, "m.prog(s.pc).data"))
+                ? (s.pc += step, m.nextChar(), true) : m.nextState();
+        }
+        else 
+        {
+            return mixin(ctSub(testFmt, "m.prog(s.pc).data")) 
+                ? (s.pc += step, true) : m.nextState();
+        }
+    }
+}
+
+template FuncAtom(IR ir, Direction dir, alias s, alias m, alias test, ZeroWidth zeroWidth=ZeroWidth.no)
+{
+    enum step = dir == Direction.fwd ? IRL!(ir) : -1;
+    @trusted bool exec()
+    {
+        if(test())
+        {
+            s.pc += step;
+            static if(!zeroWidth)
+                m.nextChar();
+            return true;
+        }
+        else 
+            return m.nextState();
+    }
+}
+
+template TableAtom(IR ir, Direction dir, alias s, alias m, string tabName, ZeroWidth zeroWidth=ZeroWidth.no)
+{
+    enum code =` !m.atEnd && m.re.`~tabName~`[$$][m.front]`;
+    mixin SimpleAtom!(ir, dir, s, m, code, zeroWidth);
+}
+
+//2 or more consequative atoms bundled as one
+template SimpleSequence(IR ir, Direction dir, alias s, alias m, string testFmt, ZeroWidth zeroWidth=ZeroWidth.no)
+{
+    enum step = dir == Direction.fwd ? IRL!(ir) : -1;
+    @trusted bool exec()
+    {
+        if(m.atEnd)
+            return m.nextState();
+        uint end = s.pc + step*IRL!(ir)*m.re.ir[s.pc].sequence;
+        assert(s.pc+step != end);//sequence is >= 2
+        if(!mixin(ctSub(testFmt, "m.prog(s.pc).data")) 
+           && !mixin(ctSub(testFmt,"m.prog(s.pc+step).data")))
+        {
+            uint i;
+            for(i = s.pc+2*step; i!=end; i += step)
+            {
+                if(mixin(ctSub(testFmt, "m.prog(i).data")))
+                    break;
+            }
+            if(i == end)
+                return m.nextState();
+        }
+        s.pc = end;
+        static if(!zeroWidth)
+            m.nextChar();
+        return true;
+    }
+}
+
+
+template Evaluator(IR ir, Direction dir, alias s, alias m)
+{
+    enum IR opcode = ir;
+    static if(ir == IR.Char)
+    {
+        enum matchFmt = ` !m.atEnd && m.front == $$ `;
+        mixin SimpleAtom!(ir, dir, s, m, matchFmt);
+    }
+    else static if(ir == IR.OrChar)
+    {
+        enum matchFmt = `$$ == m.front`;
+        mixin SimpleSequence!(ir, dir, s, m, matchFmt);
+    }
+    else static if(ir == IR.Any)
+    {
+        enum matchFmt = q{ !m.atEnd && ((m.re.flags & RegexOption.singleline)
+                                        || (m.front != '\r' && m.front != '\n'))
+        };
+        mixin SimpleAtom!(ir, dir, s, m, matchFmt);
+    }
+    else static if(ir == IR.CodepointSet)
+    {
+        mixin TableAtom!(ir, dir, s, m, "charsets");
+    }
+    else static if(ir == IR.Trie)
+    {
+        mixin TableAtom!(ir, dir, s, m, "tries");
+    }
+    else static if(ir == IR.Bol)
+    {
+        bool match() 
+        { 
+            dchar back;
+            typeof(m.index) bi;
+            if(m.atStart)
+                return true;
+            else if((m.re.flags & RegexOption.multiline)
+                    && m.s.loopBack.nextChar(back, bi)
+                    && endOfLine(back, m.front == '\n'))
+            {
+                return true;
+            }
+            else
+                return false;
+        }
+        mixin FuncAtom!(ir, dir, s, m, match, ZeroWidth.yes);
+    }
+     else static if(ir == IR.Eol)
+     {
+        bool match()
+        {
+            dchar back;
+            typeof(m.index) bi;
+            if(m.atEnd)
+                return true;
+            //no matching inside \r\n
+            if((m.re.flags & RegexOption.multiline)
+            && m.s.loopBack.nextChar(back,bi)
+            && endOfLine(m.front, back == '\r'))
+            {
+                return true;
+            }
+            else
+                return false;
+        };
+        mixin FuncAtom!(ir, dir, s, m, match, ZeroWidth.yes);
+    }
+    else static if(ir == IR.Nop)
+    {
+        mixin SimpleAtom!(ir, dir, s, m, "true", ZeroWidth.yes);
+    }
+}
+
+template Evaluators(Direction dir, alias state, alias matcher, T...)
+{
+    static if(T.length > 1)
+    {
+        alias TypeTuple!(Evaluator!(T[0], dir, state, matcher),Evaluators!(dir, matcher, state, T[1..$])) Evaluators;
+    }
+    else static if (T.length == 1)
+    {
+        alias Evaluator!(T[0], dir, state, matcher) Evaluators;
+    }
+}
+
 /+
     BacktrackingMatcher implements backtracking scheme of matching
     regular expressions.
@@ -3525,7 +3580,8 @@ template BacktrackingMatcher(bool CTregex)
                     {
                     foreach(v; Evaluators!(Direction.fwd, ptr, ptr, 
                                            IR.OrChar, IR.Char, IR.Any, 
-                                           IR.CodepointSet, IR.Trie, IR.Nop))
+                                           IR.CodepointSet, IR.Trie, IR.Nop,
+                                           IR.Bol, IR.Eol))
                     {
                         case v.opcode:
                             if(!v.exec())
@@ -3576,34 +3632,6 @@ template BacktrackingMatcher(bool CTregex)
                                 goto L_backtrack;
                         }
                         pc += IRL!(IR.Wordboundary);
-                        break;
-                    case IR.Bol:
-                        dchar back;
-                        DataIndex bi;
-                        if(atStart)
-                            pc += IRL!(IR.Bol);
-                        else if((re.flags & RegexOption.multiline)
-                            && s.loopBack.nextChar(back,bi)
-                            && endOfLine(back, front == '\n'))
-                        {
-                            pc += IRL!(IR.Bol);
-                        }
-                        else
-                            goto L_backtrack;
-                        break;
-                    case IR.Eol:
-                        dchar back;
-                        DataIndex bi;
-                        debug(fred_matching) writefln("EOL (front 0x%x) %s", front, s[index..s.lastIndex]);
-                        //no matching inside \r\n
-                        if(atEnd || ((re.flags & RegexOption.multiline)
-                            && s.loopBack.nextChar(back,bi)
-                            && endOfLine(front, back == '\r')))
-                        {
-                            pc += IRL!(IR.Eol);
-                        }
-                        else
-                            goto L_backtrack;
                         break;
                     case IR.InfiniteStart, IR.InfiniteQStart:
                         trackers[infiniteNesting+1] = index;
