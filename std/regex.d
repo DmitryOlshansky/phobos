@@ -4230,7 +4230,7 @@ L_dispatchSwitch:   switch(re.ir[pc].code)
     }
 }
 
-//very shitty string formatter, $$ replaced with nextChar argument converted to string
+//very shitty string formatter, $$ replaced with next argument converted to string
 @trusted string ctSub( U...)(string format, U args)
 {
     bool seenDollar;
