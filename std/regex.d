@@ -252,7 +252,7 @@ private:
 //* reorganize groups to make n args easier to find, or simplify the check for groups of similar ops
 //  (like lookaround), or make it easier to identify hotspots.
 
-enum IR:uint {
+enum IR:ubyte {
     Char              = 0b1_00000_00, //a character
     Any               = 0b1_00001_00, //any character
     CodepointSet      = 0b1_00010_00, //a most generic CodepointSet [...]
@@ -307,6 +307,8 @@ template IRL(IR code)
 
 static assert (IRL!(IR.LookaheadStart) == 3);
 
+pure nothrow{
+
 //how many parameters follow the IR, should be optimized fixing some IR bits
 int immediateParamsIR(IR i){
     switch (i){
@@ -320,6 +322,7 @@ int immediateParamsIR(IR i){
         return 0;
     }
 }
+
 
 //full length of IR instruction inlcuding all parameters that might follow it
 int lengthOfIR(IR i)
@@ -364,9 +367,17 @@ IR pairedIR(IR i)
     return cast(IR)(i ^ 0b11);
 }
 
+}
 //encoded IR instruction
 struct Bytecode
 {
+    //human readable name of instruction
+    @trusted @property string mnemonic() const
+    {//@@@BUG@@@ to is @system
+        return to!string(code);
+    }
+pure:
+nothrow:
     uint raw;
     //natural constraints
     enum maxSequence = 2+4;
@@ -401,7 +412,7 @@ struct Bytecode
     @property uint sequence() const { return 2+((raw >>22) & 0x3); }
 
     //ditto
-    @property IR code() const { return cast(IR)(raw>>24); }
+    @trusted @property IR code() const { return cast(IR)(raw>>24); }
 
     //ditto
     @property bool hotspot() const { return hasMerge(code); }
@@ -444,12 +455,6 @@ struct Bytecode
     {
         assert(code == IR.Backref);
         return cast(bool)(raw & (1<<23));
-    }
-
-    //human readable name of instruction
-    @trusted @property string mnemonic() const
-    {//@@@BUG@@@ to is @system
-        return to!string(code);
     }
 
     //full length of instruction
@@ -2174,76 +2179,65 @@ bool startOfLine(dchar back, bool seenNl)
 
 enum Direction { bwd=0, fwd = 1 };
 enum ZeroWidth { no=0, yes };
-template SimpleAtom(IR ir, Direction dir, alias test, ZeroWidth zeroWidth=ZeroWidth.no)
+
+template SimpleAtom(IR ir, Direction dir, alias s, alias m, string test, ZeroWidth zeroWidth=ZeroWidth.no)
 {
     enum step = dir == Direction.fwd ? IRL!(ir) : -1;
-    @trusted bool exec(T, U)(ref T s, ref U m)
+    @trusted bool exec()
     {
         debug writefln("Exec %s: at %s", ir, m.index);
-        if(test(s, m))
+        //@@BUG@@@ hack around poor inliner, test ideally is 0-arg function alias
+        static if(!zeroWidth){
+            return mixin(test) ? (s.pc += step, m.nextChar(), true) : m.nextState();
+        }
+        else 
         {
-            s.pc += step;
-            static if(!zeroWidth){
-                m.nextChar();
-            }
-            return true;
-        }
-        else{
-            return m.nextState();
+            return mixin(test) ? (s.pc += step, true) : m.nextState();
         }
     }
 }
 
-template TableAtom(IR ir, Direction dir, string tabName)
+template TableAtom(IR ir, Direction dir,  alias s, alias m, string tabName)
 {
-    bool match(T, U)(ref T s, ref U m)
-    {
-        return mixin("!m.atEnd && m."~tabName~"[m.prog(s.pc).data][m.front]");
-    }
-    mixin SimpleAtom!(ir, dir, match);
+    enum match = "!m.atEnd && m."~tabName~"[m.prog(s.pc).data][m.front]";
+    mixin SimpleAtom!(ir, dir, s, m, match);
 }
 
-template Evaluator(IR ir)
+template Evaluator(IR ir, Direction dir, alias s, alias m)
 {
-    template Evaluator(Direction dir)
-    {
         enum IR opcode = ir;
         static if(ir == IR.Char)
         {
-            bool match(T, U)(ref T s, ref U m){ return !m.atEnd && m.front == m.prog(s.pc).data; }
-            mixin SimpleAtom!(ir, dir, match);
+            enum match = q{ !m.atEnd && m.front == m.prog(s.pc).data };
+            mixin SimpleAtom!(ir, dir, s, m, match);
         }
         else static if(ir == IR.Any)
         {
-            bool match(T, U)(ref T s, ref U m){ 
-                return !m.atEnd && ((m.re.flags & RegexOption.singleline)
-                                    || (m.front != '\r' && m.front != '\n'));
-            }
-            mixin SimpleAtom!(ir, dir, match);
+            enum match = q{ !m.atEnd && ((m.re.flags & RegexOption.singleline)
+                                    || (m.front != '\r' && m.front != '\n'))
+            };
+            mixin SimpleAtom!(ir, dir, s, m, match);
         }
         else static if(ir == IR.CodepointSet)
         {
-            mixin TableAtom!(ir, dir, "re.charsets");
+            mixin TableAtom!(ir, dir, s, m, "re.charsets");
         }
         else static if(ir == IR.Trie)
         {
-            mixin TableAtom!(ir, dir, "re.tries");
+            mixin TableAtom!(ir, dir, s, m, "re.tries");
         }
-    }
 }
 
-//functor
-template EvalInDirection(Direction dir)
+template Evaluators(Direction dir, alias state, alias matcher, T...)
 {
-    template EvalInDirection(alias Evaluator)
+    static if(T.length > 1)
     {
-        alias Evaluator!(dir) EvalInDirection;
+        alias TypeTuple!(Evaluator!(T[0], dir, state, matcher),Evaluators!(dir, matcher, state, T[1..$])) Evaluators;
     }
-}
-
-template Evaluators(Direction dir, T...)
-{
-    alias staticMap!(EvalInDirection!dir, staticMap!(Evaluator, T)) Evaluators; 
+    else static if (T.length == 1)
+    {
+        alias Evaluator!(T[0], dir, state, matcher) Evaluators;
+    }
 }
 
 //Test if bytecode starting at pc in program 're' can match given codepoint
@@ -3465,6 +3459,7 @@ template BacktrackingMatcher(bool CTregex)
             }
             else
             {
+                alias this ptr;
                 pc = 0;
                 counter = 0;
                 lastState = 0;
@@ -3497,13 +3492,14 @@ template BacktrackingMatcher(bool CTregex)
                         pc = end;
                         nextChar();
                         break;
-                    foreach(v; Evaluators!(Direction.fwd, IR.Char, IR.Any, IR.CodepointSet, IR.Trie))
+                    foreach(v; Evaluators!(Direction.fwd, ptr, ptr, IR.Char, IR.Any, IR.CodepointSet, IR.Trie))
                     {
                         case v.opcode:
-                            if(!v.exec(this, this))
+                            if(!v.exec())
                                 goto L_fail;//execution failed to match or backtrack
                         break L_dispatchSwitch;
                     }
+                        break;//compiler BUG
                     case IR.Wordboundary:
                         dchar back;
                         DataIndex bi;
