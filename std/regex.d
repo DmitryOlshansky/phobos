@@ -658,24 +658,24 @@ private enum NEL = '\u0085', LS = '\u2028', PS = '\u2029';
 
 //test if a given string starts with hex number of maxDigit that's a valid codepoint
 //returns it's value and skips these maxDigit chars on success, throws on failure
-dchar parseUniHex(Char)(ref Char[] str, uint maxDigit)
+dchar parseUniHex(Range)(ref Range inp, uint maxDigit)
 {
-    enforce(str.length >= maxDigit,"incomplete escape sequence");
     uint val;
+    Range x = inp.save();
     for(int k=0;k<maxDigit;k++)
     {
-        auto current = str[k];//accepts ascii only, so it's OK to index directly
-        if('0' <= current && current <= '9')
-            val = val * 16 + current - '0';
-        else if('a' <= current && current <= 'f')
-            val = val * 16 + current -'a' + 10;
-        else if('A' <= current && current <= 'Z')
-            val = val * 16 + current - 'A' + 10;
+        enforce(!inp.empty,"incomplete escape sequence");
+        if('0' <= x.front && x.front <= '9')
+            val = val * 16 + x.front - '0';
+        else if('a' <= x.front && x.front <= 'f')
+            val = val * 16 + x.front -'a' + 10;
+        else if('A' <= x.front && x.front <= 'Z')
+            val = val * 16 + x.front - 'A' + 10;
         else
             throw new Exception("invalid escape sequence");
     }
     enforce(val <= 0x10FFFF, "invalid codepoint");
-    str = str[maxDigit..$];
+    inp = x;
     return val;
 }
 
@@ -833,6 +833,48 @@ auto memoizeExpr(string expr)()
     }
 }
 
+struct CachedUtfInput(Range)
+    if(isNarrowString!Range)
+{
+    alias BasicElementOf!Range E;
+    Range _r;
+    uint _data; // packed flag + dchar
+    size_t _idx;
+    enum emptyCode = uint.max;
+    this(Range r){
+        _r = r;
+        if(_r.empty)
+            _data = emptyCode;
+        else{
+            _data = decode(_r, _idx);        
+            _data = _idx == _r.length ? emptyCode : _data;
+        }
+    }
+    @trusted @property dchar front(){ return cast(dchar)_data; }
+    @property uint empty(){ return _data & emptyCode; }
+    @property size_t index(){ return _idx; }
+    void popFront(){
+        assert(!empty);
+        _data = _idx != _r.length ? decode(_r, _idx) : emptyCode;
+    }   
+    auto save(){ return this; }
+}
+
+struct CachedUtfInput(Range)
+    if(is(BasicElementOf!Range == dchar))
+{
+    Range _r;
+    size_t _idx;
+    this(Range)(Range r){ _r = r; }
+    @property bool empty(){ return _idx == _r.length; }
+    @property dchar front(){ return _r[_idx]; }
+    @property size_t index(){ return _idx; }
+    void popFront(){ assert(!empty); _idx++; }
+    auto save(){ return this; }
+}
+
+auto cachedUtfInput(Range)(Range r){ return CachedUtfInput!Range(r); }
+
 //safety limits
 enum maxGroupNumber = 2^^19;
 enum maxLookaroundDepth = 16;
@@ -850,9 +892,8 @@ struct Parser(R, bool CTFE=false)
     if (isForwardRange!R && is(ElementType!R : dchar))
 {
     enum infinite = ~0u;
-    dchar _current;
-    bool empty;
-    R pat, origin;       //keep full pattern for pretty printing error messages
+    CachedUtfInput!R input;
+    R  origin;       //keep full pattern for pretty printing error messages
     Bytecode[] ir;       //resulting bytecode
     uint re_flags = 0;   //global flags e.g. multiline + internal ones
     Stack!(uint, CTFE) fixupStack;  //stack of opened start instructions
@@ -869,12 +910,12 @@ struct Parser(R, bool CTFE=false)
     @trusted this(S)(R pattern, S flags)
         if(isSomeString!S)
     {
-        pat = origin = pattern;
+        origin = pattern;
         //reserve slightly more then avg as sampled from unittests
         if(!__ctfe)
             ir.reserve((pat.length*5+2)/4);
+        input = cachedUtfInput(origin);
         parseFlags(flags);
-        _current = ' ';//a safe default for freeform parsing
         nextChar();
         try
         {
@@ -895,17 +936,14 @@ struct Parser(R, bool CTFE=false)
         backrefed[n/32] |= 1<<(n & 31);
     }
 
-    @property dchar current(){ return _current; }
+    @property dchar current(){ return input.front; }
+    @property auto empty(){ return input.empty; }
 
     bool _next()
     {
-        if(pat.empty)
-        {
-            empty =  true;
+        if(input.empty)
             return false;
-        }
-        _current = pat.front;
-        pat.popFront();
+        input.popFront();
         return true;
     }
 
@@ -1006,7 +1044,7 @@ struct Parser(R, bool CTFE=false)
         while(!empty)
         {
             debug(fred_parser)
-                writeln("*LR*\nSource: ", pat, "\nStack: ",fixupStack.stack.data);
+                writeln("*LR*\nSource: ", input, "\nStack: ",fixupStack.stack.data);
             switch(current)
             {
             case '(':
@@ -1543,15 +1581,15 @@ struct Parser(R, bool CTFE=false)
                     state = State.Start;
                     continue L_CharTermLoop; //nextChar char already fetched
                 case 'x':
-                    last = parseUniHex(pat, 2);
+                    last = parseUniHex(input, 2);
                     state = State.Char;
                     break;
                 case 'u':
-                    last = parseUniHex(pat, 4);
+                    last = parseUniHex(input, 4);
                     state = State.Char;
                     break;
                 case 'U':
-                    last = parseUniHex(pat, 8);
+                    last = parseUniHex(input, 8);
                     state = State.Char;
                     break;
                 case 'd':
@@ -1643,13 +1681,13 @@ struct Parser(R, bool CTFE=false)
                     end = parseControlCode();
                     break;
                 case 'x':
-                    end = parseUniHex(pat, 2);
+                    end = parseUniHex(input, 2);
                     break;
                 case 'u':
-                    end = parseUniHex(pat, 4);
+                    end = parseUniHex(input, 4);
                     break;
                 case 'U':
-                    end = parseUniHex(pat, 8);
+                    end = parseUniHex(input, 8);
                     break;
                 default:
                     error("invalid escape sequence");
@@ -1854,12 +1892,12 @@ struct Parser(R, bool CTFE=false)
             charsetToIr(CodepointSet);
             break;
         case 'x':
-            uint code = parseUniHex(pat, 2);
+            uint code = parseUniHex(input, 2);
             nextChar();
             put(Bytecode(IR.Char,code));
             break;
         case 'u': case 'U':
-            uint code = parseUniHex(pat, current == 'u' ? 4 : 8);
+            uint code = parseUniHex(input, current == 'u' ? 4 : 8);
             nextChar();
             put(Bytecode(IR.Char, code));
             break;
@@ -1939,7 +1977,7 @@ struct Parser(R, bool CTFE=false)
         auto app = appender!string();
         ir = null;
         formattedWrite(app, "%s\nPattern with error: `%s` <--HERE-- `%s`",
-                       msg, origin[0..$-pat.length], pat);
+                       msg, origin[0..$-input.index], origin[input.index..$]);
         throw new RegexException(app.data);
     }
 
@@ -3188,18 +3226,18 @@ struct StreamTester(Char)
 
 
 /*
-Generic regex execution of any matcher, based on the following primitives:    
-addState(s, pc, counter) - schedule another state for execution
-addstate(s, pc) - ditto 
-nextState(s) - fetch another state or finish execution on empty
-nextChar(s) - called when machine state has to be synchronsized on nextChar char 
-in Thompson VM, or fetch nextChar char in Backtracking VM
-finishState(s) - account that this state matches successfuly
-prog(pc) - fetch bytecode at pc
+    Generic regex execution of any matcher, based on the following primitives:    
+    addState(s, pc, counter) - schedule another state for execution
+    addstate(s, pc) - ditto 
+    nextState(s) - fetch another state or finish execution on empty
+    nextChar(s) - called when machine state has to be synchronsized on nextChar char 
+    in Thompson VM, or fetch nextChar char in Backtracking VM
+    finishState(s) - account that this state matches successfuly
+    prog(pc) - fetch bytecode at pc
+    sync(s.pc); - executed at merge point in IR, a nop for depth first matchers
+    *Never ever try to return false from exec unless m.nextState fails*
 
-*Never ever try to return false from exec unless m.nextState fails*
-
-//all other stuff opDispatch'ed to regex program
+    //all other stuff opDispatch'ed to regex program
 */
 
 enum Direction { bwd=0, fwd = 1 };
@@ -3211,7 +3249,7 @@ template SimpleAtom(IR ir, Direction dir, alias s, alias m, string testFmt, Zero
     @trusted bool exec()
     {
         //debug writefln("Atom %s: at %s", ir, m.index);
-        //@@BUG@@@ hack around poor inliner, test ideally is 0-arg function alias
+        //@@BUG@@@ hack around poor inliner, test ideally is 0-arg function alias and SimpleAtom == FuncAtom
         static if(!zeroWidth){
             return mixin(ctSub(testFmt, "m.prog(s.pc).data"))
                 ? (s.pc += step, m.nextChar(), true) : m.nextState();
@@ -3324,8 +3362,8 @@ template Evaluator(IR ir, Direction dir, alias s, alias m)
         }
         mixin FuncAtom!(ir, dir, s, m, match, ZeroWidth.yes);
     }
-     else static if(ir == IR.Eol)
-     {
+    else static if(ir == IR.Eol)
+    {
         bool match()
         {
             dchar back;
@@ -3341,7 +3379,7 @@ template Evaluator(IR ir, Direction dir, alias s, alias m)
             }
             else
                 return false;
-        };
+        }
         mixin FuncAtom!(ir, dir, s, m, match, ZeroWidth.yes);
     }
     else static if(ir == IR.Nop)
@@ -6878,13 +6916,13 @@ public:
 }
 
 /**
-    A helper function, creates a $(D Splitter) on range $(D r) separated by regex $(D pat). 
+    A helper function, creates a $(D Splitter) on range $(D r) separated by regex $(D input). 
     Captured subexpressions have no effect on the resulting range.
 */
-public Splitter!(Range, RegEx) splitter(Range, RegEx)(Range r, RegEx pat)
+public Splitter!(Range, RegEx) splitter(Range, RegEx)(Range r, RegEx input)
     if(is(BasicElementOf!Range : dchar) && isRegexFor!(RegEx, Range))
 {
-    return Splitter!(Range, RegEx)(r, pat);
+    return Splitter!(Range, RegEx)(r, input);
 }
 
 ///An eager version of $(D splitter) that creates an array with splitted slices of $(D input).
