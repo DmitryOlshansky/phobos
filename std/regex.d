@@ -658,13 +658,16 @@ private enum NEL = '\u0085', LS = '\u2028', PS = '\u2029';
 
 //test if a given string starts with hex number of maxDigit that's a valid codepoint
 //returns it's value and skips these maxDigit chars on success, throws on failure
-dchar parseUniHex(Range)(ref Range inp, uint maxDigit)
+@trusted dchar parseUniHex(Range)(ref Range inp, uint maxDigit)
 {
     uint val;
     Range x = inp.save();
+    assert(!x.empty);
     for(int k=0;k<maxDigit;k++)
     {
-        enforce(!inp.empty,"incomplete escape sequence");
+        x.popFront();
+        enforce(!x.empty,"incomplete escape sequence");
+        debug writeln("HDIGIT: ", x.front);
         if('0' <= x.front && x.front <= '9')
             val = val * 16 + x.front - '0';
         else if('a' <= x.front && x.front <= 'f')
@@ -673,6 +676,7 @@ dchar parseUniHex(Range)(ref Range inp, uint maxDigit)
             val = val * 16 + x.front - 'A' + 10;
         else
             throw new Exception("invalid escape sequence");
+        
     }
     enforce(val <= 0x10FFFF, "invalid codepoint");
     inp = x;
@@ -840,22 +844,26 @@ struct CachedUtfInput(Range)
     Range _r;
     uint _data; // packed flag + dchar
     size_t _idx;
-    enum emptyCode = uint.max;
+    enum emptyCode = 1<<31;
     this(Range r){
-        _r = r;
-        if(_r.empty)
-            _data = emptyCode;
-        else{
-            _data = decode(_r, _idx);        
-            _data = _idx == _r.length ? emptyCode : _data;
-        }
+        _r = r;        
+        popFront();
     }
-    @trusted @property dchar front(){ return cast(dchar)_data; }
-    @property uint empty(){ return _data & emptyCode; }
+    @trusted @property dchar front()
+    { 
+        assert(!empty); 
+        return cast(dchar)_data;
+    }
+    @trusted @property uint empty(){ 
+        //debug writeln("test empty: ", _data);
+        return _data & emptyCode; 
+    }
     @property size_t index(){ return _idx; }
-    void popFront(){
+    @trusted void popFront()
+    {
         assert(!empty);
         _data = _idx != _r.length ? decode(_r, _idx) : emptyCode;
+        //debug writeln("poped: ", _data);
     }   
     auto save(){ return this; }
 }
@@ -867,9 +875,17 @@ struct CachedUtfInput(Range)
     size_t _idx;
     this(Range)(Range r){ _r = r; }
     @property bool empty(){ return _idx == _r.length; }
-    @property dchar front(){ return _r[_idx]; }
+    @property dchar front()
+    { 
+        assert(!empty);
+        return _r[_idx]; 
+    }
     @property size_t index(){ return _idx; }
-    void popFront(){ assert(!empty); _idx++; }
+    void popFront()
+    { 
+        assert(!empty); 
+        _idx++; 
+    }
     auto save(){ return this; }
 }
 
@@ -891,6 +907,7 @@ template BasicElementOf(Range)
 struct Parser(R, bool CTFE=false)
     if (isForwardRange!R && is(ElementType!R : dchar))
 {
+    alias BasicElementOf!R Char;
     enum infinite = ~0u;
     CachedUtfInput!R input;
     R  origin;       //keep full pattern for pretty printing error messages
@@ -916,14 +933,31 @@ struct Parser(R, bool CTFE=false)
             ir.reserve((pat.length*5+2)/4);
         input = cachedUtfInput(origin);
         parseFlags(flags);
+<<<<<<< HEAD
         nextChar();
         try
         {
+=======
+        if(re_flags & RegexOption.freeform)
+            skipSpace();
+        if(__ctfe)
+>>>>>>> rework of std.regex input/parsing
             parseRegex();
         }
         catch(Exception e)
         {
+<<<<<<< HEAD
             error(e.msg);//also adds pattern location
+=======
+            try
+            {
+                parseRegex();
+            }
+            catch(Exception e)
+            {
+                throw new RegexException(e.msg, origin, input.index);
+            }
+>>>>>>> rework of std.regex input/parsing
         }
         put(Bytecode(IR.End, 0));
     }
@@ -944,7 +978,7 @@ struct Parser(R, bool CTFE=false)
         if(input.empty)
             return false;
         input.popFront();
-        return true;
+        return !input.empty;
     }
 
     void skipSpace()
@@ -990,7 +1024,7 @@ struct Parser(R, bool CTFE=false)
         while(ascii.isDigit(current))
         {
             if(r >= (uint.max/10))
-                error("Overflow in decimal number");
+                enforce(false, "Overflow in decimal number");
             r = 10*r + cast(uint)(current-'0');
             if(!nextChar())
                 break;
@@ -1020,15 +1054,12 @@ struct Parser(R, bool CTFE=false)
                 {
                     case RegexOptionNames[i]:
                             if(re_flags & mixin("RegexOption."~op))
-                                throw new RegexException(text("redundant flag specified: ",ch));
+                                throw new Exception(text("redundant flag specified: ",ch));
                             re_flags |= mixin("RegexOption."~op);
                             break L_FlagSwitch;
                 }
                 default:
-                    if(__ctfe)
-                       assert(text("unknown regex flag '",ch,"'"));
-                    else
-                        new RegexException(text("unknown regex flag '",ch,"'"));
+                    throw new Exception(text("unknown regex flag '",ch,"'"));
             }
         }
     }
@@ -1072,14 +1103,14 @@ struct Parser(R, bool CTFE=false)
                     case 'P':
                         nextChar();
                         if(current != '<')
-                            error("Expected '<' in named group");
+                            enforce(false, "Expected '<' in named group");
                         string name;
                         while(nextChar() && isAlpha(current))
                         {
                             name ~= current;
                         }
                         if(current != '>')
-                            error("Expected '>' closing named group");
+                            enforce(false, "Expected '>' closing named group");
                         nextChar();
                         nglob = groupStack.top++;
                         enforce(groupStack.top <= maxGroupNumber, "limit on submatches is exceeded");
@@ -1108,11 +1139,11 @@ struct Parser(R, bool CTFE=false)
                         else if(current == '!')
                             genLookaround(IR.NeglookbehindStart);
                         else
-                            error("'!' or '=' expected after '<'");
+                            enforce(false, "'!' or '=' expected after '<'");
                         nextChar();
                         break;
                     default:
-                        error(" ':', '=', '<', 'P' or '!' expected after '(?' ");
+                        enforce(false, " ':', '=', '<', 'P' or '!' expected after '(?' ");
                     }
                 }
                 else
@@ -1237,8 +1268,8 @@ struct Parser(R, bool CTFE=false)
     @trusted void parseQuantifier(uint offset)
     {//moveAll is @system
         uint replace = ir[offset].code == IR.Nop;
-        if(empty && !replace)
-            return;
+        if(empty)
+            goto L_NoQuantifier;// switch case default
         uint min, max;
         switch(current)
         {
@@ -1268,15 +1299,16 @@ struct Parser(R, bool CTFE=false)
                 else if(current == '}')
                     max = infinite;
                 else
-                    error("Unexpected symbol in regex pattern");
+                    enforce(false, "Unexpected symbol in regex pattern");
                 skipSpace();
                 if(current != '}')
-                    error("Unmatched '{' in regex pattern");
+                    enforce(false, "Unmatched '{' in regex pattern");
             }
             else
-                error("Unexpected symbol in regex pattern");
+                enforce(false, "Unexpected symbol in regex pattern");
             break;
         default:
+        L_NoQuantifier:
             if(replace)
             {
                 moveAll(ir[offset+1..$],ir[offset..$-1]);
@@ -1286,7 +1318,7 @@ struct Parser(R, bool CTFE=false)
         }
         uint len = cast(uint)ir.length - offset - replace;
         bool greedy = true;
-        //check only if we managed to get new symbol
+        //check only if we can get next char
         if(nextChar() && current == '?')
         {
             greedy = false;
@@ -1360,7 +1392,7 @@ struct Parser(R, bool CTFE=false)
         switch(current)
         {
         case '*', '?', '+', '|', '{', '}':
-            error("'*', '+', '?', '{', '}' not allowed in atom");
+            enforce(false, "'*', '+', '?', '{', '}' not allowed in atom");
             break;
         case '.':
             put(Bytecode(IR.Any, 0));
@@ -1430,7 +1462,7 @@ struct Parser(R, bool CTFE=false)
     };
 
     //parse unit of CodepointSet spec, most notably escape sequences and char ranges
-    //also fetches nextChar set operation
+    //also fetches next set operation
     Tuple!(CodepointSet,Operator) parseCharTerm()
     {
         enum State{ Start, Char, Escape, CharDash, CharDashEscape,
@@ -1690,7 +1722,7 @@ struct Parser(R, bool CTFE=false)
                     end = parseUniHex(input, 8);
                     break;
                 default:
-                    error("invalid escape sequence");
+                    enforce(false, "invalid escape sequence");
                 }
                 enforce(last <= end,"inverted range");
                 set.add(Interval(last,end));
@@ -1823,7 +1855,7 @@ struct Parser(R, bool CTFE=false)
                     put(Bytecode(IR.Char, set.ivals[0]));
                     break;
                 case 0:
-                    error("empty CodepointSet not allowed");
+                    enforce(false, "empty CodepointSet not allowed");
                     break;
                 default:
                     foreach(ch; set[])
@@ -1849,10 +1881,9 @@ struct Parser(R, bool CTFE=false)
         }
     }
 
-    //parse and generate IR for escape stand alone escape sequence
+    //parse and generate IR for stand alone escape sequence
     @trusted void parseEscape()
-    {//accesses array of appender
-
+    {
         switch(current)
         {
         case 'f':   nextChar(); put(Bytecode(IR.Char, '\f')); break;
@@ -1893,18 +1924,18 @@ struct Parser(R, bool CTFE=false)
             break;
         case 'x':
             uint code = parseUniHex(input, 2);
-            nextChar();
             put(Bytecode(IR.Char,code));
+            nextChar();
             break;
         case 'u': case 'U':
-            uint code = parseUniHex(input, current == 'u' ? 4 : 8);
+            uint len = current == 'u' ? 4 : 8;
+            put(Bytecode(IR.Char, parseUniHex(input, len)));
             nextChar();
-            put(Bytecode(IR.Char, code));
             break;
         case 'c': //control codes
             Bytecode code = Bytecode(IR.Char, parseControlCode());
-            nextChar();
             put(code);
+            nextChar();
             break;
         case '0':
             nextChar();
@@ -1971,17 +2002,6 @@ struct Parser(R, bool CTFE=false)
         return s;
     }
 
-    //
-    @trusted void error(string msg)
-    {
-        auto app = appender!string();
-        ir = null;
-        formattedWrite(app, "%s\nPattern with error: `%s` <--HERE-- `%s`",
-                       msg, origin[0..$-input.index], origin[input.index..$]);
-        throw new RegexException(app.data);
-    }
-
-    alias BasicElementOf!R Char;
     //packages parsing results into a RegEx object
     @property Regex!Char program()
     {
@@ -6938,10 +6958,23 @@ public @trusted String[] split(String, RegEx)(String input, RegEx rx)
 ///Exception object thrown in case of errors during regex compilation.
 public class RegexException : Exception
 {
+    string pat;
+    size_t idx;
     ///
-    @trusted this(string msg, string file = __FILE__, size_t line = __LINE__)
+    @trusted this(Char)(string msg,  const(Char)[] pattern, size_t index, string file = __FILE__, size_t line = __LINE__)
     {//@@@BUG@@@ Exception constructor is not @safe
         super(msg, file, line);
+        idx = index;
+        pat  = to!string(pattern);
+    }
+    ///
+    @trusted override string toString()
+    {
+        auto app = appender!string();
+        formattedWrite(app, "%s\nPattern with error: `%s` <--HERE-- `%s`",
+                       msg, pat[0..idx], pat[idx..$]);
+        msg = app.data;
+        return super.toString();
     }
 }
 
@@ -7299,7 +7332,7 @@ unittest
                     i = 1;
                     r = regex(to!(String)(tvd.pattern), tvd.flags);
                 }
-                catch (RegexException e)
+                catch (Exception e)
                 {
                     i = 0;
                     debug(fred_test) writeln(e.msg);
@@ -7464,8 +7497,7 @@ version(fred_ct)
 else
 {
     unittest
-    {
-    //global matching
+    {//flags test
         void test_body(alias matchFn)()
         {
             string s = "a quick brown fox jumps over a lazy dog";
@@ -7486,6 +7518,7 @@ else
                 "
                 z
             `, "x");
+            free_reg.print();
             auto m = match(`abc  "quoted string with \" inside"z`,free_reg);
             assert(m);
             string mails = " hey@you.com no@spam.net ";
@@ -7572,8 +7605,7 @@ else
             {
                 assert(match(to!string(ch),regex(`[\`~ch~`]`)));
                 assert(!match(to!string(ch),regex(`[^\`~ch~`]`)));
-                if(ch != '-') //'--' is an operator
-                    assert(match(to!string(ch),regex(`[\`~ch~`-\`~ch~`]`)));
+                assert(match(to!string(ch),regex(`[\`~ch~`-\`~ch~`]`)));
             }
             //bugzilla 7718
             string strcmd = "./myApp.rb -os OSX -path \"/GIT/Ruby Apps/sec\" -conf 'notimer'";
@@ -7673,13 +7705,13 @@ else
     }
     unittest
     {// bugzilla 7679
-        foreach(S; TypeTuple!(string, wstring, dstring))
+     /*   foreach(S; TypeTuple!(string, wstring, dstring))
         {
             enum re = ctRegex!(to!S(r"\."));
             auto str = to!S("a.b");
             assert(equal(std.regex.splitter(str, re), [to!S("a"), to!S("b")]));
             assert(split(str, re) == [to!S("a"), to!S("b")]);
-        }
+        }*/
     }
 }
 
