@@ -651,8 +651,8 @@ enum RegexOption: uint {
     singleline = 0x20
 };
 alias TypeTuple!('g', 'i', 'x', 'U', 'm', 's') RegexOptionNames;//do not reorder this list
-static assert( RegexOption.max < 0x80);
-enum RegexInfo : uint { oneShot = 0x80 };
+static assert( RegexOption.max < 0x100);
+enum RegexInfo : uint { oneShot = 0x100, noCounter = 0x200 };
 
 private enum NEL = '\u0085', LS = '\u2028', PS = '\u2029';
 
@@ -667,7 +667,6 @@ private enum NEL = '\u0085', LS = '\u2028', PS = '\u2029';
     {
         x.popFront();
         enforce(!x.empty,"incomplete escape sequence");
-        debug writeln("HDIGIT: ", x.front);
         if('0' <= x.front && x.front <= '9')
             val = val * 16 + x.front - '0';
         else if('a' <= x.front && x.front <= 'f')
@@ -855,7 +854,6 @@ struct CachedUtfInput(Range)
         return cast(dchar)_data;
     }
     @trusted @property uint empty(){ 
-        //debug writeln("test empty: ", _data);
         return _data & emptyCode; 
     }
     @property size_t index(){ return _idx; }
@@ -863,7 +861,6 @@ struct CachedUtfInput(Range)
     {
         assert(!empty);
         _data = _idx != _r.length ? decode(_r, _idx) : emptyCode;
-        //debug writeln("poped: ", _data);
     }   
     auto save(){ return this; }
 }
@@ -2038,7 +2035,8 @@ private:
     NamedGroup[] dict;  //maps name -> user group number
     uint ngroup;        //number of internal groups
     uint maxCounterDepth; //max depth of nested {n,m} repetitions
-    uint hotspotTableSize; //number of entries in merge table
+    uint mergeTableSize; //number of entries in merge table
+    uint[] counterRangeTable; // IR-inst(pc) --> range of counter values
     uint threadCount;
     uint flags;         //global regex flags
     const(Trie)[]  tries; //
@@ -2092,16 +2090,13 @@ private:
         }
         auto counterRange = FixedStack!uint(new uint[maxCounterDepth+1], -1);
         counterRange.push(1);
-        ulong cumRange = 0;
+        ulong cumRange = 0;  //used to check limits
+        flags |= RegexInfo.noCounter;
+        counterRangeTable = new uint[ir.length];
         for(uint i=0; i<ir.length; i+=ir[i].length)
         {
-            if(ir[i].hotspot)
-            {
-                assert(i + 1 < ir.length
-                       , "unexpected end of IR while looking for hotspot");
-                ir[i+1] = Bytecode.fromRaw(hotspotTableSize);
-                hotspotTableSize += counterRange.top;
-            }
+            mergeTableSize += counterRange.top;
+            counterRangeTable[i] = counterRange.top;
             switch(ir[i].code)
             {
             case IR.RepeatStart, IR.RepeatQStart:
@@ -2117,6 +2112,7 @@ private:
                         , "repetition length limit is exceeded");
                 counterRange.push(cast(uint)cntRange + counterRange.top);
                 threadCount += counterRange.top;
+                flags &= ~RegexInfo.noCounter; //now it has counted loops
                 break;
             case IR.RepeatEnd, IR.RepeatQEnd:
                 threadCount += counterRange.top;
@@ -2136,6 +2132,8 @@ private:
                 threadCount += counterRange.top;
             }
         }
+        //add space for 1-level of trie
+        mergeTableSize += ir.length; 
         checkIfOneShot();
         if(!(flags & RegexInfo.oneShot))
             kickstart = Kickstart!Char(this, new uint[](256));
@@ -2174,7 +2172,7 @@ private:
         {
             writefln("%d\t%s ", i, disassemble(ir, i, dict));
         }
-        writeln("Total merge table size: ", hotspotTableSize);
+        writeln("Total merge table size: ", mergeTableSize);
         writeln("Max counter nesting depth: ", maxCounterDepth);
     }
 
@@ -4951,6 +4949,14 @@ struct ThreadList(DataIndex)
             tip = toe = t;
         }
     }
+
+    //ditto, but skip nulls
+    void checkedInsertFront(Thread!DataIndex* t)
+    {
+        if(t !is null)
+            insertFront(t);
+    }
+
     //add new thread to the end of list
     void insertBack(Thread!DataIndex* t)
     {
@@ -4963,6 +4969,14 @@ struct ThreadList(DataIndex)
             tip = toe = t;
         toe.nextChar = null;
     }
+
+    //ditto, but skip nulls
+    void checkedInsertBack(Thread!DataIndex* t)
+    {
+        if(t !is null)
+            insertBack(t);
+    }
+
     //move head element out of list
     Thread!DataIndex* fetch()
     {
@@ -5035,7 +5049,7 @@ enum OneShot { Fwd, Bwd };
 
     static size_t initialMemory(const ref Regex!Char re)
     {
-        return getThreadSize(re)*re.threadCount + re.hotspotTableSize*size_t.sizeof;
+        return getThreadSize(re)*re.threadCount + re.mergeTableSize*size_t.sizeof;
     }
 
     //true if it's start of input
@@ -5074,10 +5088,27 @@ enum OneShot { Fwd, Bwd };
         s = stream;
         threadSize = getThreadSize(re);
         prepareFreeList(re.threadCount, memory);
-        if(re.hotspotTableSize)
+        merge = arrayInChunk!(DataIndex)(re.mergeTableSize, memory);
+        merge[re.ir.length..$] = 0;
+        uint dest = cast(uint)re.ir.length; //first slot of the lowest level of trie
+        foreach(i, val; re.counterRangeTable)
         {
-            merge = arrayInChunk!(DataIndex)(re.hotspotTableSize, memory);
-            merge[] = 0;
+            if(val)
+            {
+                merge[i] = dest - i; //sub pc
+                dest += re.counterRangeTable[i];//counterRangeSlots used
+            }
+            else
+            {
+                assert(i > 0);
+                merge[i] = merge[i-1];
+            }
+        }
+        debug(fred_parser){
+            writeln("HEAD:");
+            writeln(merge[0..re.ir.length]);
+            writeln("TAIL:");
+            writeln(merge[re.ir.length..$]);
         }
         genCounter = 0;
     }
@@ -5086,16 +5117,16 @@ enum OneShot { Fwd, Bwd };
     {
         s = stream;
         re = matcher.re;
+        merge = matcher.merge[piece.ptr - re.ir.ptr..$];
         re.ir = piece;
         threadSize = matcher.threadSize;
-        merge = matcher.merge;
         genCounter = matcher.genCounter;
         freelist = matcher.freelist;
     }
 
     this(this)
     {
-        merge[] = 0;
+        merge[re.ir.length..$] = 0;
         debug(fred_allocation) writeln("ThompsonVM postblit!");
         //free list is  efectively shared ATM
     }
@@ -5364,36 +5395,20 @@ enum OneShot { Fwd, Bwd };
                     t.pc -= len;
                     break;
                 }
-                if(merge[re.ir[t.pc + 1].raw+t.counter] < genCounter)
-                {
-                    debug(fred_matching) writefln("A thread(pc=%s) passed there : %s ; GenCounter=%s mergetab=%s",
-                                    t.pc, index, genCounter, merge[re.ir[t.pc + 1].raw+t.counter] );
-                    merge[re.ir[t.pc + 1].raw+t.counter] = genCounter;
-                }
-                else
-                {
-                    debug(fred_matching) writefln("A thread(pc=%s) got merged there : %s ; GenCounter=%s mergetab=%s",
-                                    t.pc, index, genCounter, merge[re.ir[t.pc + 1].raw+t.counter] );
-                    recycle(t);
-                    t = worklist.fetch();
-                    if(!t)
-                        return;
-                    break;
-                }
                 uint max = re.ir[t.pc+4].raw;
                 if(t.counter < max)
                 {
                     if(re.ir[t.pc].code == IR.RepeatEnd)
                     {
                         //queue out-of-loop thread
-                        worklist.insertFront(fork(t, t.pc + IRL!(IR.RepeatEnd),  t.counter % step));
+                        worklist.checkedInsertFront(fork(t, t.pc + IRL!(IR.RepeatEnd),  t.counter % step));
                         t.counter += step;
                         t.pc -= len;
                     }
                     else
                     {
                         //queue into-loop thread
-                        worklist.insertFront(fork(t, t.pc - len,  t.counter + step));
+                        worklist.checkedInsertFront(fork(t, t.pc - len,  t.counter + step));
                         t.counter %= step;
                         t.pc += IRL!(IR.RepeatEnd);
                     }
@@ -5406,22 +5421,6 @@ enum OneShot { Fwd, Bwd };
                 break;
             case IR.InfiniteEnd:
             case IR.InfiniteQEnd:
-                if(merge[re.ir[t.pc + 1].raw+t.counter] < genCounter)
-                {
-                    debug(fred_matching) writefln("A thread(pc=%s) passed there : %s ; GenCounter=%s mergetab=%s",
-                                    t.pc, index, genCounter, merge[re.ir[t.pc + 1].raw+t.counter] );
-                    merge[re.ir[t.pc + 1].raw+t.counter] = genCounter;
-                }
-                else
-                {
-                    debug(fred_matching) writefln("A thread(pc=%s) got merged there : %s ; GenCounter=%s mergetab=%s",
-                                    t.pc, index, genCounter, merge[re.ir[t.pc + 1].raw+t.counter] );
-                    recycle(t);
-                    t = worklist.fetch();
-                    if(!t)
-                        return;
-                    break;
-                }
                 uint len = re.ir[t.pc].data;
                 uint pc1, pc2; //branches to take in priority order
                 if(re.ir[t.pc].code == IR.InfiniteEnd)
@@ -5439,12 +5438,12 @@ enum OneShot { Fwd, Bwd };
                     int test = quickTestFwd(pc1, front, re);
                     if(test > 0)
                     {
-                        nlist.insertBack(fork(t, pc1 + test, t.counter));
+                        nlist.checkedInsertBack(fork(t, pc1 + test, t.counter));
                         t.pc = pc2;
                     }
                     else if(test == 0)
                     {
-                        worklist.insertFront(fork(t, pc2, t.counter));
+                        worklist.checkedInsertFront(fork(t, pc2, t.counter));
                         t.pc = pc1;
                     }
                     else
@@ -5452,27 +5451,19 @@ enum OneShot { Fwd, Bwd };
                 }
                 else
                 {
-                    worklist.insertFront(fork(t, pc2, t.counter));
+                    worklist.checkedInsertFront(fork(t, pc2, t.counter));
                     t.pc = pc1;
                 }
-                break;
-            case IR.OrEnd:
-                if(merge[re.ir[t.pc + 1].raw+t.counter] < genCounter)
+                if(!sync(t.pc, t.counter))
                 {
-                    debug(fred_matching) writefln("A thread(pc=%s) passed there : %s ; GenCounter=%s mergetab=%s",
-                                    t.pc, s[index..s.lastIndex], genCounter, merge[re.ir[t.pc + 1].raw+t.counter] );
-                    merge[re.ir[t.pc + 1].raw+t.counter] = genCounter;
-                    t.pc += IRL!(IR.OrEnd);
-                }
-                else
-                {
-                    debug(fred_matching) writefln("A thread(pc=%s) got merged there : %s ; GenCounter=%s mergetab=%s",
-                                    t.pc, s[index..s.lastIndex], genCounter, merge[re.ir[t.pc + 1].raw+t.counter] );
                     recycle(t);
                     t = worklist.fetch();
                     if(!t)
                         return;
                 }
+                break;
+            case IR.OrEnd:
+                t.pc += IRL!(IR.OrEnd);
                 break;
             case IR.OrStart:
                 t.pc += IRL!(IR.OrStart);
@@ -5482,7 +5473,7 @@ enum OneShot { Fwd, Bwd };
                 //queue nextChar Option
                 if(re.ir[nextChar].code == IR.Option)
                 {
-                    worklist.insertFront(fork(t, nextChar, t.counter));
+                    worklist.checkedInsertFront(fork(t, nextChar, t.counter));
                 }
                 t.pc += IRL!(IR.Option);
                 break;
@@ -5519,7 +5510,7 @@ enum OneShot { Fwd, Bwd };
                             t.pc += IRL!(IR.Backref);
                             t.uopCounter = 0;
                         }
-                        nlist.insertBack(t);
+                        nlist.checkedInsertBack(t);
                     }
                     else
                         recycle(t);
@@ -5616,7 +5607,7 @@ enum OneShot { Fwd, Bwd };
                     if(t.pc != end)
                     {
                        t.pc = end;
-                        nlist.insertBack(t);
+                        nlist.checkedInsertBack(t);
                     }
                     else
                         recycle(t);
@@ -5628,7 +5619,7 @@ enum OneShot { Fwd, Bwd };
                     if(front == re.ir[t.pc].data)
                     {
                         t.pc += IRL!(IR.Char);
-                        nlist.insertBack(t);
+                        nlist.checkedInsertBack(t);
                     }
                     else
                         recycle(t);
@@ -5642,7 +5633,7 @@ enum OneShot { Fwd, Bwd };
                             && (front == '\r' || front == '\n'))
                         recycle(t);
                     else
-                        nlist.insertBack(t);
+                        nlist.checkedInsertBack(t);
                     t = worklist.fetch();
                     if(!t)
                         return;
@@ -5651,7 +5642,7 @@ enum OneShot { Fwd, Bwd };
                     if(re.charsets[re.ir[t.pc].data].scanFor(front))
                     {
                         t.pc += IRL!(IR.CodepointSet);
-                        nlist.insertBack(t);
+                        nlist.checkedInsertBack(t);
                     }
                     else
                     {
@@ -5665,7 +5656,7 @@ enum OneShot { Fwd, Bwd };
                     if(re.tries[re.ir[t.pc].data][front])
                     {
                         t.pc += IRL!(IR.Trie);
-                        nlist.insertBack(t);
+                        nlist.checkedInsertBack(t);
                     }
                     else
                     {
@@ -5714,6 +5705,7 @@ enum OneShot { Fwd, Bwd };
         if(!atEnd)//if no char
         {
             if (startPc!=RestartPc){
+                //adjust merge table
                 auto startT = createStart(index, startPc);
                 genCounter++;
                 evalFn!true(startT, matches);
@@ -5879,28 +5871,14 @@ enum OneShot { Fwd, Bwd };
             case IR.InfiniteStart, IR.InfiniteQStart:
                 uint len = re.ir[t.pc].data;
                 uint mIdx = t.pc + len + IRL!(IR.InfiniteEnd); //we're always pointed at the tail of instruction
-                if(merge[re.ir[mIdx].raw+t.counter] < genCounter)
-                {
-                    debug(fred_matching) writefln("A thread(pc=%s) passed there : %s ; GenCounter=%s mergetab=%s",
-                                    t.pc, index, genCounter, merge[re.ir[mIdx].raw+t.counter] );
-                    merge[re.ir[mIdx].raw+t.counter] = genCounter;
-                }
-                else
-                {
-                    debug(fred_matching) writefln("A thread(pc=%s) got merged there : %s ; GenCounter=%s mergetab=%s",
-                                    t.pc, index, genCounter, merge[re.ir[mIdx].raw+t.counter] );
-                    recycle(t);
-                    t = worklist.fetch();
-                    break;
-                }
                 if(re.ir[t.pc].code == IR.InfiniteStart)//greedy
                 {
-                    worklist.insertFront(fork(t, t.pc-1, t.counter));
+                    worklist.checkedInsertFront(fork(t, t.pc-1, t.counter));
                     t.pc += len;
                 }
                 else
                 {
-                    worklist.insertFront(fork(t, t.pc+len, t.counter));
+                    worklist.checkedInsertFront(fork(t, t.pc+len, t.counter));
                     t.pc--;
                 }
                 break;
@@ -5923,31 +5901,17 @@ enum OneShot { Fwd, Bwd };
                     break;
                 }
                 uint max = re.ir[tail+4].raw;
-                if(merge[re.ir[tail+1].raw+t.counter] < genCounter)
-                {
-                    debug(fred_matching) writefln("A thread(pc=%s) passed there : %s ; GenCounter=%s mergetab=%s",
-                                    t.pc, index, genCounter, merge[re.ir[tail+1].raw+t.counter] );
-                    merge[re.ir[tail+1].raw+t.counter] = genCounter;
-                }
-                else
-                {
-                    debug(fred_matching) writefln("A thread(pc=%s) got merged there : %s ; GenCounter=%s mergetab=%s",
-                                    t.pc, index, genCounter, merge[re.ir[tail+1].raw+t.counter] );
-                    recycle(t);
-                    t = worklist.fetch();
-                    break;
-                }
                 if(t.counter < max)
                 {
                     if(re.ir[t.pc].code == IR.RepeatStart)//greedy
                     {
-                        worklist.insertFront(fork(t, t.pc-1, t.counter%step));
+                        worklist.checkedInsertFront(fork(t, t.pc-1, t.counter%step));
                         t.counter += step;
                         t.pc += len;
                     }
                     else
                     {
-                        worklist.insertFront(fork(t, t.pc + len, t.counter + step));
+                        worklist.checkedInsertFront(fork(t, t.pc + len, t.counter + step));
                         t.counter = t.counter%step;
                         t.pc--;
                     }
@@ -5973,20 +5937,6 @@ enum OneShot { Fwd, Bwd };
             case IR.OrStart:
                 uint len = re.ir[t.pc].data;
                 uint mIdx = t.pc + len + IRL!(IR.OrEnd); //should point to the end of OrEnd
-                if(merge[re.ir[mIdx].raw+t.counter] < genCounter)
-                {
-                    debug(fred_matching) writefln("A thread(t.pc=%s) passed there : %s ; GenCounter=%s mergetab=%s",
-                                    t.pc, index, genCounter, merge[re.ir[mIdx].raw+t.counter] );
-                    merge[re.ir[mIdx].raw+t.counter] = genCounter;
-                }
-                else
-                {
-                    debug(fred_matching) writefln("A thread(t.pc=%s) got merged there : %s ; GenCounter=%s mergetab=%s",
-                                    t.pc, index, genCounter, merge[re.ir[mIdx].raw+t.counter] );
-                    recycle(t);
-                    t = worklist.fetch();
-                    break;
-                }
                 t.pc--;
                 break;
             case IR.Option:
@@ -6007,7 +5957,7 @@ enum OneShot { Fwd, Bwd };
                 assert(re.ir[t.pc].code == IR.GotoEndOr);
                 uint npc = t.pc+IRL!(IR.GotoEndOr);
                 assert(re.ir[npc].code == IR.Option);
-                worklist.insertFront(fork(t, npc + re.ir[npc].data, t.counter));//queue nextChar branch
+                worklist.checkedInsertFront(fork(t, npc + re.ir[npc].data, t.counter));//queue nextChar branch
                 t.pc--;
                 break;
             case IR.GroupStart:
@@ -6040,7 +5990,7 @@ enum OneShot { Fwd, Bwd };
                             t.pc--;
                             t.uopCounter = 0;
                         }
-                        nlist.insertBack(t);
+                        nlist.checkedInsertBack(t);
                     }
                     else
                         recycle(t);
@@ -6128,7 +6078,7 @@ enum OneShot { Fwd, Bwd };
                     if(t.pc != end)
                     {
                         t.pc = end;
-                        nlist.insertBack(t);
+                        nlist.checkedInsertBack(t);
                     }
                     else
                         recycle(t);
@@ -6138,7 +6088,7 @@ enum OneShot { Fwd, Bwd };
                     if(front == re.ir[t.pc].data)
                     {
                         t.pc--;
-                        nlist.insertBack(t);
+                        nlist.checkedInsertBack(t);
                     }
                     else
                         recycle(t);
@@ -6150,14 +6100,14 @@ enum OneShot { Fwd, Bwd };
                             && (front == '\r' || front == '\n'))
                         recycle(t);
                     else
-                        nlist.insertBack(t);
+                        nlist.checkedInsertBack(t);
                     t = worklist.fetch();
                     break;
                 case IR.CodepointSet:
                     if(re.charsets[re.ir[t.pc].data].scanFor(front))
                     {
                         t.pc--;
-                        nlist.insertBack(t);
+                        nlist.checkedInsertBack(t);
                     }
                     else
                     {
@@ -6169,7 +6119,7 @@ enum OneShot { Fwd, Bwd };
                     if(re.tries[re.ir[t.pc].data][front])
                     {
                         t.pc--;
-                        nlist.insertBack(t);
+                        nlist.checkedInsertBack(t);
                     }
                     else
                     {
@@ -6240,6 +6190,8 @@ enum OneShot { Fwd, Bwd };
     //creates a copy of master thread with given pc
     Thread!DataIndex* fork(Thread!DataIndex* master, uint pc, uint counter)
     {
+        if(!sync(pc, counter))
+            return null;
         auto t = allocate();
         t.matches.ptr[0..re.ngroup] = master.matches.ptr[0..re.ngroup];
         t.pc = pc;
@@ -6251,6 +6203,14 @@ enum OneShot { Fwd, Bwd };
     //creates a start thread
     Thread!DataIndex* createStart(DataIndex index, uint pc=0)
     {
+        uint idx = merge[pc]+pc;
+        if(merge[idx] > genCounter){
+            debug(fred_matching) writefln("merged at (%s,%s) reason: tab=%s gen=%s",
+                           pc, 0, merge[idx], genCounter);
+            return null;
+        }
+        //else //will sync on first iteration
+        //    merge[idx] = genCounter+1;
         auto t = allocate();
         t.matches.ptr[0..re.ngroup] = (Group!DataIndex).init;
         t.matches[0].begin = index;
@@ -6258,6 +6218,19 @@ enum OneShot { Fwd, Bwd };
         t.counter = 0;
         t.uopCounter = 0;
         return t;
+    }
+
+    //leave a thread trail on pc, cnt 
+    bool sync(uint pc, uint cnt)
+    {
+        uint idx = merge[pc]+pc+cnt;
+        if(merge[idx] > genCounter){
+            debug(fred_matching) writefln("merged at (%s,%s) reason: tab=%s gen=%s",
+                           pc, cnt, merge[idx], genCounter);
+            return false;
+        }
+        else
+            return merge[idx] = genCounter+1, true;
     }
 }
 
@@ -7274,7 +7247,7 @@ unittest
             "0020  ; White_Space # ", "y", "$1-$2-$3", "--0020"),
 //lookahead
         TestVectors(    "(foo.)(?=(bar))",     "foobar foodbar", "y", "$&-$1-$2", "food-food-bar" ),
-        TestVectors(    `\b(\d+)[a-z](?=\1)`,  "123a123",        "y", "$&-$1", "123a-123" ),
+        TestVectors(    `\b(\d+)[a-z](?=\1)`,  "123a123",        "y", "$&-$1", "123a-123" ), 
         TestVectors(    `\$(?!\d{3})\w+`,      "$123 $abc",      "y", "$&", "$abc"),
         TestVectors(    `(abc)(?=(ed(f))\3)`,    "abcedff",      "y", "-", "-"),
         TestVectors(    `\b[A-Za-z0-9.]+(?=(@(?!gmail)))`, "a@gmail,x@com",  "y", "$&-$1", "x-@"),
@@ -7518,7 +7491,6 @@ else
                 "
                 z
             `, "x");
-            free_reg.print();
             auto m = match(`abc  "quoted string with \" inside"z`,free_reg);
             assert(m);
             string mails = " hey@you.com no@spam.net ";
