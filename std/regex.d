@@ -236,7 +236,7 @@ private:
 
 //uncomment to get a barrage of debug info
 //debug = fred_parser;
-//debug = fred_matching;
+//debug = fred_matcher;
 //debug = fred_charset;
 
 // IR bit pattern: 0b1_xxxxx_yy
@@ -652,7 +652,7 @@ enum RegexOption: uint {
 };
 alias TypeTuple!('g', 'i', 'x', 'U', 'm', 's') RegexOptionNames;//do not reorder this list
 static assert( RegexOption.max < 0x100);
-enum RegexInfo : uint { oneShot = 0x100, noCounter = 0x200 };
+enum RegexInfo : uint { oneShot = 0x100, noCounter = 0x200, fixed = 0x400,  };
 
 private enum NEL = '\u0085', LS = '\u2028', PS = '\u2029';
 
@@ -2006,6 +2006,17 @@ struct Parser(R, bool CTFE=false)
     }
 }
 
+//
+struct FixedStack(T)
+{
+    T[] arr;
+    uint _top;
+    //this(T[] storage){   arr = storage; _top = -1; }
+    @property ref T top(){  assert(!empty); return arr[_top]; }
+    void push(T x){  arr[++_top] = x; }
+    T pop() { assert(!empty);   return arr[_top--]; }
+    @property bool empty(){   return _top == -1; }
+}
 
 /++
     $(D Regex) object holds regular expression pattern in compiled form.
@@ -2078,16 +2089,6 @@ private:
     +/
     @trusted void lightPostprocess()
     {//@@@BUG@@@ write is @system
-        struct FixedStack(T)
-        {
-            T[] arr;
-            uint _top;
-            //this(T[] storage){   arr = storage; _top = -1; }
-            @property ref T top(){  assert(!empty); return arr[_top]; }
-            void push(T x){  arr[++_top] = x; }
-            T pop() { assert(!empty);   return arr[_top--]; }
-            @property bool empty(){   return _top == -1; }
-        }
         auto counterRange = FixedStack!uint(new uint[maxCounterDepth+1], -1);
         counterRange.push(1);
         ulong cumRange = 0;  //used to check limits
@@ -2730,6 +2731,7 @@ public:
                     goto case IR.RepeatEnd;
                 case IR.RepeatEnd:
                 case IR.RepeatQEnd:
+
                     uint len = re.ir[t.pc].data;
                     uint step = re.ir[t.pc+2].raw;
                     uint min = re.ir[t.pc+3].raw;
@@ -3556,7 +3558,7 @@ template BacktrackingMatcher(bool CTregex)
         //lookup nextChar match, fill matches with indices into input
         bool match(Group!DataIndex matches[])
         {
-            debug(fred_matching)
+            debug(fred_matcher)
             {
                 writeln("------------------------------------------");
             }
@@ -3623,11 +3625,11 @@ template BacktrackingMatcher(bool CTregex)
                 lastState = 0;
                 infiniteNesting = -1;//intentional
                 auto start = s._index;
-                debug(fred_matching)
+                debug(fred_matcher)
                     writeln("Try match starting at ", s[index..s.lastIndex]);
                 for(;;)
                 {
-                    debug(fred_matching)
+                    debug(fred_matcher)
                         writefln("PC: %s\tCNT: %s\t%s \tfront: %s src: %s"
                             , pc, counter, disassemble(re.ir, pc, re.dict)
                             , front, s._index);
@@ -3754,7 +3756,7 @@ template BacktrackingMatcher(bool CTregex)
                     case IR.InfiniteEnd:
                     case IR.InfiniteQEnd:
                         uint len = re.ir[pc].data;
-                        debug(fred_matching) writeln("Infinited nesting:", infiniteNesting);
+                        debug(fred_matcher) writeln("Infinited nesting:", infiniteNesting);
                         assert(infiniteNesting < trackers.length);
 
                         if(trackers[infiniteNesting] == index)
@@ -3806,13 +3808,13 @@ template BacktrackingMatcher(bool CTregex)
                     case IR.GroupStart:
                         uint n = re.ir[pc].data;
                         matches[n].begin = index;
-                        debug(fred_matching)  writefln("IR group #%u starts at %u", n, index);
+                        debug(fred_matcher)  writefln("IR group #%u starts at %u", n, index);
                         pc += IRL!(IR.GroupStart);
                         break;
                     case IR.GroupEnd:
                         uint n = re.ir[pc].data;
                         matches[n].end = index;
-                        debug(fred_matching) writefln("IR group #%u ends at %u", n, index);
+                        debug(fred_matcher) writefln("IR group #%u ends at %u", n, index);
                         pc += IRL!(IR.GroupEnd);
                         break;
                     case IR.LookaheadStart:
@@ -3914,7 +3916,7 @@ template BacktrackingMatcher(bool CTregex)
             *cast(T*)&memory[lastState] = val;
             enum delta = (T.sizeof+size_t.sizeof/2)/size_t.sizeof;
             lastState += delta;
-            debug(fred_matching) writeln("push element SP= ", lastState);
+            debug(fred_matcher) writeln("push element SP= ", lastState);
         }
 
         void stackPush(T)(T[] val)
@@ -3923,7 +3925,7 @@ template BacktrackingMatcher(bool CTregex)
             (cast(T*)&memory[lastState])[0..val.length]
                 = val[0..$];
             lastState += val.length*(T.sizeof/size_t.sizeof);
-            debug(fred_matching) writeln("push array SP= ", lastState);
+            debug(fred_matcher) writeln("push array SP= ", lastState);
         }
 
         void stackPop(T)(ref T val)
@@ -3932,14 +3934,14 @@ template BacktrackingMatcher(bool CTregex)
             enum delta = (T.sizeof+size_t.sizeof/2)/size_t.sizeof;
             lastState -= delta;
             val = *cast(T*)&memory[lastState];
-            debug(fred_matching) writeln("pop element SP= ", lastState);
+            debug(fred_matcher) writeln("pop element SP= ", lastState);
         }
 
         void stackPop(T)(ref T[] val)
         {
             lastState -= val.length*(T.sizeof/size_t.sizeof);
             val[0..$] = (cast(T*)&memory[lastState])[0..val.length];
-            debug(fred_matching) writeln("pop array SP= ", lastState);
+            debug(fred_matcher) writeln("pop array SP= ", lastState);
         }
 
         static if(!CTregex)
@@ -3957,7 +3959,7 @@ template BacktrackingMatcher(bool CTregex)
                 lastState += stateSize;
                 memory[lastState..lastState+2*matches.length] = cast(size_t[])matches[];
                 lastState += 2*matches.length;
-                debug(fred_matching)
+                debug(fred_matcher)
                     writefln("Saved(pc=%s) front: %s src: %s"
                              , pc, front, s[index..s.lastIndex]);
             }
@@ -3976,7 +3978,7 @@ template BacktrackingMatcher(bool CTregex)
                 pc = state.pc;
                 counter = state.counter;
                 infiniteNesting = state.infiniteNesting;
-                debug(fred_matching)
+                debug(fred_matcher)
                 {
                     writefln("Restored matches", front, s[index .. s.lastIndex]);
                     foreach(i, m; matches)
@@ -3984,7 +3986,7 @@ template BacktrackingMatcher(bool CTregex)
                 }
                 s.reset(index);
                 nextChar();
-                debug(fred_matching)
+                debug(fred_matcher)
                     writefln("Backtracked (pc=%s) front: %s src: %s"
                     , pc, front, s[index..s.lastIndex]);
                 return true;
@@ -4003,11 +4005,11 @@ template BacktrackingMatcher(bool CTregex)
                 lastState = 0;
                 infiniteNesting = -1;//intentional
                 auto start = index;
-                debug(fred_matching)
+                debug(fred_matcher)
                     writeln("Try matchBack at ",retro(s[index..s.lastIndex]));
                 for(;;)
                 {
-                    debug(fred_matching)
+                    debug(fred_matcher)
                         writefln("PC: %s\tCNT: %s\t%s \tfront: %s src: %s"
                         , pc, counter, disassemble(re.ir, pc, re.dict)
                         , front, retro(s[index..s.lastIndex]));
@@ -4083,7 +4085,7 @@ L_dispatchSwitch:   switch(re.ir[pc].code)
                     case IR.Eol:
                         dchar back;
                         DataIndex bi;
-                        debug(fred_matching)
+                        debug(fred_matcher)
                             writefln("EOL (front 0x%x) %s", front, s[index..s.lastIndex]);
                         //no matching inside \r\n
                         if((re.flags & RegexOption.multiline)
@@ -4127,7 +4129,7 @@ L_dispatchSwitch:   switch(re.ir[pc].code)
                         pc -= len+IRL!(IR.InfiniteStart);
                         assert(re.ir[pc].code == IR.InfiniteStart
                             || re.ir[pc].code == IR.InfiniteQStart);
-                        debug(fred_matching)
+                        debug(fred_matcher)
                             writeln("(backmatch) Infinite nesting:", infiniteNesting);
                         if(re.ir[pc].code == IR.InfiniteStart)//greedy
                         {
@@ -4223,13 +4225,13 @@ L_dispatchSwitch:   switch(re.ir[pc].code)
                     case IR.GroupStart:
                         uint n = re.ir[pc].data;
                         matches[n].begin = index;
-                        debug(fred_matching)  writefln("IR group #%u starts at %u", n, index);
+                        debug(fred_matcher)  writefln("IR group #%u starts at %u", n, index);
                         pc --;
                         break;
                     case IR.GroupEnd:
                         uint n = re.ir[pc].data;
                         matches[n].end = index;
-                        debug(fred_matching) writefln("IR group #%u ends at %u", n, index);
+                        debug(fred_matcher) writefln("IR group #%u ends at %u", n, index);
                         pc --;
                         break;
                     case IR.LookaheadStart:
@@ -4530,7 +4532,7 @@ struct CtContext
         string r;
         string testCode;
         r = ctSub(`
-                case $$: debug(fred_matching) writeln("$$");`,
+                case $$: debug(fred_matcher) writeln("$$");`,
                     addr, addr);
         switch(ir[0].code)
         {
@@ -4598,7 +4600,7 @@ struct CtContext
             r ~= ctSub(`
                     if(counter < $$)
                     {
-                        debug(fred_matching) writeln("RepeatEnd min case pc=", $$);
+                        debug(fred_matcher) writeln("RepeatEnd min case pc=", $$);
                         counter += $$;
                         goto case $$;
                     }`,  min, addr, step, fixup);
@@ -4704,7 +4706,7 @@ struct CtContext
             bailOut = "goto L_backtrack;";
             nextInstr = ctSub("goto case $$;", addr+1);
             code ~=  ctSub( `
-                 case $$: debug(fred_matching) writeln("#$$");
+                 case $$: debug(fred_matcher) writeln("#$$");
                     `, addr, addr);
         }
         switch(ir[0].code)
@@ -4818,7 +4820,7 @@ struct CtContext
             code ~= ctSub(`
                     dchar back;
                     DataIndex bi;
-                    debug(fred_matching) writefln("EOL (front 0x%x) %s", front, s[index..s.lastIndex]);
+                    debug(fred_matcher) writefln("EOL (front 0x%x) %s", front, s[index..s.lastIndex]);
                     //no matching inside \r\n
                     if(atEnd || ((re.flags & RegexOption.multiline)
                              && s.loopBack.nextChar(back,bi)
@@ -4882,7 +4884,7 @@ struct CtContext
             size_t tracker_$$;`, i);
         r ~= `
             goto StartLoop;
-            debug(fred_matching) writeln("Try CT matching  starting at ",s[index..s.lastIndex]);
+            debug(fred_matcher) writeln("Try CT matching  starting at ",s[index..s.lastIndex]);
         L_backtrack:
             if(lastState || prevStack())
             {
@@ -4950,13 +4952,6 @@ struct ThreadList(DataIndex)
         }
     }
 
-    //ditto, but skip nulls
-    void checkedInsertFront(Thread!DataIndex* t)
-    {
-        if(t !is null)
-            insertFront(t);
-    }
-
     //add new thread to the end of list
     void insertBack(Thread!DataIndex* t)
     {
@@ -4968,13 +4963,6 @@ struct ThreadList(DataIndex)
         else
             tip = toe = t;
         toe.nextChar = null;
-    }
-
-    //ditto, but skip nulls
-    void checkedInsertBack(Thread!DataIndex* t)
-    {
-        if(t !is null)
-            insertBack(t);
     }
 
     //move head element out of list
@@ -5013,11 +5001,16 @@ struct ThreadList(DataIndex)
 //direction parameter for thompson one-shot match evaluator
 enum OneShot { Fwd, Bwd };
 
+enum Thompson:uint { 
+    hasKickstart = 1, 
+    
+};
+
 /+
    Thomspon matcher does all matching in lockstep,
    never looking at the same char twice
 +/
-@trusted struct ThompsonMatcher(Char, Stream=Input!Char)
+@trusted struct ThompsonMatcher(Char, uint attributes=0, Stream=Input!Char)
     if(is(Char : dchar))
 {
     alias Stream.DataIndex DataIndex;
@@ -5034,9 +5027,7 @@ enum OneShot { Fwd, Bwd };
     bool matched;
     bool exhausted;
     static if(__traits(hasMember,Stream, "search"))
-    {
-        enum kicked = true;
-    }
+        enum kicked = true; //(attributes & Thompson.hasKickstart) != 0;
     else
         enum kicked = false;
 
@@ -5091,29 +5082,53 @@ enum OneShot { Fwd, Bwd };
         merge = arrayInChunk!(DataIndex)(re.mergeTableSize, memory);
         merge[re.ir.length..$] = 0;
         uint dest = cast(uint)re.ir.length; //first slot of the lowest level of trie
-        foreach(i, val; re.counterRangeTable)
+        assert(re.counterRangeTable.length == re.ir.length);
+        auto reference = FixedStack!uint(new uint[128]);//FIXME!!!
+        reference.push(0);
+        for(uint i=0; i<re.ir.length; i += re.ir[i].length)
         {
-            if(val)
+            switch(re.ir[i].code)
             {
-                merge[i] = dest - i; //sub pc
-                dest += re.counterRangeTable[i];//counterRangeSlots used
+                case IR.InfiniteEnd, IR.InfiniteQEnd
+                        , IR.RepeatEnd, IR.RepeatQEnd:
+                    //use the same entry as start instruction
+                    merge[i] = merge[re.ir[i].indexOfPair(i)];
+                    debug(fred_matcher) writefln("PC %s uses ==> %s's table\n%s %s", i
+                                , re.ir[i].indexOfPair(i), merge[i], merge[re.ir[i].indexOfPair(i)]);
+                break;
+                case IR.LookaheadStart, IR.NeglookaheadStart   
+                        ,IR.LookbehindStart, IR.NeglookbehindStart:
+                    merge[i] = dest - reference.top;
+                    reference.push(i);//for nested lookaround
+                    break;
+                case IR.LookaheadEnd, IR.NeglookaheadEnd
+                        ,IR.LookbehindEnd, IR.NeglookbehindEnd:
+                    reference.pop();//ditto
+                    merge[i] = dest - reference.top;
+                    break;
+                default:
+                    merge[i] = dest - reference.top;
+                    dest += re.counterRangeTable[i];//counterRangeSlots used
             }
-            else
-            {
-                assert(i > 0);
-                merge[i] = merge[i-1];
-            }
+            // cover full length of IR,
+            // to allow lookup when doing execution backwards
+            for(uint j=0; j<re.ir[i].length; j++)
+                merge[i+j] = merge[i]; 
         }
-        debug(fred_parser){
-            writeln("HEAD:");
-            writeln(merge[0..re.ir.length]);
-            writeln("TAIL:");
-            writeln(merge[re.ir.length..$]);
-        }
+        debug(fred_matcher) dump_tables();
         genCounter = 0;
     }
 
-    this(S)(ref ThompsonMatcher!(Char,S) matcher, Bytecode[] piece, Stream stream)
+    debug(fred_matcher) void dump_tables()
+    {
+        writefln("Dumping tables, %s IR length", re.ir.length);
+        writeln("HEAD:");
+        writeln(merge[0..re.ir.length]);
+        writeln("TAIL:");
+        writeln(merge[re.ir.length..$]);
+    }
+
+    this(uint attrib, S)(ref ThompsonMatcher!(Char, attrib, S) matcher, Bytecode[] piece, Stream stream)
     {
         s = stream;
         re = matcher.re;
@@ -5140,7 +5155,7 @@ enum OneShot { Fwd, Bwd };
     //match the input and fill matches
     bool match(Group!DataIndex[] matches)
     {
-        debug(fred_matching)
+        debug(fred_matcher)
             writeln("------------------------------------------");
         if(exhausted)
         {
@@ -5169,7 +5184,7 @@ enum OneShot { Fwd, Bwd };
             for(;;)
             {
                 genCounter++;
-                debug(fred_matching)
+                debug(fred_matcher)
                 {
                     writefln("Threaded matching threads at  %s", s[index..s.lastIndex]);
                     foreach(t; clist[])
@@ -5184,11 +5199,12 @@ enum OneShot { Fwd, Bwd };
                 {
                     eval!true(t, matches);
                 }
-                if(!matched)//if we already have match no need to push the engine
-                    eval!true(createStart(index), matches);//new thread staring at this position
+                if(!matched){//if we already have match no need to push the engine
+                    eval!true(createStart(index), matches);
+                }
                 else if(nlist.empty)
                 {
-                    debug(fred_matching) writeln("Stopped  matching before consuming full input");
+                    debug(fred_matcher) writeln("Stopped  matching before consuming full input");
                     break;//not a partial match for sure
                 }
                 clist = nlist;
@@ -5206,13 +5222,14 @@ enum OneShot { Fwd, Bwd };
             }
 
         genCounter++; //increment also on each end
-        debug(fred_matching) writefln("Threaded matching threads at end");
+        debug(fred_matcher) writefln("Threaded matching threads at end");
         //try out all zero-width posibilities
         for(Thread!DataIndex* t = clist.fetch(); t; t = clist.fetch())
         {
             eval!false(t, matches);
         }
         if(!matched)
+        {
             eval!false(createStart(index), matches);//new thread starting at end of input
         if(matched)
         {//in case NFA found match along the way
@@ -5234,7 +5251,7 @@ enum OneShot { Fwd, Bwd };
     void finish(const(Thread!DataIndex)* t, Group!DataIndex[] matches)
     {
         matches.ptr[0..re.ngroup] = t.matches.ptr[0..re.ngroup];
-        debug(fred_matching)
+        debug(fred_matcher)
         {
             writef("FOUND pc=%s prog_len=%s",
                     t.pc, re.ir.length);
@@ -5253,10 +5270,10 @@ enum OneShot { Fwd, Bwd };
     void eval(bool withInput)(Thread!DataIndex* t, Group!DataIndex[] matches)
     {
         ThreadList!DataIndex worklist;
-        debug(fred_matching) writeln("Evaluating thread");
+        debug(fred_matcher) writeln("Evaluating thread");
         for(;;)
         {
-            debug(fred_matching)
+            debug(fred_matcher)
             {
                 writef("\tpc=%s [", t.pc);
                 foreach(x; worklist[])
@@ -5272,7 +5289,7 @@ enum OneShot { Fwd, Bwd };
                 //cut off low priority threads
                 recycle(clist);
                 recycle(worklist);
-                debug(fred_matching) writeln("Finished thread ", matches);
+                debug(fred_matcher) writeln("Finished thread ", matches);
                 return;
             case IR.Wordboundary:
                 dchar back;
@@ -5359,7 +5376,7 @@ enum OneShot { Fwd, Bwd };
                 }
                 break;
             case IR.Eol:
-                debug(fred_matching) writefln("EOL (front 0x%x) %s",  front, s[index..s.lastIndex]);
+                debug(fred_matcher) writefln("EOL (front 0x%x) %s",  front, s[index..s.lastIndex]);
                 dchar back;
                 DataIndex bi;
                 //no matching inside \r\n
@@ -5395,20 +5412,28 @@ enum OneShot { Fwd, Bwd };
                     t.pc -= len;
                     break;
                 }
+                if(!sync(t.pc, t.counter))
+                {
+                    recycle(t);
+                    t = worklist.fetch();
+                    if(!t)
+                        return;
+                    break;
+                }
                 uint max = re.ir[t.pc+4].raw;
                 if(t.counter < max)
                 {
                     if(re.ir[t.pc].code == IR.RepeatEnd)
                     {
                         //queue out-of-loop thread
-                        worklist.checkedInsertFront(fork(t, t.pc + IRL!(IR.RepeatEnd),  t.counter % step));
+                        worklist.insertFront(fork(t, t.pc + IRL!(IR.RepeatEnd),  t.counter % step));
                         t.counter += step;
                         t.pc -= len;
                     }
                     else
                     {
                         //queue into-loop thread
-                        worklist.checkedInsertFront(fork(t, t.pc - len,  t.counter + step));
+                        worklist.insertFront(fork(t, t.pc - len,  t.counter + step));
                         t.counter %= step;
                         t.pc += IRL!(IR.RepeatEnd);
                     }
@@ -5421,6 +5446,14 @@ enum OneShot { Fwd, Bwd };
                 break;
             case IR.InfiniteEnd:
             case IR.InfiniteQEnd:
+                if(!sync(t.pc, t.counter))
+                {
+                    recycle(t);
+                    t = worklist.fetch();
+                    if(!t)
+                        return;
+                    break;
+                }
                 uint len = re.ir[t.pc].data;
                 uint pc1, pc2; //branches to take in priority order
                 if(re.ir[t.pc].code == IR.InfiniteEnd)
@@ -5438,12 +5471,12 @@ enum OneShot { Fwd, Bwd };
                     int test = quickTestFwd(pc1, front, re);
                     if(test > 0)
                     {
-                        nlist.checkedInsertBack(fork(t, pc1 + test, t.counter));
+                        nlist.insertBack(fork(t, pc1 + test, t.counter));
                         t.pc = pc2;
                     }
                     else if(test == 0)
                     {
-                        worklist.checkedInsertFront(fork(t, pc2, t.counter));
+                        worklist.insertFront(fork(t, pc2, t.counter));
                         t.pc = pc1;
                     }
                     else
@@ -5451,29 +5484,30 @@ enum OneShot { Fwd, Bwd };
                 }
                 else
                 {
-                    worklist.checkedInsertFront(fork(t, pc2, t.counter));
+                    worklist.insertFront(fork(t, pc2, t.counter));
                     t.pc = pc1;
                 }
+                break;
+            case IR.OrEnd:
                 if(!sync(t.pc, t.counter))
                 {
                     recycle(t);
                     t = worklist.fetch();
                     if(!t)
                         return;
+                    break;
                 }
-                break;
-            case IR.OrEnd:
                 t.pc += IRL!(IR.OrEnd);
                 break;
             case IR.OrStart:
                 t.pc += IRL!(IR.OrStart);
                 goto case;
             case IR.Option:
-                uint nextChar = t.pc + re.ir[t.pc].data + IRL!(IR.Option);
+                uint next = t.pc + re.ir[t.pc].data + IRL!(IR.Option);
                 //queue nextChar Option
-                if(re.ir[nextChar].code == IR.Option)
+                if(re.ir[next].code == IR.Option)
                 {
-                    worklist.checkedInsertFront(fork(t, nextChar, t.counter));
+                    worklist.insertFront(fork(t, next, t.counter));
                 }
                 t.pc += IRL!(IR.Option);
                 break;
@@ -5510,7 +5544,7 @@ enum OneShot { Fwd, Bwd };
                             t.pc += IRL!(IR.Backref);
                             t.uopCounter = 0;
                         }
-                        nlist.checkedInsertBack(t);
+                        nlist.insertBack(t);
                     }
                     else
                         recycle(t);
@@ -5531,12 +5565,13 @@ enum OneShot { Fwd, Bwd };
             case IR.LookbehindStart:
             case IR.NeglookbehindStart:
                 auto matcher =
-                    ThompsonMatcher!(Char, typeof(s.loopBack))
+                    ThompsonMatcher!(Char, attributes, typeof(s.loopBack))
                     (this, re.ir[t.pc..t.pc+re.ir[t.pc].data+IRL!(IR.LookbehindStart)], s.loopBack);
                 matcher.re.ngroup = re.ir[t.pc+2].raw - re.ir[t.pc+1].raw;
                 matcher.backrefed = backrefed.empty ? t.matches : backrefed;
                 //backMatch
                 matcher.nextChar(); //load first character from behind
+                debug(fred_matcher) matcher.dump_tables();
                 bool match = (matcher.matchOneShot!(OneShot.Bwd)(t.matches)==MatchResult.Match) ^ (re.ir[t.pc].code == IR.LookbehindStart);
                 freelist = matcher.freelist;
                 genCounter = matcher.genCounter;
@@ -5568,11 +5603,13 @@ enum OneShot { Fwd, Bwd };
                 uint len = re.ir[t.pc].data;
                 uint ms = re.ir[t.pc+1].raw, me = re.ir[t.pc+2].raw;
                 bool positive = re.ir[t.pc].code == IR.LookaheadStart;
-                auto matcher = ThompsonMatcher(this, re.ir[t.pc .. t.pc+len+IRL!(IR.LookaheadEnd)+IRL!(IR.LookaheadStart)], s);
+                auto matcher = ThompsonMatcher!(Char, attributes, typeof(s))
+                        (this, re.ir[t.pc .. t.pc+len+IRL!(IR.LookaheadEnd)+IRL!(IR.LookaheadStart)], s);
                 matcher.front = front;
                 matcher.index = index;
                 matcher.re.ngroup = me - ms;
                 matcher.backrefed = backrefed.empty ? t.matches : backrefed;
+                debug(fred_matcher) matcher.dump_tables();
                 bool nomatch = (matcher.matchOneShot!(OneShot.Fwd)(t.matches, IRL!(IR.LookaheadStart)) == MatchResult.Match) ^ positive;
                 freelist = matcher.freelist;
                 genCounter = matcher.genCounter;
@@ -5607,7 +5644,7 @@ enum OneShot { Fwd, Bwd };
                     if(t.pc != end)
                     {
                        t.pc = end;
-                        nlist.checkedInsertBack(t);
+                        nlist.insertBack(t);
                     }
                     else
                         recycle(t);
@@ -5619,7 +5656,7 @@ enum OneShot { Fwd, Bwd };
                     if(front == re.ir[t.pc].data)
                     {
                         t.pc += IRL!(IR.Char);
-                        nlist.checkedInsertBack(t);
+                        nlist.insertBack(t);
                     }
                     else
                         recycle(t);
@@ -5633,7 +5670,7 @@ enum OneShot { Fwd, Bwd };
                             && (front == '\r' || front == '\n'))
                         recycle(t);
                     else
-                        nlist.checkedInsertBack(t);
+                        nlist.insertBack(t);
                     t = worklist.fetch();
                     if(!t)
                         return;
@@ -5642,7 +5679,7 @@ enum OneShot { Fwd, Bwd };
                     if(re.charsets[re.ir[t.pc].data].scanFor(front))
                     {
                         t.pc += IRL!(IR.CodepointSet);
-                        nlist.checkedInsertBack(t);
+                        nlist.insertBack(t);
                     }
                     else
                     {
@@ -5656,7 +5693,7 @@ enum OneShot { Fwd, Bwd };
                     if(re.tries[re.ir[t.pc].data][front])
                     {
                         t.pc += IRL!(IR.Trie);
-                        nlist.checkedInsertBack(t);
+                        nlist.insertBack(t);
                     }
                     else
                     {
@@ -5687,7 +5724,7 @@ enum OneShot { Fwd, Bwd };
     //match the input, evaluating IR without searching
     MatchResult matchOneShot(OneShot direction)(Group!DataIndex[] matches, uint startPc=0)
     {
-        debug(fred_matching)
+        debug(fred_matcher)
         {
             writefln("---------------single shot match %s----------------- ",
                      direction == OneShot.Fwd ? "forward" : "backward");
@@ -5704,16 +5741,15 @@ enum OneShot { Fwd, Bwd };
             startPc = cast(uint)re.ir.length-IRL!(IR.LookbehindEnd);
         if(!atEnd)//if no char
         {
-            if (startPc!=RestartPc){
-                //adjust merge table
-                auto startT = createStart(index, startPc);
+            if(startPc!=RestartPc)
+            {
                 genCounter++;
-                evalFn!true(startT, matches);
+                evalFn!true(createStart(index, startPc), matches);
             }
             for(;;)
             {
                 genCounter++;
-                debug(fred_matching)
+                debug(fred_matcher)
                 {
                     static if(direction == OneShot.Fwd)
                         writefln("Threaded matching (forward) threads at  %s",  s[index..s.lastIndex]);
@@ -5733,7 +5769,7 @@ enum OneShot { Fwd, Bwd };
                 }
                 if(nlist.empty)
                 {
-                    debug(fred_matching) writeln("Stopped  matching before consuming full input");
+                    debug(fred_matcher) writeln("Stopped  matching before consuming full input");
                     break;//not a partial match for sure
                 }
                 clist = nlist;
@@ -5745,7 +5781,7 @@ enum OneShot { Fwd, Bwd };
             }
         }
         genCounter++; //increment also on each end
-        debug(fred_matching) writefln("Threaded matching (%s) threads at end",
+        debug(fred_matcher) writefln("Threaded matching (%s) threads at end",
                                       direction == OneShot.Fwd ? "forward" : "backward");
         //try out all zero-width posibilities
         for(Thread!DataIndex* t = clist.fetch(); t; t = clist.fetch())
@@ -5753,7 +5789,9 @@ enum OneShot { Fwd, Bwd };
             evalFn!false(t, matches);
         }
         if(!matched)
+        {
             evalFn!false(createStart(index, startPc), matches);
+        }
    
         return (matched?MatchResult.Match:MatchResult.NoMatch);
     }
@@ -5764,17 +5802,17 @@ enum OneShot { Fwd, Bwd };
     void evalBack(bool withInput)(Thread!DataIndex* t, Group!DataIndex[] matches)
     {
         ThreadList!DataIndex worklist;
-        debug(fred_matching) writeln("Evaluating thread backwards");
+        debug(fred_matcher) writeln("Evaluating thread backwards");
         do
         {
-            debug(fred_matching)
+            debug(fred_matcher)
             {
                 writef("\tpc=%s [", t.pc);
                 foreach(x; worklist[])
                     writef(" %s ", x.pc);
                 writeln("]");
             }
-            debug(fred_matching) writeln(disassemble(re.ir, t.pc));
+            debug(fred_matcher) writeln(disassemble(re.ir, t.pc));
             switch(re.ir[t.pc].code)
             {
             case IR.Wordboundary:
@@ -5852,7 +5890,7 @@ enum OneShot { Fwd, Bwd };
                 }
                 break;
             case IR.Eol:
-                debug(fred_matching) writefln("EOL (front 0x%x) %s", front, s[index..s.lastIndex]);
+                debug(fred_matcher) writefln("EOL (front 0x%x) %s", front, s[index..s.lastIndex]);
                 dchar back;
                 DataIndex bi;
                 //no matching inside \r\n
@@ -5869,16 +5907,24 @@ enum OneShot { Fwd, Bwd };
                 }
                 break;
             case IR.InfiniteStart, IR.InfiniteQStart:
+                if(!sync(t.pc, t.counter))
+                {
+                    recycle(t);
+                    t = worklist.fetch();
+                    if(!t)
+                        return;
+                    break;
+                }
                 uint len = re.ir[t.pc].data;
                 uint mIdx = t.pc + len + IRL!(IR.InfiniteEnd); //we're always pointed at the tail of instruction
                 if(re.ir[t.pc].code == IR.InfiniteStart)//greedy
                 {
-                    worklist.checkedInsertFront(fork(t, t.pc-1, t.counter));
+                    worklist.insertFront(fork(t, t.pc-1, t.counter));
                     t.pc += len;
                 }
                 else
                 {
-                    worklist.checkedInsertFront(fork(t, t.pc+len, t.counter));
+                    worklist.insertFront(fork(t, t.pc+len, t.counter));
                     t.pc--;
                 }
                 break;
@@ -5889,6 +5935,14 @@ enum OneShot { Fwd, Bwd };
                 assert(re.ir[t.pc].code == IR.InfiniteStart || re.ir[t.pc].code == IR.InfiniteQStart);
                 goto case IR.InfiniteStart;
             case IR.RepeatStart, IR.RepeatQStart:
+                if(!sync(t.pc, t.counter))
+                {
+                    recycle(t);
+                    t = worklist.fetch();
+                    if(!t)
+                        return;
+                    break;
+                }
                 uint len = re.ir[t.pc].data;
                 uint tail = t.pc + len + IRL!(IR.RepeatStart);
                 uint step =  re.ir[tail+2].raw;
@@ -5905,13 +5959,13 @@ enum OneShot { Fwd, Bwd };
                 {
                     if(re.ir[t.pc].code == IR.RepeatStart)//greedy
                     {
-                        worklist.checkedInsertFront(fork(t, t.pc-1, t.counter%step));
+                        worklist.insertFront(fork(t, t.pc-1, t.counter%step));
                         t.counter += step;
                         t.pc += len;
                     }
                     else
                     {
-                        worklist.checkedInsertFront(fork(t, t.pc + len, t.counter + step));
+                        worklist.insertFront(fork(t, t.pc + len, t.counter + step));
                         t.counter = t.counter%step;
                         t.pc--;
                     }
@@ -5935,6 +5989,14 @@ enum OneShot { Fwd, Bwd };
                 t.pc = t.pc + len; //to IR.GotoEndOr or just before IR.OrEnd
                 break;
             case IR.OrStart:
+                if(!sync(t.pc, t.counter))
+                {
+                    recycle(t);
+                    t = worklist.fetch();
+                    if(!t)
+                        return;
+                    break;
+                }
                 uint len = re.ir[t.pc].data;
                 uint mIdx = t.pc + len + IRL!(IR.OrEnd); //should point to the end of OrEnd
                 t.pc--;
@@ -5957,7 +6019,7 @@ enum OneShot { Fwd, Bwd };
                 assert(re.ir[t.pc].code == IR.GotoEndOr);
                 uint npc = t.pc+IRL!(IR.GotoEndOr);
                 assert(re.ir[npc].code == IR.Option);
-                worklist.checkedInsertFront(fork(t, npc + re.ir[npc].data, t.counter));//queue nextChar branch
+                worklist.insertFront(fork(t, npc + re.ir[npc].data, t.counter));//queue nextChar branch
                 t.pc--;
                 break;
             case IR.GroupStart:
@@ -5990,7 +6052,7 @@ enum OneShot { Fwd, Bwd };
                             t.pc--;
                             t.uopCounter = 0;
                         }
-                        nlist.checkedInsertBack(t);
+                        nlist.insertBack(t);
                     }
                     else
                         recycle(t);
@@ -6020,7 +6082,7 @@ enum OneShot { Fwd, Bwd };
                 uint len = re.ir[t.pc].data;
                 t.pc -= len + IRL!(IR.LookaheadStart);
                 bool positive = re.ir[t.pc].code == IR.LookaheadStart;
-                auto matcher = ThompsonMatcher!(Char, typeof(s.loopBack))
+                auto matcher = ThompsonMatcher!(Char, attributes, typeof(s.loopBack))
                     (this
                     , re.ir[t.pc .. t.pc+len+IRL!(IR.LookbehindStart)+IRL!(IR.LookbehindEnd)]
                     , s.loopBack);
@@ -6044,7 +6106,8 @@ enum OneShot { Fwd, Bwd };
                 t.pc -= len + IRL!(IR.LookbehindStart);
                 uint ms = re.ir[t.pc+1].raw, me = re.ir[t.pc+2].raw;
                 bool positive = re.ir[t.pc].code == IR.LookbehindStart;
-                auto matcher = ThompsonMatcher(this, re.ir[t.pc .. t.pc+len+IRL!(IR.LookbehindStart)], s);
+                auto matcher = ThompsonMatcher!(Char, attributes, typeof(s))
+                    (this, re.ir[t.pc .. t.pc+len+IRL!(IR.LookbehindStart)], s);
                 matcher.front = front;
                 matcher.index = index;
                 matcher.re.ngroup = me - ms;
@@ -6078,7 +6141,7 @@ enum OneShot { Fwd, Bwd };
                     if(t.pc != end)
                     {
                         t.pc = end;
-                        nlist.checkedInsertBack(t);
+                        nlist.insertBack(t);
                     }
                     else
                         recycle(t);
@@ -6088,7 +6151,7 @@ enum OneShot { Fwd, Bwd };
                     if(front == re.ir[t.pc].data)
                     {
                         t.pc--;
-                        nlist.checkedInsertBack(t);
+                        nlist.insertBack(t);
                     }
                     else
                         recycle(t);
@@ -6100,14 +6163,14 @@ enum OneShot { Fwd, Bwd };
                             && (front == '\r' || front == '\n'))
                         recycle(t);
                     else
-                        nlist.checkedInsertBack(t);
+                        nlist.insertBack(t);
                     t = worklist.fetch();
                     break;
                 case IR.CodepointSet:
                     if(re.charsets[re.ir[t.pc].data].scanFor(front))
                     {
                         t.pc--;
-                        nlist.checkedInsertBack(t);
+                        nlist.insertBack(t);
                     }
                     else
                     {
@@ -6119,7 +6182,7 @@ enum OneShot { Fwd, Bwd };
                     if(re.tries[re.ir[t.pc].data][front])
                     {
                         t.pc--;
-                        nlist.checkedInsertBack(t);
+                        nlist.insertBack(t);
                     }
                     else
                     {
@@ -6190,8 +6253,6 @@ enum OneShot { Fwd, Bwd };
     //creates a copy of master thread with given pc
     Thread!DataIndex* fork(Thread!DataIndex* master, uint pc, uint counter)
     {
-        if(!sync(pc, counter))
-            return null;
         auto t = allocate();
         t.matches.ptr[0..re.ngroup] = master.matches.ptr[0..re.ngroup];
         t.pc = pc;
@@ -6203,14 +6264,6 @@ enum OneShot { Fwd, Bwd };
     //creates a start thread
     Thread!DataIndex* createStart(DataIndex index, uint pc=0)
     {
-        uint idx = merge[pc]+pc;
-        if(merge[idx] > genCounter){
-            debug(fred_matching) writefln("merged at (%s,%s) reason: tab=%s gen=%s",
-                           pc, 0, merge[idx], genCounter);
-            return null;
-        }
-        //else //will sync on first iteration
-        //    merge[idx] = genCounter+1;
         auto t = allocate();
         t.matches.ptr[0..re.ngroup] = (Group!DataIndex).init;
         t.matches[0].begin = index;
@@ -6223,14 +6276,15 @@ enum OneShot { Fwd, Bwd };
     //leave a thread trail on pc, cnt 
     bool sync(uint pc, uint cnt)
     {
-        uint idx = merge[pc]+pc+cnt;
-        if(merge[idx] > genCounter){
-            debug(fred_matching) writefln("merged at (%s,%s) reason: tab=%s gen=%s",
+        uint idx = merge[pc]+cnt;//abs indexing
+        debug(fred_matcher) writefln("Probe at %s", idx);
+        if(merge[idx] >= genCounter){
+            debug(fred_matcher) writefln("merged at (%s,%s) reason: tab=%s gen=%s",
                            pc, cnt, merge[idx], genCounter);
             return false;
         }
         else
-            return merge[idx] = genCounter+1, true;
+            return merge[idx] = genCounter, true;
     }
 }
 
@@ -7249,7 +7303,7 @@ unittest
         TestVectors(    "(foo.)(?=(bar))",     "foobar foodbar", "y", "$&-$1-$2", "food-food-bar" ),
         TestVectors(    `\b(\d+)[a-z](?=\1)`,  "123a123",        "y", "$&-$1", "123a-123" ), 
         TestVectors(    `\$(?!\d{3})\w+`,      "$123 $abc",      "y", "$&", "$abc"),
-        TestVectors(    `(abc)(?=(ed(f))\3)`,    "abcedff",      "y", "-", "-"),
+        TestVectors(    `(abc)(?=(ed(f))\3)`,    "abcedff",      "y", "-", "-"), 
         TestVectors(    `\b[A-Za-z0-9.]+(?=(@(?!gmail)))`, "a@gmail,x@com",  "y", "$&-$1", "x-@"),
         TestVectors(    `x()(abc)(?=(d)(e)(f)\2)`,   "xabcdefabc", "y", "$&", "xabc"),
         TestVectors(    `x()(abc)(?=(d)(e)(f)()\3\4\5)`,   "xabcdefdef", "y", "$&", "xabc"),
