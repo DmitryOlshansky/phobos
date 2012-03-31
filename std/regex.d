@@ -927,35 +927,12 @@ struct Parser(R, bool CTFE=false)
         origin = pattern;
         //reserve slightly more then avg as sampled from unittests
         if(!__ctfe)
-            ir.reserve((pat.length*5+2)/4);
+            ir.reserve((origin.length*5+2)/4);
         input = cachedUtfInput(origin);
         parseFlags(flags);
-<<<<<<< HEAD
-        nextChar();
-        try
-        {
-=======
         if(re_flags & RegexOption.freeform)
             skipSpace();
-        if(__ctfe)
->>>>>>> rework of std.regex input/parsing
-            parseRegex();
-        }
-        catch(Exception e)
-        {
-<<<<<<< HEAD
-            error(e.msg);//also adds pattern location
-=======
-            try
-            {
-                parseRegex();
-            }
-            catch(Exception e)
-            {
-                throw new RegexException(e.msg, origin, input.index);
-            }
->>>>>>> rework of std.regex input/parsing
-        }
+        parseRegex();
         put(Bytecode(IR.End, 0));
     }
 
@@ -5229,18 +5206,17 @@ enum Thompson:uint {
             eval!false(t, matches);
         }
         if(!matched)
-        {
             eval!false(createStart(index), matches);//new thread starting at end of input
         if(matched)
         {//in case NFA found match along the way
          //and last possible longer alternative ultimately failed
             s.reset(matches[0].end);//reset to last successful match
-            next();//and reload front character
+            nextChar();//and reload front character
             //--- here the exact state of stream was restored ---
             exhausted = atEnd || !(re.flags & RegexOption.global);
             //+ empty match advances the input
             if(!exhausted && matches[0].begin == matches[0].end)
-                next(); 
+                nextChar(); 
         }
         return matched;
     }
