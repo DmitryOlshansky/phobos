@@ -5,6 +5,50 @@
 
     For functions which operate on ASCII characters and ignore Unicode
     characters, see $(LINK2 std_ascii.html, std.ascii).
+    
+    (Short introduction to come)
+
+    Synopsis:
+    ---
+    unittest
+    {
+        import std.uni;
+        //intialize codepoint sets using regex notation
+        //$(D set) contains codepoints from both scripts.
+        auto set = CodepointSet("[\p{Cyrilic}||\p{Armenian}]");
+        auto ascii = CodepointSet("[\p{ASCII}]");
+        auto currency = CodepointSet("[\p{Currency_Symbol}]");
+
+        //easy set ops
+        auto a = set & ascii;
+        assert(a.empty); //as it has no intersection with ascii
+        a = set | ascii;
+        auto b = currency - a; //subtract all ASCII, cyrilic and armenian
+
+        //some properties of codepoint sets
+        assert(b.length == 46); //only 46 left per unicode 6.1
+        assert(!b['$']);    //testing is not really fast but works
+
+        //building lookup tables
+        auto oneTrie = a.buildTrie!1; //1-level Trie lookup table
+        assert(oneTrie['£']);
+        //pick best trie level, and bind it as a functor 
+        auto cyrilicOrArmenian = set.buildLookup;
+        import std.algorithm;
+        auto balance = find!(cyrilicOrArmenian)("Hello ընկեր!");
+        assert(balance == "ընկեր!");
+
+        //Normalization
+        string s = "Plain ascii (and not only), is always normalized!";
+        assert(s is normalize(s));//same string
+        string nonS = "eﬃcient?"); //ffi ligature
+        auto nS = normalize(nonS);
+        assert(nS == "efficient?");
+        assert(nS != n);
+        //to NFKD, if available
+        asert(normalize!NFKD("2¹⁰") == "210");
+    }
+    ---
 
     References:
         $(WEB www.digitalmars.com/d/ascii-table.html, ASCII Table),
