@@ -73,6 +73,291 @@ static import std.ascii;
 enum dchar lineSep = '\u2028'; /// UTF line separator
 enum dchar paraSep = '\u2029'; /// UTF paragraph separator
 
+
+struct InversionList{
+import std.array;
+public:
+    this(C)(in C[] regexSet)
+        if(is(C : dchar))
+    {
+        assert(0);
+    }
+
+    this()(uint[] intervals...)
+    in
+    {
+        assert(intervals.length % 2 == 0);
+        for(uint i=1; i<intervals.length; i++)
+            assert(intervals[i-1] < intervals[i]);
+    }
+    body
+    {
+        data.reserve(intervals.length);
+        size_t top=0;
+        for(size_t i = 0;  i < intervals.length; i+=2){
+            data ~= intervals[i] - top;
+            data ~= intervals[i+1] - intervals[i]; 
+            top = intervals[i+1];
+        }
+    }
+
+    this(this)
+    {//TODO: COW
+        data = data.dup;
+    }
+
+    InversionList opBinary(in InversionList rhs)
+    {
+        InversionList result;
+        return result;
+    }
+
+    InversionList opBinary(ref InversionList rhs)
+    {
+        InversionList result;
+        return result;
+    }
+    
+private:
+    struct Marker
+    {
+        uint idx;
+        uint top_before_idx;
+    };
+    //Think of it as RLE compressed bit-array
+    //data holds _lengths_ of intervals
+    //first value is a length of negative portion, second interval is positive,
+    //3rd is negative etc. (length can be zero e.g. if interval contains 0 like [\x00-\x7f])
+    uint[] data;
+    void toString(scope void delegate (in char[]) sink, bool hex=false)
+    {
+        import std.format;
+        bool positive;
+        size_t idx=0, top=0;
+        for(; idx<data.length; idx++)
+        {
+            top += data[idx];
+            if(positive)
+                formattedWrite(sink, hex ? "0x%x] " : "%d] ", top);
+            else
+                formattedWrite(sink, hex ? "[0x%x.." : "[%d..", top);
+            positive = !positive;
+        }
+        if(data.length %1 )
+        {
+            formattedWrite(sink,  hex ? "0x%x] " : "%d] ", top);
+        }
+        formattedWrite(sink, "\nrepr: %s\n", data);
+    }
+    const(uint)[] repr() const{ return data; }
+
+    //returns last point of insertion (idx,  top_value right before idx),
+    // so that top += data[idx] on first iteration  gives top of idx
+    Marker addInterval(uint a, uint b, uint hint = 0, uint hint_top_before=0)
+    in
+    {
+        assert(a < b);
+    }
+    body
+    {
+        import std.stdio;
+        scope(exit){
+            writefln("after adding (%d, %d):", a, b);
+            toString((x){ write(x); });
+            writeln("---");
+        }
+        uint top=hint_top_before, idx, a_start, a_idx;
+        for(idx=hint; idx < data.length; idx++)
+        {
+            top += data[idx];
+            if(a <= top)
+            {
+                a_start = top - data[idx];
+                a_idx = idx;
+                break;
+            }
+        }
+        if(idx == data.length)
+        {
+            //  [---+++----++++----++++++] 
+            //  [                         a  b]
+            data ~= [a - top, b - a];
+            return Marker(data.length-1, a);
+        }
+        top -= data[idx];
+        for(; idx<data.length;idx++)
+        {
+            top += data[idx];
+            if(b <= top)
+                break;
+
+        }
+            
+        writefln("a_start=%d; a_idx=%d; idx=%d;", a_start, a_idx, idx);
+        writefln("a=%s; b=%s; top=%s; a_start=%s;", a, b, top, a_start);
+
+        uint[] to_insert;
+
+        if(idx == data.length)
+        {
+            //  [-------++++++++----++++++-] 
+            //  [      s     a                 b]
+            if(a_idx & 1)//a in positive
+                to_insert = [ b - a_start ];
+            else// a in negative
+                to_insert = [ a - a_start, b - a];
+            replaceInPlace(data, a_idx, idx, to_insert);
+            uint pos = (a_idx + to_insert.length);
+            return Marker(pos, a) ; //bail out early
+        }
+
+        uint pos, pre_top;
+        if(a_idx & 1)
+        {//a in positive
+            if(idx & 1)//b in positive 
+            {
+                //  [-------++++++++----++++++-] 
+                //  [      s     a        b    ]
+                to_insert = [top - a_start];
+                pos = a_idx;
+                pre_top = a_start;
+            }
+            else //b in negative
+            {
+                //  [-------++++++++----++++++-] 
+                //  [       s    a   b         ]
+                if(top == b)
+                {
+                    assert(idx+1 < data.length);
+                    replaceInPlace(data, a_idx, idx+2, [b + data[idx+1] - a_start]);
+                    pos = a_idx + 1; 
+                    pre_top = a;
+                    return Marker(pos, pre_top);
+                }
+                to_insert = [b - a_start, top - b];
+                pos = (a_idx+1);
+                pre_top = b;
+            }
+        }
+        else
+        { // a in negative
+            if(idx & 1) //b in positive
+            {
+                //  [----------+++++----++++++-] 
+                //  [     a     b              ]
+                to_insert = [a - a_start, top - a];
+                pos = a_idx+1;
+                pre_top = a;
+            }
+            else// b in negative 
+            {
+                //  [----------+++++----++++++-] 
+                //  [  a       s      b        ]
+                if(top == b)
+                {
+                    assert(idx+1 < data.length);
+                    replaceInPlace(data, a_idx, idx+2, [a - a_start, top + data[idx+1] - a ]);
+                    pos = a_idx + 1; 
+                    pre_top = a;
+                    return Marker(pos, pre_top);
+                }   
+                pos = a_idx + 2; 
+                pre_top = b;
+                to_insert = [a - a_start, b - a, top - b];
+            }
+        }
+        writefln("marker idx: %d; value=%d", pos, pre_top);
+        writeln("inserting ", to_insert);
+        replaceInPlace(data, a_idx, idx+1, to_insert);
+        return Marker(pos,pre_top);
+    }    
+
+    ref add(uint a, uint b)
+    {
+        addInterval(a, b);
+        return this;
+    }
+
+    ref add(InversionList rhs)
+    {
+        size_t a=0, b;
+        for(size_t i=0; i<rhs.data.length; i++)
+        {
+
+        }
+        return this;
+    }
+};
+
+
+unittest//InversionList set ops
+{
+    import std.stdio;
+    InversionList a;
+    
+    //"plug a hole" test 
+    a.add(10, 20).add(25, 30).add(15, 27);
+    assert(a.repr == [10, 20]);
+
+    auto x = InversionList.init;
+    x.add(10, 20).add(30, 40).add(50, 60);
+
+    a = x;
+    a.add(20, 49);//[10, 49) [50, 60)
+    assert(a.repr == [10, 39, 1, 10]);
+
+    a = x;
+    a.add(20, 50);//[10, 60)
+    writeln(a);
+    assert(a.repr == [10, 50]);
+
+    //simple unions, mostly edge effects
+    x = InversionList.init;
+    x.add(10, 20).add(40, 60);
+    
+    a = x;
+    a.add(10, 25); //[10, 25) [40, 60)
+    assert(a.repr == [10, 15, 15, 20]);
+
+    a = x;   
+    a.add(5, 15); //[5, 20) [40, 60)
+    assert(a.repr == [5, 15, 20, 20]);
+
+    a = x;
+    a.add(0, 10); // [0, 20) [40, 60)
+    assert(a.repr == [0, 20, 20, 20]);
+
+    a = x;
+    a.add(0, 5); //prepand
+    assert(a.repr == [0, 5, 5, 10, 20, 20]);
+
+    a = x;
+    a.add(5, 20);
+    assert(a.repr == [5, 15, 20, 20]);
+
+    a = x;
+    a.add(3, 37);
+    assert(a.repr == [3, 34, 3, 20]);
+
+    a = x;
+    a.add(37, 65);
+    assert(a.repr == [10, 10, 17, 28]);
+
+}
+
+unittest//constructors
+{
+    auto a = InversionList(10, 25, 30, 45);
+    assert(a.repr == [10, 15, 5, 15]);
+}
+
+
+unittest
+{//full set | set operations
+    InversionList a, b, c;
+
+}
+
 /++
     Whether or not $(D c) is a Unicode whitespace character.
     (general Unicode category: Part of C0(tab, vertical tab, form feed,
