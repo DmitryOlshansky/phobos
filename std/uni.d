@@ -75,7 +75,7 @@ enum dchar paraSep = '\u2029'; /// UTF paragraph separator
 
 
 struct InversionList{
-import std.array;
+import std.array, std.algorithm;
 public:
     this(C)(in C[] regexSet)
         if(is(C : dchar))
@@ -106,29 +106,48 @@ public:
         data = data.dup;
     }
 
-    InversionList opBinary(in InversionList rhs)
+    //try hard to reuse r-value
+    InversionList opBinary(string op)(InversionList rhs)
     {
-        InversionList result;
-        return result;
+        mixin("rhs "~op~"= rhs; ");
+        return rhs;
     }
 
-    InversionList opBinary(ref InversionList rhs)
+    InversionList opBinary(string op)(ref InversionList rhs)
     {
-        InversionList result;
+        InversionList result = this;// "copy"
+        mixin("result "~op~"= rhs; ");
         return result;
     }
     
+    ref InversionList opOpAssign(string op)(InversionList rhs)
+    {
+        static if(op == "|")
+            return this.add(rhs);
+        else static if(op == "&")
+            return this.intersect(rhs);
+        else
+            static assert(0, "no operator "~op~" defined for InversionList");
+    }
+
+    bool opEquals(ref const InversionList rhs) const
+    {
+        return repr == rhs.repr;
+    }
+
 private:
     struct Marker
     {
         uint idx;
         uint top_before_idx;
     };
+
     //Think of it as RLE compressed bit-array
     //data holds _lengths_ of intervals
     //first value is a length of negative portion, second interval is positive,
     //3rd is negative etc. (length can be zero e.g. if interval contains 0 like [\x00-\x7f])
     uint[] data;
+
     void toString(scope void delegate (in char[]) sink, bool hex=false)
     {
         import std.format;
@@ -149,7 +168,8 @@ private:
         }
         formattedWrite(sink, "\nrepr: %s\n", data);
     }
-    const(uint)[] repr() const{ return data; }
+
+    @property const(uint)[] repr() const{ return data; }
 
     //returns last point of insertion (idx,  top_value right before idx),
     // so that top += data[idx] on first iteration  gives top of idx
@@ -278,12 +298,29 @@ private:
         return this;
     }
 
+    ref intersect(InversionList rhs)
+    {
+        //TODO: set intersection
+        return this;
+    }
+
     ref add(InversionList rhs)
     {
+        import std.stdio;
         size_t a=0, b;
-        for(size_t i=0; i<rhs.data.length; i++)
+        auto start = Marker(0, 0);
+        uint top=0, first=0;
+        for(uint idx=0; idx < rhs.data.length; idx++)
         {
-
+            if(idx & 1)
+            {
+                first = top;//save start of interval
+                top += rhs.data[idx];
+                writeln(first, "..", top);
+                addInterval(first, top);
+            }
+            else
+                top += rhs.data[idx];
         }
         return this;
     }
@@ -349,13 +386,41 @@ unittest//constructors
 {
     auto a = InversionList(10, 25, 30, 45);
     assert(a.repr == [10, 15, 5, 15]);
+
+
 }
 
 
 unittest
 {//full set | set operations
-    InversionList a, b, c;
+    import std.conv;
+    InversionList a, b, c, d;
 
+    //"plug hole"
+    a.add(20, 40).add(60, 80).add(100, 140).add(150, 200);
+    b.add(40, 60).add(80, 100).add(140, 150);
+    c = a | b;
+    d = b | a;
+    assert(c.repr == [20, 180], text(c));
+    assert(c == d, text(c," vs ", d));
+
+    b = InversionList.init.add(25, 45).add(65, 85).add(95,110).add(150, 210);
+    c = a | b; //[20,45) [60, 85) [95, 110) [150, 210)
+    d = b | a;
+    assert(c.repr == [20, 25, 15, 25, 10, 45, 10, 60], text(c));
+    assert(c == d, text(c," vs ", d));
+
+    b = InversionList.init.add(10, 20).add(30,100).add(145,200);
+    c = a | b;//[10, 140) [145, 200)
+    d = b | a;
+    assert(c.repr == [10, 130, 5, 55]);
+    assert(c == d, text(c," vs ", d));
+
+    b = InversionList.init.add(0,10).add(15, 100).add(10, 20).add(200, 220);
+    c = a | b;//[0, 140) [150, 220)
+    d = b | a;
+    assert(c.repr == [0, 140, 10, 70]);
+    assert(c == d, text(c," vs ", d));
 }
 
 /++
