@@ -136,7 +136,7 @@ public:
     }
 
 private:
-    struct Marker
+    struct Marker//denotes position in InversionList
     {
         uint idx;
         uint top_before_idx;
@@ -162,10 +162,6 @@ private:
                 formattedWrite(sink, hex ? "[0x%x.." : "[%d..", top);
             positive = !positive;
         }
-        if(data.length %1 )
-        {
-            formattedWrite(sink,  hex ? "0x%x] " : "%d] ", top);
-        }
         formattedWrite(sink, "\nrepr: %s\n", data);
     }
 
@@ -186,7 +182,9 @@ private:
             toString((x){ write(x); });
             writeln("---");
         }
+
         uint top=hint_top_before, idx, a_start, a_idx;
+        uint pos, pre_top;//marker that indicates place of insertion
         for(idx=hint; idx < data.length; idx++)
         {
             top += data[idx];
@@ -217,27 +215,32 @@ private:
         writefln("a=%s; b=%s; top=%s; a_start=%s;", a, b, top, a_start);
 
         uint[] to_insert;
-
         if(idx == data.length)
         {
             //  [-------++++++++----++++++-] 
             //  [      s     a                 b]
             if(a_idx & 1)//a in positive
+            {
                 to_insert = [ b - a_start ];
+                pre_top = a_start;
+            }
             else// a in negative
+            {
                 to_insert = [ a - a_start, b - a];
+                pre_top = a;
+            }
             replaceInPlace(data, a_idx, idx, to_insert);
-            uint pos = (a_idx + to_insert.length);
-            return Marker(pos, a) ; //bail out early
+            pos = (a_idx + to_insert.length);
+            return Marker(pos, pre_top) ; //bail out early
         }
 
-        uint pos, pre_top;
+        
         if(a_idx & 1)
         {//a in positive
             if(idx & 1)//b in positive 
             {
                 //  [-------++++++++----++++++-] 
-                //  [      s     a        b    ]
+                //  [       s    a        b    ]
                 to_insert = [top - a_start];
                 pos = a_idx;
                 pre_top = a_start;
@@ -250,12 +253,12 @@ private:
                 {
                     assert(idx+1 < data.length);
                     replaceInPlace(data, a_idx, idx+2, [b + data[idx+1] - a_start]);
-                    pos = a_idx + 1; 
-                    pre_top = a;
+                    pos = a_idx; 
+                    pre_top = a_start;
                     return Marker(pos, pre_top);
                 }
                 to_insert = [b - a_start, top - b];
-                pos = (a_idx+1);
+                pos = a_idx+1;
                 pre_top = b;
             }
         }
@@ -277,7 +280,7 @@ private:
                 {
                     assert(idx+1 < data.length);
                     replaceInPlace(data, a_idx, idx+2, [a - a_start, top + data[idx+1] - a ]);
-                    pos = a_idx + 1; 
+                    pos = a_idx + 1;  
                     pre_top = a;
                     return Marker(pos, pre_top);
                 }   
@@ -290,7 +293,79 @@ private:
         writeln("inserting ", to_insert);
         replaceInPlace(data, a_idx, idx+1, to_insert);
         return Marker(pos,pre_top);
-    }    
+    }
+
+    //remove intervals up to [..a) staring at Marker(idx, top_before)
+    Marker dropUpTo(uint a, uint start_idx=0, uint top_before=0)
+    {
+        uint top=top_before, idx=start_idx;
+        uint pos, pre_top;//marker that indicates place of insertion
+        assert(idx % 2 == 0); //can't start in positive interval,
+        //though negative interval can be of length zero
+        for(; idx < data.length; idx++)
+        {
+            top += data[idx];
+            if(a <= top)
+                break;
+        }
+        if(idx == data.length)
+        {
+            //nothing left
+            data = data[0..start_idx];
+            return Marker(idx, top);
+        }
+        
+        if(idx & 1)
+        {   //a in positive
+            //[--+++----++++++----+++++++------...]
+            //      |<---si       s  a  t
+            uint start = top - data[idx];
+            if(top == a)
+            {
+                replaceInPlace(data, start_idx, idx+2, [top + data[idx+1] - top_before]);
+                pos = start_idx;
+                pre_top = top_before;
+                return Marker(pos, pre_top);
+            }
+            replaceInPlace(data, start_idx, idx+1, [a - top_before, top - a]);
+            pos = start_idx+1;
+            pre_top = a;
+        }
+        else
+        {   //a in negative
+            //[--+++----++++++----+++++++-------+++...]
+            //      |<---si              s  a  t    
+            replaceInPlace(data, start_idx, idx+1, [top - top_before]);
+            pos = start_idx;
+            pre_top = top_before;
+        }
+        return Marker(pos, pre_top);
+    }
+
+    Marker skipUpTo(uint a, uint start_idx=0, uint top_before=0)
+    {import std.stdio;
+        uint top=top_before, idx=start_idx;
+        for(; idx < data.length; idx++)
+        {
+            top += data[idx];
+            if(a <= top)
+                break;
+        }
+        if(idx == data.length)
+            return Marker(idx, top);
+        writeln("skip idx: ", idx);
+        if(idx & 1)//landed in positive, check for split
+        {
+            
+            if(top == a)//no need to split, it's end
+                return Marker(idx+1, top);
+            //split it up
+            uint start = top - data[idx];
+            replaceInPlace(data, idx, idx+1, [a - start, 0, top - a]);
+            return Marker(idx+1, a);
+        }
+        return Marker(idx, top - data[idx]);   
+    }
 
     ref add(uint a, uint b)
     {
@@ -300,7 +375,27 @@ private:
 
     ref intersect(InversionList rhs)
     {
-        //TODO: set intersection
+        import std.stdio;
+        uint top;
+        Marker mark;
+        for(uint idx=0; idx<rhs.data.length; idx+=2)
+        {
+            writeln("---");
+            
+            top += rhs.data[idx];
+            mark = this.dropUpTo(top, mark.idx, mark.top_before_idx);
+            writefln("droped till %s %s", top, mark);
+            writeln(this);
+            writeln("***");
+            top += rhs.data[idx+1];
+            mark = this.skipUpTo(top, mark.idx, mark.top_before_idx);
+            writefln("skipped till %s %s", top, mark);
+            writeln(this);
+            writeln("---");
+        }
+        this.dropUpTo(0x10FFFF, mark.idx, mark.top_before_idx);
+        writeln(this);
+        writeln("!!!");
         return this;
     }
 
@@ -317,7 +412,7 @@ private:
                 first = top;//save start of interval
                 top += rhs.data[idx];
                 writeln(first, "..", top);
-                addInterval(first, top);
+                start = addInterval(first, top, start.idx, start.top_before_idx);
             }
             else
                 top += rhs.data[idx];
@@ -329,7 +424,7 @@ private:
 
 unittest//InversionList set ops
 {
-    import std.stdio;
+    import std.conv;
     InversionList a;
     
     //"plug a hole" test 
@@ -345,7 +440,6 @@ unittest//InversionList set ops
 
     a = x;
     a.add(20, 50);//[10, 60)
-    writeln(a);
     assert(a.repr == [10, 50]);
 
     //simple unions, mostly edge effects
@@ -380,23 +474,39 @@ unittest//InversionList set ops
     a.add(37, 65);
     assert(a.repr == [10, 10, 17, 28]);
 
+    //some tests on helpers for set intersection
+    x = InversionList.init.add(10, 20).add(40, 60).add(100, 120);
+    a = x;
+    auto m = a.skipUpTo(60);
+    a.dropUpTo(110, m.idx, m.top_before_idx);
+    assert(a.repr == [10, 10, 20, 20, 50, 10], text(a));
+
+    a = x;
+    a.dropUpTo(100);
+    assert(a.repr == [100, 20], text(a));
+
+    a = x;
+    m = a.skipUpTo(50);
+    a.dropUpTo(140, m.idx, m.top_before_idx);
+    assert(a.repr == [10, 10, 20, 10], text(a));
+    a = x;
+    a.dropUpTo(60);
+    assert(a.repr == [100, 20], text(a));
 }
 
 unittest//constructors
 {
     auto a = InversionList(10, 25, 30, 45);
     assert(a.repr == [10, 15, 5, 15]);
-
-
 }
 
 
 unittest
-{//full set | set operations
+{   //full set operations
     import std.conv;
     InversionList a, b, c, d;
 
-    //"plug hole"
+    //"plug a hole"
     a.add(20, 40).add(60, 80).add(100, 140).add(150, 200);
     b.add(40, 60).add(80, 100).add(140, 150);
     c = a | b;
@@ -420,6 +530,21 @@ unittest
     c = a | b;//[0, 140) [150, 220)
     d = b | a;
     assert(c.repr == [0, 140, 10, 70]);
+    assert(c == d, text(c," vs ", d));
+
+
+    a = InversionList.init.add(20, 40).add(60, 80);
+    b = InversionList.init.add(25, 35).add(65, 75);
+    c = a & b;
+    d = b & a;
+    assert(c.repr == [25, 10, 30, 10], text(c));
+    assert(c == d, text(c," vs ", d));
+
+    a = InversionList.init.add(20, 40).add(60, 80).add(100, 140).add(150, 200);
+    b = InversionList.init.add(25, 35).add(65, 75).add(110, 130).add(160, 180);
+    c = a & b;
+    d = b & a;
+    assert(c.repr == [25, 10, 30, 10, 35, 20, 30, 20], text(c));
     assert(c == d, text(c," vs ", d));
 }
 
