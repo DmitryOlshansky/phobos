@@ -69,12 +69,18 @@
 module std.uni;
 
 static import std.ascii;
+import std.traits;
 
 enum dchar lineSep = '\u2028'; /// UTF line separator
 enum dchar paraSep = '\u2029'; /// UTF paragraph separator
 
+debug = std_uni;
 
-struct InversionList{
+debug(std_uni) import std.stdio;
+
+struct InversionList(T)
+    if(isIntegral!T)
+{
 import std.array, std.algorithm;
 public:
     this(C)(in C[] regexSet)
@@ -106,26 +112,32 @@ public:
         data = data.dup;
     }
 
-    //try hard to reuse r-value
     InversionList opBinary(string op)(InversionList rhs)
     {
-        mixin("rhs "~op~"= rhs; ");
-        return rhs;
-    }
-
-    InversionList opBinary(string op)(ref InversionList rhs)
-    {
-        InversionList result = this;// "copy"
-        mixin("result "~op~"= rhs; ");
-        return result;
+        static if(op == "&" || op == "|" || op == "~")
+        {
+            //try hard to reuse r-value
+            mixin("rhs "~op~"= this; ");
+            return rhs;
+        }
+        else static if(op == "-")
+        {
+            auto copy = this;
+            copy -= rhs;
+            return copy;
+        }
     }
     
     ref InversionList opOpAssign(string op)(InversionList rhs)
     {
-        static if(op == "|")
+        static if(op == "|")    //union
             return this.add(rhs);
-        else static if(op == "&")
+        else static if(op == "&")   //intersection
             return this.intersect(rhs);
+        else static if(op == "-")   //set difference
+            return this.sub(rhs);
+        else static if(op == "~")   //symmetric set difference
+            return this = (this | rhs) - (this & rhs);
         else
             static assert(0, "no operator "~op~" defined for InversionList");
     }
@@ -176,13 +188,14 @@ private:
     }
     body
     {
-        import std.stdio;
-        scope(exit){
-            writefln("after adding (%d, %d):", a, b);
-            toString((x){ write(x); });
-            writeln("---");
+        debug(std_uni)
+        {
+            scope(exit){
+                writefln("after adding (%d, %d):", a, b);
+                toString((x){ write(x); });
+                writeln("---");
+            }
         }
-
         uint top=hint_top_before, idx, a_start, a_idx;
         uint pos, pre_top;//marker that indicates place of insertion
         for(idx=hint; idx < data.length; idx++)
@@ -211,8 +224,11 @@ private:
 
         }
             
-        writefln("a_start=%d; a_idx=%d; idx=%d;", a_start, a_idx, idx);
-        writefln("a=%s; b=%s; top=%s; a_start=%s;", a, b, top, a_start);
+        debug(std_uni)
+        {
+            writefln("a_start=%d; a_idx=%d; idx=%d;", a_start, a_idx, idx);
+            writefln("a=%s; b=%s; top=%s; a_start=%s;", a, b, top, a_start);
+        }
 
         uint[] to_insert;
         if(idx == data.length)
@@ -289,8 +305,11 @@ private:
                 to_insert = [a - a_start, b - a, top - b];
             }
         }
-        writefln("marker idx: %d; value=%d", pos, pre_top);
-        writeln("inserting ", to_insert);
+        debug(std_uni)
+        {
+            writefln("marker idx: %d; value=%d", pos, pre_top);
+            writeln("inserting ", to_insert);
+        }
         replaceInPlace(data, a_idx, idx+1, to_insert);
         return Marker(pos,pre_top);
     }
@@ -320,8 +339,14 @@ private:
             //[--+++----++++++----+++++++------...]
             //      |<---si       s  a  t
             uint start = top - data[idx];
-            if(top == a)
+            if(top == a)//glue two negative intervals
             {
+                // for negative stuff, idx can be equal data.length-1
+                if(idx + 1 == data.length)
+                {
+                    replaceInPlace(data, start_idx, data.length, cast(T[])[]);
+                    return Marker(data.length, top);
+                }
                 replaceInPlace(data, start_idx, idx+2, [top + data[idx+1] - top_before]);
                 pos = start_idx;
                 pre_top = top_before;
@@ -343,7 +368,7 @@ private:
     }
 
     Marker skipUpTo(uint a, uint start_idx=0, uint top_before=0)
-    {import std.stdio;
+    {
         uint top=top_before, idx=start_idx;
         for(; idx < data.length; idx++)
         {
@@ -353,10 +378,9 @@ private:
         }
         if(idx == data.length)
             return Marker(idx, top);
-        writeln("skip idx: ", idx);
+        
         if(idx & 1)//landed in positive, check for split
-        {
-            
+        {            
             if(top == a)//no need to split, it's end
                 return Marker(idx+1, top);
             //split it up
@@ -375,33 +399,71 @@ private:
 
     ref intersect(InversionList rhs)
     {
-        import std.stdio;
         uint top;
         Marker mark;
         for(uint idx=0; idx<rhs.data.length; idx+=2)
         {
-            writeln("---");
-            
+            debug(std_uni) writeln("---");
             top += rhs.data[idx];
             mark = this.dropUpTo(top, mark.idx, mark.top_before_idx);
-            writefln("droped till %s %s", top, mark);
-            writeln(this);
-            writeln("***");
+            debug(std_uni) 
+            {
+                writefln("droped till %s %s", top, mark);
+                writeln(this);
+                writeln("***");
+            }
             top += rhs.data[idx+1];
             mark = this.skipUpTo(top, mark.idx, mark.top_before_idx);
-            writefln("skipped till %s %s", top, mark);
-            writeln(this);
-            writeln("---");
+            debug(std_uni) 
+            {
+                writefln("skipped till %s %s", top, mark);
+                writeln(this);
+                writeln("---");
+            }
         }
         this.dropUpTo(0x10FFFF, mark.idx, mark.top_before_idx);
-        writeln(this);
-        writeln("!!!");
+        debug(std_uni) 
+        {
+            writeln(this);
+            writeln("!!!");
+        }
+        return this;
+    }
+
+    //same as above excpet that skip & drop parts are swapped
+    ref sub(InversionList rhs)
+    {
+        uint top;
+        Marker mark;        
+        for(uint idx=0; idx<rhs.data.length; idx+=2)
+        {
+            debug(std_uni)
+            {
+                writeln("---");
+                writefln("skipping at idx %s", idx);
+            }
+            top += rhs.data[idx];
+            mark = this.skipUpTo(top, mark.idx, mark.top_before_idx);
+            debug(std_uni)  writeln("skipped up to ", mark);
+            top += rhs.data[idx+1];
+            mark = this.dropUpTo(top, mark.idx, mark.top_before_idx);
+            debug(std_uni) 
+            {
+                writefln("dropped till %s %s", top, mark);
+                writeln(this);
+                writeln("---");
+            }
+        }
+        debug(std_uni) 
+        {
+            writeln(this);
+            writeln("!!!");
+        }
         return this;
     }
 
     ref add(InversionList rhs)
     {
-        import std.stdio;
         size_t a=0, b;
         auto start = Marker(0, 0);
         uint top=0, first=0;
@@ -411,7 +473,7 @@ private:
             {
                 first = top;//save start of interval
                 top += rhs.data[idx];
-                writeln(first, "..", top);
+                debug(std_uni) writeln(first, "..", top);
                 start = addInterval(first, top, start.idx, start.top_before_idx);
             }
             else
@@ -422,16 +484,18 @@ private:
 };
 
 
-unittest//InversionList set ops
+alias InversionList!uint CodeList;
+
+unittest//CodeList set ops
 {
     import std.conv;
-    InversionList a;
+    CodeList a;
     
     //"plug a hole" test 
     a.add(10, 20).add(25, 30).add(15, 27);
     assert(a.repr == [10, 20]);
 
-    auto x = InversionList.init;
+    auto x = CodeList.init;
     x.add(10, 20).add(30, 40).add(50, 60);
 
     a = x;
@@ -443,7 +507,7 @@ unittest//InversionList set ops
     assert(a.repr == [10, 50]);
 
     //simple unions, mostly edge effects
-    x = InversionList.init;
+    x = CodeList.init;
     x.add(10, 20).add(40, 60);
     
     a = x;
@@ -475,7 +539,7 @@ unittest//InversionList set ops
     assert(a.repr == [10, 10, 17, 28]);
 
     //some tests on helpers for set intersection
-    x = InversionList.init.add(10, 20).add(40, 60).add(100, 120);
+    x = CodeList.init.add(10, 20).add(40, 60).add(100, 120);
     a = x;
     auto m = a.skipUpTo(60);
     a.dropUpTo(110, m.idx, m.top_before_idx);
@@ -496,7 +560,7 @@ unittest//InversionList set ops
 
 unittest//constructors
 {
-    auto a = InversionList(10, 25, 30, 45);
+    auto a = CodeList(10, 25, 30, 45);
     assert(a.repr == [10, 15, 5, 15]);
 }
 
@@ -504,7 +568,7 @@ unittest//constructors
 unittest
 {   //full set operations
     import std.conv;
-    InversionList a, b, c, d;
+    CodeList a, b, c, d;
 
     //"plug a hole"
     a.add(20, 40).add(60, 80).add(100, 140).add(150, 200);
@@ -514,38 +578,79 @@ unittest
     assert(c.repr == [20, 180], text(c));
     assert(c == d, text(c," vs ", d));
 
-    b = InversionList.init.add(25, 45).add(65, 85).add(95,110).add(150, 210);
+    b = CodeList.init.add(25, 45).add(65, 85).add(95,110).add(150, 210);
     c = a | b; //[20,45) [60, 85) [95, 110) [150, 210)
     d = b | a;
     assert(c.repr == [20, 25, 15, 25, 10, 45, 10, 60], text(c));
     assert(c == d, text(c," vs ", d));
 
-    b = InversionList.init.add(10, 20).add(30,100).add(145,200);
+    b = CodeList.init.add(10, 20).add(30,100).add(145,200);
     c = a | b;//[10, 140) [145, 200)
     d = b | a;
     assert(c.repr == [10, 130, 5, 55]);
     assert(c == d, text(c," vs ", d));
 
-    b = InversionList.init.add(0,10).add(15, 100).add(10, 20).add(200, 220);
+    b = CodeList.init.add(0,10).add(15, 100).add(10, 20).add(200, 220);
     c = a | b;//[0, 140) [150, 220)
     d = b | a;
     assert(c.repr == [0, 140, 10, 70]);
     assert(c == d, text(c," vs ", d));
 
 
-    a = InversionList.init.add(20, 40).add(60, 80);
-    b = InversionList.init.add(25, 35).add(65, 75);
+    a = CodeList.init.add(20, 40).add(60, 80);
+    b = CodeList.init.add(25, 35).add(65, 75);
     c = a & b;
     d = b & a;
     assert(c.repr == [25, 10, 30, 10], text(c));
     assert(c == d, text(c," vs ", d));
 
-    a = InversionList.init.add(20, 40).add(60, 80).add(100, 140).add(150, 200);
-    b = InversionList.init.add(25, 35).add(65, 75).add(110, 130).add(160, 180);
+    a = CodeList.init.add(20, 40).add(60, 80).add(100, 140).add(150, 200);
+    b = CodeList.init.add(25, 35).add(65, 75).add(110, 130).add(160, 180);
     c = a & b;
     d = b & a;
     assert(c.repr == [25, 10, 30, 10, 35, 20, 30, 20], text(c));
     assert(c == d, text(c," vs ", d));
+
+    a = CodeList.init.add(20, 40).add(60, 80).add(100, 140).add(150, 200);
+    b = CodeList.init.add(10, 30).add(60, 120).add(135, 160);
+    c = a & b;//[20, 30)[60, 80) [100, 120) [135, 140) [150, 160)
+    d = b & a;
+    assert(c.repr == [20, 10, 30, 20, 20, 20, 15, 5, 10, 10],text(c));
+    assert(c == d, text(c, " vs ",d));
+    assert((c & a) == c);
+    assert((d & b) == d);
+    assert((c & d) == d);
+
+    b = CodeList.init.add(40, 60).add(80, 100).add(140, 200);
+    c = a & b;
+    d = b & a;
+    assert(c.repr == [150, 50], text(c));
+    assert(c == d, text(c, " vs ",d));
+    assert((c & a) == c);
+    assert((d & b) == d);
+    assert((c & d) == d);
+
+    assert((a & a) == a);
+    assert((b & b) == b);
+
+    a = CodeList.init.add(20, 40).add(60, 80).add(100, 140).add(150, 200);
+    b = CodeList.init.add(30, 60).add(75, 120).add(190, 300);
+    c = a - b;// [30, 40) [60, 75) [120, 140) [150, 190)
+    d = b - a;// [40, 60) [80, 100) [200, 300)
+    assert(c.repr == [20, 10, 30, 15, 45, 20, 10, 40], text(c));
+    assert(d.repr == [40, 20, 20, 20, 100, 100], text(d));
+    assert(c - d == c, text(c-d, " vs ", c));
+    assert(d - c == d, text(d-c, " vs ", d));
+    assert(c - c == CodeList.init);
+    assert(d - d == CodeList.init);
+
+    a = CodeList.init.add(20,    40).add(60, 80).add(100,      140).add(150,  200);
+    b = CodeList.init.add(10, 30).add(45,         100).add(130,             190);
+    c = a ~ b; // [10, 20) [30, 40) [45, 60) [80, 130) [140, 150) [190, 200)
+    d = b ~ a;
+    assert(c.repr == [10, 10, 10, 10, 5, 15, 20, 50, 10, 10, 40, 10], text(c));
+    assert(c == d, text(c, " vs ", d));
+
 }
 
 /++
