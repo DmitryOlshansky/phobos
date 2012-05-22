@@ -119,7 +119,7 @@ public:
     this()(uint[] intervals...)
     in
     {
-        assert(intervals.length % 2 == 0);
+        assert(intervals.length % 2 == 0, "Odd number of interval bounds [a, b)!");
         for(uint i=1; i<intervals.length; i++)
             assert(intervals[i-1] < intervals[i]);
     }
@@ -188,9 +188,40 @@ public:
             static assert(0, "no operator "~op~" defined for InversionList");
     }
 
-    bool opEquals(ref const InversionList rhs) const
+    bool opEquals(U)(ref const InversionList!U rhs) const
+	if(isUnsigned!U)
     {
-        return repr == rhs.repr;
+        static if(T.sizeof == 4)//short-circuit full versions
+            return repr == rhs.repr;
+    
+        uint top=0, rtop=0, idx=0, ridx=0;
+        while(idx < data.length && ridx < rhs.data.length)
+        {
+            top += data[idx];
+            rtop += data[ridx];
+            while(rtop != top)
+            {
+                //check for ... x 0 y "prolong" sequence
+                if(ridx + 1 < rhs.data.length && rhs.data[ridx+1] == 0)
+                {
+                    //OK rhs has extra segment
+                    assert(ridx+2 < rhs.data.length); // 0 at the end is an error
+                    rtop += rhs.data[ridx+2];
+                    ridx += 2;
+                }
+                else if(idx + 1 < data.length && data[idx+1] == 0)
+                {
+                    assert(idx+2 < data.length); // ditto at end
+                    top += data[idx+2];
+                    idx += 2;
+                }
+                else
+                    return false;
+            }
+            idx++;
+            ridx++;
+        }
+        return true;
     }
 
 private:
@@ -233,10 +264,13 @@ private:
         dest ~= force!T(val);
     }
 
-    static void replacePad(ref T[] dest, size_t from, size_t to, uint[] to_insert)
+    static uint replacePad(ref T[] dest, size_t from, size_t to, uint[] to_insert)
     {
         static if(T.sizeof == 4)//short-circuit to optimal version
-            return replaceInPlace(dest, from, to, to_insert);
+        {
+	        replaceInPlace(dest, from, to, to_insert);
+    	    return from+to_insert.length-1;
+	    }
         T[] scratch_space;
         size_t s=0;
         foreach(i, v; to_insert)
@@ -246,10 +280,18 @@ private:
                 appendPad(scratch_space, v);
                 s = i+1;
             }
+	
         if(s == 0)
-	        replaceInPlace(dest, from, to, adaptIntRange!T(to_insert)); // short-circuit #2
+        {
+            replaceInPlace(dest, from, to, adaptIntRange!T(to_insert)); // short-circuit #2
+        	return from+to_insert.length-1;
+        }
         else
-	        replaceInPlace(dest, from, to, scratch_space); // some of (T.max, 0) ended up there
+        {
+            replaceInPlace(dest, from, to, scratch_space); // some of (T.max, 0) ended up there
+            insertInPlace(dest, dest.length, adaptIntRange!T(to_insert[s..$]));
+        	return from+force!uint(scratch_space.length-1);
+        }
     }
 
     @property const(T)[] repr() const{ return data; }
@@ -259,10 +301,13 @@ private:
     Marker addInterval(uint a, uint b, uint hint = 0, uint hint_top_before=0)
     in
     {
-        assert(a < b);
+        assert(a <= b);
     }
     body
     {
+	static if(T.sizeof != 4)
+		if(a == b)//empty interval, happens often with ushort/ubyte lists
+			return Marker(hint, hint_top_before);
         debug(std_uni)
         {
             scope(exit){
@@ -327,8 +372,7 @@ private:
                 to_insert = [ a - a_start, b - a];
                 pre_top = a;
             }
-            replacePad(data, a_idx, idx, to_insert);
-            pos = (a_idx + to_insert.length);
+            pos = replacePad(data, a_idx, idx, to_insert);
             return Marker(pos, pre_top) ; //bail out early
         }
 
@@ -340,7 +384,6 @@ private:
                 //  [-------++++++++----++++++-] 
                 //  [       s    a        b    ]
                 to_insert = [top - a_start];
-                pos = a_idx;
                 pre_top = a_start;
             }
             else //b in negative
@@ -350,13 +393,11 @@ private:
                 if(top == b)
                 {
                     assert(idx+1 < data.length);
-                    replacePad(data, a_idx, idx+2, [b + data[idx+1] - a_start]);
-                    pos = a_idx; 
+                    pos = replacePad(data, a_idx, idx+2, [b + data[idx+1] - a_start]);
                     pre_top = a_start;
                     return Marker(pos, pre_top);
                 }
                 to_insert = [b - a_start, top - b];
-                pos = a_idx+1;
                 pre_top = b;
             }
         }
@@ -367,7 +408,6 @@ private:
                 //  [----------+++++----++++++-] 
                 //  [     a     b              ]
                 to_insert = [a - a_start, top - a];
-                pos = a_idx+1;
                 pre_top = a;
             }
             else// b in negative 
@@ -377,12 +417,10 @@ private:
                 if(top == b)
                 {
                     assert(idx+1 < data.length);
-                    replacePad(data, a_idx, idx+2, [a - a_start, top + data[idx+1] - a ]);
-                    pos = a_idx + 1;  
+                    pos = replacePad(data, a_idx, idx+2, [a - a_start, top + data[idx+1] - a ]);
                     pre_top = a;
                     return Marker(pos, pre_top);
                 }   
-                pos = a_idx + 2; 
                 pre_top = b;
                 to_insert = [a - a_start, b - a, top - b];
             }
@@ -392,8 +430,8 @@ private:
             writefln("marker idx: %d; value=%d", pos, pre_top);
             writeln("inserting ", to_insert);
         }
-        replacePad(data, a_idx, idx+1, to_insert);
-        return Marker(pos,pre_top);
+        pos = replacePad(data, a_idx, idx+1, to_insert);
+        return Marker(pos, pre_top);
     }
 
     //remove intervals up to [..a) staring at Marker(idx, top_before)
@@ -409,11 +447,11 @@ private:
             if(a <= top)
                 break;
         }
-        if(idx == data.length)
+        if(idx >= data.length)
         {
             //nothing left
             data = data[0..start_idx];
-            return Marker(idx, top);
+            return Marker(data.length, top);
         }
         
         if(idx & 1)
@@ -429,23 +467,24 @@ private:
                     replacePad(data, start_idx, data.length, cast(T[])[]);
                     return Marker(data.length, top);
                 }
-                replacePad(data, start_idx, idx+2, [top + data[idx+1] - top_before]);
-                pos = start_idx;
+                pos = replacePad(data, start_idx, idx+2, [top + data[idx+1] - top_before]);
                 pre_top = top_before;
                 return Marker(pos, pre_top);
             }
-            replacePad(data, start_idx, idx+1, [a - top_before, top - a]);
-            pos = start_idx+1;
+            writefln("sidx=%s idx=%s insert=%s", start_idx, idx, [a - top_before, top - a]);
+            pos = replacePad(data, start_idx, idx+1, [a - top_before, top - a]);
+   	        writeln(data[start_idx..$]);
             pre_top = a;
+	        debug(std_uni) writeln(this, "!!!");
         }
         else
         {   //a in negative
             //[--+++----++++++----+++++++-------+++...]
             //      |<---si              s  a  t    
-            replacePad(data, start_idx, idx+1, [top - top_before]);
-            pos = start_idx;
+            pos = replacePad(data, start_idx, idx+1, [top - top_before]);
             pre_top = top_before;
         }
+	    debug(std_uni) writeln("Length after drop: ", data.length);
         return Marker(pos, pre_top);
     }
 
@@ -453,14 +492,15 @@ private:
     Marker skipUpTo(uint a, uint start_idx=0, uint top_before=0)
     {
         uint top=top_before, idx=start_idx;
+        assert(data.length % 2 == 0);
         for(; idx < data.length; idx++)
         {
             top += data[idx];
             if(a <= top)
                 break;
         }
-        if(idx == data.length)
-            return Marker(idx, top);
+        if(idx >= data.length) //could have Marker point to recently removed stuff
+            return Marker(data.length, top);
         
         if(idx & 1)//landed in positive, check for split
         {            
@@ -468,8 +508,8 @@ private:
                 return Marker(idx+1, top);
             //split it up
             uint start = top - data[idx];
-            replacePad(data, idx, idx+1, [a - start, 0, top - a]);
-            return Marker(idx+1, a);
+            uint val = replacePad(data, idx, idx+1, [a - start, 0, top - a]);
+            return Marker(val-1, a);        //avoid odd index
         }
         return Marker(idx, top - data[idx]);   
     }
@@ -754,11 +794,60 @@ unittest
     }
 }
 
+private alias InversionList!ubyte uList;
+private alias InversionList!ushort mList;
 
 unittest// set operations and integer overflow ;)
 {
-    alias InversionList!ushort uList;
+	uList a, b, c, d;
+	a = uList(20, 40, 100,      300, 400,     1200);
+	b = uList(0,           260, 300,      600);
+	assert(a.repr == [20, 20, 60, 200, 100, 255, 0, 255, 0, 255, 0, 35]);
+	assert(b.repr == [0, 255, 0, 5, 40, 255, 0, 45]);
+	c = a & b; //[20,40) [100, 260) [400, 600) 
+	d = b & a; 
+	auto e = uList(20, 40, 100, 260, 400, 600);
+	assert(c == e, text(c, " vs ", e));
+	assert(c == d, text(c, " vs ", d));
+}
 
+unittest// ditto
+{
+	mList a, b, c, d;
+	a = mList(    150,       450,    550,    750,    1000,  75_000);
+	b = mList(80,    220,       460,      700,   900,             150_000);
+	c = a & b;
+	d = a | b;
+	assert(c == mList(80, 460, 550, 750, 900, 150_000), text(c));
+	assert(d == mList(220, 450, 700, 750, 1000, 75_000), text(d));
+	c = a - b;
+	d = b - a;
+	assert(c == uList(150, 220, 550, 700), text(c));
+	assert(d == uList(80, 150,  460, 550, 900, 1000, 75_000, 150_000), text(d));
+}
+
+unittest//even more set operations with BIG intervals
+{
+	mList a, b, c, d, e, f;
+	a = mList(10_000,         100_000,                            1000_000,                                10_000_000);
+	b = mList(       50_000       ,150_000, 250_000 ,350_000, 900_000       ,2300_000,  4_600_000 ,6_400_000, 8_000_000 ,12_000_000); 
+	c = a | b;
+	d = a & b;
+	assert(c == uList(10_000, 100_000, 250_000, 350_000, 900_000, 12_000_000));
+	assert(d == mList(50_000, 100_000, 1_000_000, 2_300_000, 4_600_000, 6_400_000, 8_000_000, 10_000_000));
+
+	c = a ~ b;
+	d = b ~ a;
+	assert(c == d);
+	assert(c == uList(10_000, 50_000, 100_000, 150_000, 250_000, 350_000, 900_000, 1_000_000, 2_300_000, 4_600_000, 6_400_000, 8_000_000, 10_000_000, 12_000_000));
+	
+	c = a - b;
+	d = b - a;
+
+	assert(c == uList(10_000, 50_000, 2_300_000, 4_600_000, 6_400_000, 8_000_000));
+	assert(d == mList(100_000, 150_000, 250_000, 350_000, 900_000, 1_000_000, 10_000_000, 12_000_000));
+
+	
 }
 
 /++
