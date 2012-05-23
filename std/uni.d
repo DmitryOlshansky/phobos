@@ -105,7 +105,7 @@ private auto adaptIntRange(T, F)(F[] src)
 	return ConvertIntegers(src);
 }
 
-struct InversionList(T)
+struct RleBitSet(T)
     if(isUnsigned!T)
 {
 import std.array, std.algorithm;
@@ -140,7 +140,7 @@ public:
     }
 
     /**
-        $(P $(D InversionList)s support natural syntax for set algebra, namely:)
+        $(P $(D RleBitSet)s support natural syntax for set algebra, namely:)
         $(BOOKTABLE 
             $(TR $(TH Operator) $(TH Math notation) $(TH Description) )
             $(TR $(TD &) $(TD a ∩ b) $(TD intersection) )
@@ -149,8 +149,8 @@ public:
             $(TR $(TD ~) $(TD a ~ b) $(TD symmetric set difference i.e. (a ∪ b) \ (a ∩ b) )) 
         )
     */
-    InversionList opBinary(string op, U)(U rhs)
-        if(is(U: dchar) || is(U : InversionList) )
+    RleBitSet opBinary(string op, U)(U rhs)
+        if(is(U: dchar) || is(U : RleBitSet) )
     {
         static if(op == "&" || op == "|" || op == "~")
         {
@@ -165,11 +165,11 @@ public:
             return copy;
         }
         else
-            static assert(0, "no operator "~op~" defined for InversionList");
+            static assert(0, "no operator "~op~" defined for RleBitSet");
     }
     
     ///The 'op=' versions of the above overloaded operators.
-    ref InversionList opOpAssign(string op)(InversionList rhs)
+    ref RleBitSet opOpAssign(string op)(RleBitSet rhs)
     {
         static if(op == "|")    //union
             return this.add(rhs);
@@ -185,10 +185,10 @@ public:
             return this;
         }
         else
-            static assert(0, "no operator "~op~" defined for InversionList");
+            static assert(0, "no operator "~op~" defined for RleBitSet");
     }
 
-    bool opEquals(U)(ref const InversionList!U rhs) const
+    bool opEquals(U)(ref const RleBitSet!U rhs) const
 	if(isUnsigned!U)
     {
         static if(T.sizeof == 4)//short-circuit full versions
@@ -225,7 +225,7 @@ public:
     }
 
 private:
-    struct Marker//denotes position in InversionList
+    struct Marker//denotes position in RleBitSet
     {
         uint idx;
         uint top_before_idx;
@@ -520,7 +520,7 @@ private:
         return this;
     }
 
-    ref intersect(InversionList rhs)
+    ref intersect(RleBitSet rhs)
     {
         uint top;
         Marker mark;
@@ -554,7 +554,7 @@ private:
     }
 
     //same as the above except that skip & drop parts are swapped
-    ref sub(InversionList rhs)
+    ref sub(RleBitSet rhs)
     {
         uint top;
         Marker mark;        
@@ -585,7 +585,7 @@ private:
         return this;
     }
 
-    ref add(InversionList rhs)
+    ref add(RleBitSet rhs)
     {
         size_t a=0, b;
         auto start = Marker(0, 0);
@@ -614,7 +614,7 @@ unittest//CodeList set ops
 {
     foreach(i, v; TypeTuple!(ubyte, ushort,uint))
     {
-        alias InversionList!uint CodeList;
+        alias RleBitSet!uint CodeList;
         CodeList a;
         
         //"plug a hole" test 
@@ -687,7 +687,7 @@ unittest//CodeList set ops
 
 unittest//constructors
 {
-    alias InversionList!ushort CodeList;
+    alias RleBitSet!ushort CodeList;
     auto a = CodeList(10, 25, 30, 45);
     assert(a.repr == [10, 15, 5, 15]);
 }
@@ -697,7 +697,7 @@ unittest
 {   //full set operations
     foreach(i, v; TypeTuple!(ubyte, ushort,uint))
     {
-        alias InversionList!uint CodeList;
+        alias RleBitSet!uint CodeList;
         CodeList a, b, c, d;
     
         //"plug a hole"
@@ -794,8 +794,8 @@ unittest
     }
 }
 
-private alias InversionList!ubyte uList;
-private alias InversionList!ushort mList;
+private alias RleBitSet!ubyte uList;
+private alias RleBitSet!ushort mList;
 
 unittest// set operations and integer overflow ;)
 {
