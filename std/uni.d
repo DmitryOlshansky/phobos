@@ -250,44 +250,8 @@ unittest
     }
 }
 
-struct RleBitSet(T, SP=ReallocPolicy)
-    if(isUnsigned!T)
+private template BasicSetMethods()
 {
-import std.array, std.algorithm;
-public:
-    this(C)(in C[] regexSet)
-        if(is(C : dchar))
-    {
-        assert(0);
-    }
-
-    this()(uint[] intervals...)
-    in
-    {
-        assert(intervals.length % 2 == 0, "Odd number of interval bounds [a, b)!");
-        for(uint i=1; i<intervals.length; i++)
-            assert(intervals[i-1] < intervals[i]);
-    }
-    body
-    {
-        size_t top=0;
-        for(size_t i = 0;  i < intervals.length; i+=2){
-            appendPad(data, intervals[i] - top);
-            appendPad(data, intervals[i+1] - intervals[i]);
-            top = intervals[i+1];
-        }
-    }
-
-    this(this)
-    {//TODO: COW
-        data = SP.dup(data);
-    }
-
-    ~this()
-    {
-        SP.destroy(data);
-    }
-
     /**
         $(P $(D RleBitSet)s support natural syntax for set algebra, namely:)
         $(BOOKTABLE
@@ -343,6 +307,90 @@ public:
             static assert(0, "no operator "~op~" defined for RleBitSet");
     }
 
+};
+
+struct RleBitSet(T, SP=ReallocPolicy)
+    if(isUnsigned!T)
+{
+import std.array, std.algorithm;
+public:
+    this(C)(in C[] regexSet)
+        if(is(C : dchar))
+    {
+        assert(0);
+    }
+
+    this()(uint[] intervals...)
+    in
+    {
+        assert(intervals.length % 2 == 0, "Odd number of interval bounds [a, b)!");
+        for(uint i=1; i<intervals.length; i++)
+            assert(intervals[i-1] < intervals[i]);
+    }
+    body
+    {
+        size_t top=0;
+        for(size_t i = 0;  i < intervals.length; i+=2){
+            appendPad(data, intervals[i] - top);
+            appendPad(data, intervals[i+1] - intervals[i]);
+            top = intervals[i+1];
+        }
+    }
+
+    this(this)const
+    {//TODO: COW
+        data = SP.dup(data);
+    }
+
+    ~this()
+    {
+        SP.destroy(data);
+    }
+
+    auto byInterval() {
+        static struct Interval
+        {
+            uint a, b;
+
+        }
+        static struct IntervalRange
+        {
+            this(RleBitSet set)
+            {
+                this.set = set;
+                if(set.data.length)
+                {
+                    a = set.data[0];
+                    b = set.data[0]+set.data[1];
+                    idx = 2;
+                }
+            }
+
+            @property Interval front() const
+            {
+                return Interval(a, b);
+            }
+
+            @property bool empty() const
+            {
+                return idx >= set.data.length;
+            }
+
+            void popFront()
+            {
+                b += set.data[idx];
+                a = b;
+                b += set.data[idx+1];
+                idx+=2;
+            }
+
+            uint a,b, idx;
+            RleBitSet set;
+        };
+
+        return IntervalRange(this);
+    }
+
     bool opEquals(U)(ref const RleBitSet!U rhs) const
         if(isUnsigned!U)
     {
@@ -381,6 +429,7 @@ public:
         }
     }
 
+    mixin BasicSetMethods;
 private:
     struct Marker//denotes position in RleBitSet
     {
@@ -796,6 +845,45 @@ private:
     }
 };
 
+/**
+    $(D CodepointSet) is a packed data structure for sets of codepoints.
+    Memory usage is 6 bytes per each contigous interval in a set.
+*/
+struct InversionList(SP=GcPolicy)
+{
+    this(C)(in C[] regexSet)
+        if(is(C : dchar))
+    {
+        assert(0);
+    }
+
+    this()(uint[] intervals...)
+    in
+    {
+        assert(intervals.length % 2 == 0, "Odd number of interval bounds [a, b)!");
+        for(uint i=1; i<intervals.length; i++)
+            assert(intervals[i-1] < intervals[i]);
+    }
+    body
+    {
+        for(size_t i = 0;  i < intervals.length; i+=2){
+            append24bit(data, intervals[i], intervals[i+1]);
+            top = intervals[i+1];
+        }
+    }
+
+    this(this)
+    {//TODO: COW
+        data = SP.dup(data);
+    }
+
+    ~this()
+    {
+        SP.destroy(data);
+    }
+private:
+    uint[] data;
+};
 
 version(unittest) import std.conv, std.typetuple;
 
