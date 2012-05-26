@@ -75,7 +75,7 @@ import std.array; //@@BUG UFCS doesn't work with 'local' imports
 enum dchar lineSep = '\u2028'; /// UTF line separator
 enum dchar paraSep = '\u2029'; /// UTF paragraph separator
 
-//debug = std_uni;
+debug = std_uni;
 
 debug(std_uni) import std.stdio;
 
@@ -250,7 +250,7 @@ unittest
     }
 }
 
-private template BasicSetMethods()
+private template BasicSetOps()
 {
     /**
         $(P $(D RleBitSet)s support natural syntax for set algebra, namely:)
@@ -309,6 +309,13 @@ private template BasicSetMethods()
 
 };
 
+//bootstrap full set operations from 3 primitives:
+//addInterval, skipUpTo, dropUpTo
+private template BasicSetBase()
+{
+
+}
+
 struct RleBitSet(T, SP=GcPolicy)
     if(isUnsigned!T)
 {
@@ -355,12 +362,29 @@ public:
             this(RleBitSet set_)
             {
                 set = set_;
-                if(set.data.length)
+                popFront();
+            }
+
+            uint step(ref size_t idx, uint value)
+            {
+                static if(T.sizeof == 4)
                 {
-                    a = set.data[0];
-                    b = set.data[0]+set.data[1];
-                    idx = 2;
+                    value += set.data[idx];
+                    idx++;
                 }
+                else
+                {
+                    value += set.data[idx];
+                    while(idx+1 < set.data.length && set.data[idx+1] == 0)
+                    {
+                        assert(idx+2 < set.data.length);
+                        value += set.data[idx+2];
+                        idx += 2;
+
+                    }
+                    idx ++;
+                }
+                return value;
             }
 
             @property auto front() const
@@ -380,10 +404,8 @@ public:
                     set = RleBitSet.init;
                     return;
                 }
-                b += set.data[idx];
-                a = b;
-                b += set.data[idx+1];
-                idx+=2;
+                a = step(idx, b);
+                b = step(idx, a);
             }
 
             uint a, b, idx;
@@ -508,7 +530,7 @@ public:
         }
     }
 
-    mixin BasicSetMethods;
+    mixin BasicSetOps;
 private:
     struct Marker//denotes position in RleBitSet
     {
@@ -588,13 +610,14 @@ private:
 
     //returns last point of insertion (idx,  top_value right before idx),
     // so that top += data[idx] on first iteration  gives top of idx
-    Marker addInterval(uint a, uint b, uint hint = 0, uint hint_top_before=0)
+    Marker addInterval(uint a, uint b, Marker mark=Marker.init)
     in
     {
         assert(a <= b);
     }
     body
     {
+        uint hint = mark.idx, hint_top_before=mark.top_before_idx;
         static if(T.sizeof != 4)
             if(a == b)//empty interval, happens often with ushort/ubyte lists
                 return Marker(hint, hint_top_before);
@@ -726,8 +749,9 @@ private:
     }
 
     //remove intervals up to [..a) staring at Marker(idx, top_before)
-    Marker dropUpTo(uint a, uint start_idx=0, uint top_before=0)
+    Marker dropUpTo(uint a, Marker mark=Marker.init)
     {
+        uint start_idx = mark.idx, top_before = mark.top_before_idx;
         uint top=top_before, idx=start_idx;
         uint pos, pre_top;//marker that indicates place of insertion
         assert(idx % 2 == 0); //can't start in positive interval,
@@ -773,7 +797,7 @@ private:
     }
 
     //skip intervals up to ..a)
-    Marker skipUpTo(uint a, uint start_idx=0, uint top_before=0)
+    Marker skipUpTo(uint a, Marker mark=Marker.init)
     out(result)
     {
         assert(result.idx % 2 == 0);//always negative intervals
@@ -781,6 +805,7 @@ private:
     }
     body
     {
+        uint start_idx = mark.idx, top_before = mark.top_before_idx;
         uint top=top_before, idx=start_idx;
         assert(data.length % 2 == 0);
         for(; idx < data.length; idx++)
@@ -815,49 +840,23 @@ private:
 
     ref intersect(RleBitSet rhs)
     {
-        uint top;
         Marker mark;
-        for(uint idx=0; idx<rhs.data.length; idx+=2)
+        foreach( i; rhs.byInterval())
         {
-            debug(std_uni) writeln("---");
-            top += rhs.data[idx];
-            mark = this.dropUpTo(top, mark.idx, mark.top_before_idx);
-            debug(std_uni)
-            {
-                writefln("droped till %s %s", top, mark);
-                writeln(this);
-                writeln("***");
-            }
-            top += rhs.data[idx+1];
-            mark = this.skipUpTo(top, mark.idx, mark.top_before_idx);
-            debug(std_uni)
-            {
-                writefln("skipped till %s %s", top, mark);
-                writeln(this);
-                writeln("---");
-            }
+            mark = this.dropUpTo(i.a, mark);
+            mark = this.skipUpTo(i.b, mark);
         }
-        this.dropUpTo(uint.max, mark.idx, mark.top_before_idx);
-        debug(std_uni)
-        {
-            writeln(this);
-            writeln("!!!");
-        }
+        this.dropUpTo(uint.max, mark);
         return this;
     }
 
     ref intersect(dchar ch)
     {
-        uint top=0, idx, x=ch;
-        for(idx=0;idx<data.length; idx++)
-        {
-            top += data[idx];
-            if(x <= top)
-                break;
-        }
-        this = RleBitSet.init;
-        if(idx & 1)//positive interval
-            this.add(x, x+1);
+        foreach(i; byInterval)
+            if(i.a >= ch && ch < i.b)
+                return this = typeof(this).init.add(ch, ch+1);
+        this = typeof(this).init;
+        return this;
     }
 
     //same as the above except that skip & drop parts are swapped
@@ -865,22 +864,10 @@ private:
     {
         uint top;
         Marker mark;
-        for(uint idx=0; idx<rhs.data.length; idx++)
+        foreach(i; rhs.byInterval)
         {
-            top += rhs.data[idx];
-            mark = this.skipUpTo(top, mark.idx, mark.top_before_idx);
-            top += rhs.data[idx+1];
-            idx++;
-            static if(T.sizeof < 4)
-            {//check for overlong sequences
-                while(idx + 1 < rhs.data.length && rhs.data[idx+1] == 0)
-                {
-                    assert(idx+2 < rhs.data.length);
-                    top += rhs.data[idx+2];
-                    idx += 2;
-                }
-            }
-            mark = this.dropUpTo(top, mark.idx, mark.top_before_idx);
+            mark = this.skipUpTo(i.a, mark);
+            mark = this.dropUpTo(i.b, mark);
         }
         return this;
     }
@@ -888,7 +875,7 @@ private:
     ref sub(dchar ch)
     {
         Marker mark;
-        mark = skipUpTo(ch, mark.idx, mark.top_before_idx);
+        mark = skipUpTo(ch, mark);
         if(mark.top_before_idx == ch && mark.idx+1 != data.length)
         {
             data[mark.idx+1] -= 1;
@@ -900,19 +887,10 @@ private:
 
     ref add(RleBitSet rhs)
     {
-        size_t a=0, b;
-        auto start = Marker(0, 0);
-        uint top=0, first=0;
-        for(uint idx=0; idx < rhs.data.length; idx++)
+        Marker start;
+        foreach(i; rhs.byInterval)
         {
-            if(idx & 1)
-            {
-                first = top;//save start of interval
-                top += rhs.data[idx];
-                start = addInterval(first, top, start.idx, start.top_before_idx);
-            }
-            else
-                top += rhs.data[idx];
+            start = addInterval(i.a, i.b, start);
         }
         return this;
     }
@@ -1018,7 +996,7 @@ unittest//CodeList set ops
         x = CodeList.init.add(10, 20).add(40, 60).add(100, 120);
         a = x;
         auto m = a.skipUpTo(60);
-        a.dropUpTo(110, m.idx, m.top_before_idx);
+        a.dropUpTo(110, CodeList.Marker(m.idx, m.top_before_idx));
         assert(a.repr == [10, 10, 20, 20, 50, 10], text(a));
 
         a = x;
@@ -1027,7 +1005,7 @@ unittest//CodeList set ops
 
         a = x;
         m = a.skipUpTo(50);
-        a.dropUpTo(140, m.idx, m.top_before_idx);
+        a.dropUpTo(140, CodeList.Marker(m.idx, m.top_before_idx));
         assert(a.repr == [10, 10, 20, 10], text(a));
         a = x;
         a.dropUpTo(60);
@@ -1223,6 +1201,9 @@ unittest//iteration
     assert(equal(a.byInterval, [ tuple(cast(uint)'A', cast(uint)'N'), tuple(cast(uint)'a', cast(uint)'n')]), text(a.byInterval));
 
     assert(equal(a.byCodepoint, arr), text(a.byCodepoint));
+
+    auto x = uList(100, 500, 600, 900, 1200, 1500);
+    assert(equal(x.byInterval, [ tuple(100, 500), tuple(600, 900), tuple(1200, 1500)]), text(x.byInterval));
 }
 
 /++
