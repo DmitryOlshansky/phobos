@@ -75,7 +75,7 @@ import std.array; //@@BUG UFCS doesn't work with 'local' imports
 enum dchar lineSep = '\u2028'; /// UTF line separator
 enum dchar paraSep = '\u2029'; /// UTF paragraph separator
 
-debug = std_uni;
+//debug = std_uni;
 
 debug(std_uni) import std.stdio;
 
@@ -309,7 +309,7 @@ private template BasicSetMethods()
 
 };
 
-struct RleBitSet(T, SP=ReallocPolicy)
+struct RleBitSet(T, SP=GcPolicy)
     if(isUnsigned!T)
 {
 import std.array, std.algorithm;
@@ -347,17 +347,14 @@ public:
         SP.destroy(data);
     }
 
-    auto byInterval() {
-        static struct Interval
-        {
-            uint a, b;
-
-        }
+    @property auto byInterval()()
+    {
+        import std.typecons;
         static struct IntervalRange
         {
-            this(RleBitSet set)
+            this(RleBitSet set_)
             {
-                this.set = set;
+                set = set_;
                 if(set.data.length)
                 {
                     a = set.data[0];
@@ -366,29 +363,77 @@ public:
                 }
             }
 
-            @property Interval front() const
+            @property auto front() const
             {
-                return Interval(a, b);
+                return Tuple!(uint,"a", uint,"b")(a, b);
             }
 
             @property bool empty() const
             {
-                return idx >= set.data.length;
+                return set == RleBitSet.init;
             }
 
             void popFront()
             {
+                if(idx == set.data.length)
+                {
+                    set = RleBitSet.init;
+                    return;
+                }
                 b += set.data[idx];
                 a = b;
                 b += set.data[idx+1];
                 idx+=2;
             }
 
-            uint a,b, idx;
+            uint a, b, idx;
             RleBitSet set;
-        };
+        }
 
         return IntervalRange(this);
+    }
+
+    @property auto byCodepoint()
+    {
+        static struct CharRange
+        {
+            this(RleBitSet set)
+            {
+                this.set = set;
+                if(set.data.length)
+                {
+                    top = set.data[0]+set.data[1];
+                    cur = set.data[0];
+                    idx = 2;
+                }
+            }
+
+            @property dchar front() const
+            {
+                return cast(dchar)cur;
+            }
+
+            @property bool empty() const
+            {
+                return idx >= set.data.length && cur == top;
+            }
+
+            void popFront()
+            {
+                cur++;
+                while(cur >= top && idx < set.data.length)
+                {
+                    top += set.data[idx];
+                    cur = top;
+                    top += set.data[idx+1];
+                    idx += 2;
+                }
+            }
+
+            uint cur, top, idx;
+            RleBitSet set;
+        }
+        return CharRange(this);
     }
 
     bool opEquals(U)(ref const RleBitSet!U rhs) const
@@ -402,7 +447,7 @@ public:
             while(idx < data.length && ridx < rhs.data.length)
             {
                 top += data[idx];
-                rtop += data[ridx];
+                rtop += rhs.data[ridx];
                 while(rtop != top)
                 {
                     //check for ... x 0 y "prolong" sequence
@@ -425,7 +470,41 @@ public:
                 idx++;
                 ridx++;
             }
-            return true;
+            if(idx == data.length)
+            {
+                if(ridx == rhs.data.length)
+                    return true;
+                //check overlong sequence
+                rtop += rhs.data[ridx];
+                while(rtop != top)
+                    if(ridx + 1 < rhs.data.length && rhs.data[ridx+1] == 0)
+                    {
+                        //rhs has extra segment
+                        assert(ridx+2 < rhs.data.length); // 0 at the end is an error
+                        rtop += rhs.data[ridx+2];
+                        ridx += 2;
+                    }
+                    else
+                        return false;
+            }
+            else
+            {
+                if(idx == data.length)
+                    return true;
+                //check overlong sequence
+                top += data[idx];
+                while(rtop != top)
+                    if(idx + 1 < data.length && data[idx+1] == 0)
+                    {
+                        //rhs has extra segment
+                        assert(idx+2 < data.length); // 0 at the end is an error
+                        top += data[idx+2];
+                        idx += 2;
+                    }
+                    else
+                        return false;
+            }
+            return idx == data.length && ridx == rhs.data.length;
         }
     }
 
@@ -477,32 +556,32 @@ private:
         static if(T.sizeof == 4)//short-circuit to optimal version
         {
 	        SP.replaceImpl(dest, from, to, to_insert);
-    	    	return from+to_insert.length-1;
-	}
-	else
-	{
-        T[] scratch_space;
-        size_t s=0;
-        foreach(i, v; to_insert)
-            if(v > T.max)
-            {
-                SP.append(scratch_space, adaptIntRange!T(to_insert[s..i]));
-                appendPad(scratch_space, v);
-                s = i+1;
-            }
-
-        if(s == 0)
-        {
-        	SP.replaceImpl(dest, from, to, adaptIntRange!T(to_insert)); // short-circuit #2
-  	    	return from+to_insert.length-1;
+            return from+to_insert.length-1;
         }
         else
         {
-        	SP.replaceImpl(dest, from, to, scratch_space); // some of (T.max, 0) ended up there
-	        SP.append(dest, adaptIntRange!T(to_insert[s..$]));
-        	return from+force!uint(scratch_space.length-1);
+            T[] scratch_space;//TODO mem leak
+            size_t s=0;
+            foreach(i, v; to_insert)
+                if(v > T.max)
+                {
+                    SP.append(scratch_space, adaptIntRange!T(to_insert[s..i]));
+                    appendPad(scratch_space, v);
+                    s = i+1;
+                }
+
+            if(s == 0)
+            {
+                SP.replaceImpl(dest, from, to, adaptIntRange!T(to_insert)); // short-circuit #2
+                return from+to_insert.length-1;
+            }
+            else
+            {// some of (T.max, 0) ended up there
+                SP.append(scratch_space, adaptIntRange!T(to_insert[s..$]));
+                SP.replaceImpl(dest, from, to, scratch_space);
+                return from+scratch_space.length-1;
+            }
         }
-	}
     }
 
     @property const(T)[] repr() const{ return data; }
@@ -516,25 +595,27 @@ private:
     }
     body
     {
-	static if(T.sizeof != 4)
-		if(a == b)//empty interval, happens often with ushort/ubyte lists
-			return Marker(hint, hint_top_before);
+        static if(T.sizeof != 4)
+            if(a == b)//empty interval, happens often with ushort/ubyte lists
+                return Marker(hint, hint_top_before);
+        uint top=hint_top_before, idx, a_start, a_idx;
         debug(std_uni)
         {
             scope(exit){
                 writefln("after adding (%d, %d):", a, b);
                 toString((x){ write(x); });
-                writeln("---");
             }
         }
-        uint top=hint_top_before, idx, a_start, a_idx;
         uint pos, pre_top;//marker that indicates place of insertion
+        assert(a >= top, text(a, "<=", top));
         for(idx=hint; idx < data.length; idx++)
         {
             top += data[idx];
             if(a <= top)
             {
+                assert(top >=  data[idx]);
                 a_start = top - data[idx];
+                assert(a_start <= a);
                 a_idx = idx;
                 break;
             }
@@ -551,15 +632,16 @@ private:
             }
             else
                 SP.append(data, adaptIntRange!T([a - top, b - a]));
-            return Marker(data.length-1, a);
+
+            return Marker(data.length-1, b - data[$-1]);
         }
+
         top -= data[idx];
         for(; idx<data.length;idx++)
         {
             top += data[idx];
             if(b <= top)
                 break;
-
         }
 
         debug(std_uni)
@@ -576,17 +658,15 @@ private:
             if(a_idx & 1)//a in positive
             {
                 to_insert = [ b - a_start ];
-                pre_top = a_start;
             }
             else// a in negative
             {
                 to_insert = [ a - a_start, b - a];
-                pre_top = a;
             }
             pos = replacePad(data, a_idx, idx, to_insert);
+            pre_top = b - data[pos];
             return Marker(pos, pre_top) ; //bail out early
         }
-
 
         if(a_idx & 1)
         {//a in positive
@@ -595,7 +675,6 @@ private:
                 //  [-------++++++++----++++++-]
                 //  [       s    a        b    ]
                 to_insert = [top - a_start];
-                pre_top = a_start;
             }
             else //b in negative
             {
@@ -604,12 +683,12 @@ private:
                 if(top == b)
                 {
                     assert(idx+1 < data.length);
+                    pre_top = b + data[idx+1];
                     pos = replacePad(data, a_idx, idx+2, [b + data[idx+1] - a_start]);
-                    pre_top = a_start;
+                    pre_top -= data[pos];
                     return Marker(pos, pre_top);
                 }
                 to_insert = [b - a_start, top - b];
-                pre_top = b;
             }
         }
         else
@@ -619,7 +698,6 @@ private:
                 //  [----------+++++----++++++-]
                 //  [     a     b              ]
                 to_insert = [a - a_start, top - a];
-                pre_top = a;
             }
             else// b in negative
             {
@@ -628,20 +706,22 @@ private:
                 if(top == b)
                 {
                     assert(idx+1 < data.length);
+                    pre_top = top + data[idx+1];
                     pos = replacePad(data, a_idx, idx+2, [a - a_start, top + data[idx+1] - a ]);
-                    pre_top = a;
+                    pre_top -= data[pos];
                     return Marker(pos, pre_top);
                 }
-                pre_top = b;
+                assert(a >= a_start, text(a, "<= ", a_start));
                 to_insert = [a - a_start, b - a, top - b];
             }
         }
+        pos = replacePad(data, a_idx, idx+1, to_insert);
+        pre_top = top - data[pos];
         debug(std_uni)
         {
             writefln("marker idx: %d; value=%d", pos, pre_top);
             writeln("inserting ", to_insert);
         }
-        pos = replacePad(data, a_idx, idx+1, to_insert);
         return Marker(pos, pre_top);
     }
 
@@ -661,7 +741,7 @@ private:
         if(idx >= data.length)
         {
             //nothing left
-            data = data[0..start_idx];
+            SP.replaceImpl(data, start_idx, data.length, cast(T[])[]);
             return Marker(data.length, top);
         }
 
@@ -678,24 +758,18 @@ private:
                     replacePad(data, start_idx, data.length, cast(T[])[]);
                     return Marker(data.length, top);
                 }
-                pos = replacePad(data, start_idx, idx+2, [top + data[idx+1] - top_before]);
-                pre_top = top_before;
-                return Marker(pos, pre_top);
+                replacePad(data, start_idx, idx+2, [top + data[idx+1] - top_before]);
+                return Marker(start_idx, top_before);
             }
-            debug(std_uni) writefln("sidx=%s idx=%s insert=%s", start_idx, idx, [a - top_before, top - a]);
-            pos = replacePad(data, start_idx, idx+1, [a - top_before, top - a]);
-            pre_top = a;
-	        debug(std_uni) writeln(this, "!!!");
+            replacePad(data, start_idx, idx+1, [a - top_before, top - a]);
         }
         else
         {   //a in negative
             //[--+++----++++++----+++++++-------+++...]
             //      |<---si              s  a  t
-            pos = replacePad(data, start_idx, idx+1, [top - top_before]);
-            pre_top = top_before;
+            replacePad(data, start_idx, idx+1, [top - top_before]);
         }
-	    debug(std_uni) writeln("Length after drop: ", data.length);
-        return Marker(pos, pre_top);
+        return Marker(start_idx, top_before);
     }
 
     //skip intervals up to ..a)
@@ -722,10 +796,13 @@ private:
         {
             if(top == a)//no need to split, it's end
                 return Marker(idx+1, top);
-            //split it up
             uint start = top - data[idx];
+            if(a == start)
+                return Marker(idx-1, start);
+            //split it up
             uint val = replacePad(data, idx, idx+1, [a - start, 0, top - a]);
-            return Marker(val-1, a);        //avoid odd index
+
+            return Marker(val-1, top - (data[val]+data[val-1]));        //avoid odd index
         }
         return Marker(idx, top - data[idx]);
     }
@@ -760,7 +837,7 @@ private:
                 writeln("---");
             }
         }
-        this.dropUpTo(0x10FFFF, mark.idx, mark.top_before_idx);
+        this.dropUpTo(uint.max, mark.idx, mark.top_before_idx);
         debug(std_uni)
         {
             writeln(this);
@@ -788,29 +865,22 @@ private:
     {
         uint top;
         Marker mark;
-        for(uint idx=0; idx<rhs.data.length; idx+=2)
+        for(uint idx=0; idx<rhs.data.length; idx++)
         {
-            debug(std_uni)
-            {
-                writeln("---");
-                writefln("skipping at idx %s", idx);
-            }
             top += rhs.data[idx];
             mark = this.skipUpTo(top, mark.idx, mark.top_before_idx);
-            debug(std_uni)  writeln("skipped up to ", mark);
             top += rhs.data[idx+1];
-            mark = this.dropUpTo(top, mark.idx, mark.top_before_idx);
-            debug(std_uni)
-            {
-                writefln("dropped till %s %s", top, mark);
-                writeln(this);
-                writeln("---");
+            idx++;
+            static if(T.sizeof < 4)
+            {//check for overlong sequences
+                while(idx + 1 < rhs.data.length && rhs.data[idx+1] == 0)
+                {
+                    assert(idx+2 < rhs.data.length);
+                    top += rhs.data[idx+2];
+                    idx += 2;
+                }
             }
-        }
-        debug(std_uni)
-        {
-            writeln(this);
-            writeln("!!!");
+            mark = this.dropUpTo(top, mark.idx, mark.top_before_idx);
         }
         return this;
     }
@@ -820,7 +890,11 @@ private:
         Marker mark;
         mark = skipUpTo(ch, mark.idx, mark.top_before_idx);
         if(mark.top_before_idx == ch && mark.idx+1 != data.length)
+        {
             data[mark.idx+1] -= 1;
+            data[mark.idx] += 1;
+            assert(data[mark.idx] == 1);
+        }
         return this;
     }
 
@@ -835,7 +909,6 @@ private:
             {
                 first = top;//save start of interval
                 top += rhs.data[idx];
-                debug(std_uni) writeln(first, "..", top);
                 start = addInterval(first, top, start.idx, start.top_before_idx);
             }
             else
@@ -1072,6 +1145,7 @@ unittest
 
 private alias RleBitSet!ubyte uList;
 private alias RleBitSet!ushort mList;
+private alias RleBitSet!uint cList;
 
 unittest// set operations and integer overflow ;)
 {
@@ -1089,47 +1163,66 @@ unittest// set operations and integer overflow ;)
 
 unittest// ditto
 {
-	mList a, b, c, d;
-	a = mList(    150,       450,    550,    750,    1000,  75_000);
-	b = mList(80,    220,       460,      700,   900,             150_000);
-	c = a & b;
-	d = a | b;
-	assert(c == mList(80, 460, 550, 750, 900, 150_000), text(c));
-	assert(d == mList(220, 450, 700, 750, 1000, 75_000), text(d));
-	c = a - b;
-	d = b - a;
-	assert(c == uList(150, 220, 550, 700), text(c));
-	assert(d == uList(80, 150,  460, 550, 900, 1000, 75_000, 150_000), text(d));
+	foreach(i, List; TypeTuple!(mList, cList))
+    {
+        List a, b, c, d;
+        a = List(    150,       450,    550,    750,    1000,  75_000);
+        b = List(80,    220,       460,      700,   900,             150_000);
+        c = a & b;
+        d = a | b;
+        assert(c == uList(150, 220, 550, 700, 1000, 75_000), text(c));
+        assert(d == uList(80, 450,  460, 750, 900, 150_000), text(d));
+
+        c = a - b;
+        d = b - a;
+        assert(c == mList(220, 450, 700, 750), text(c));
+        assert(d == mList(80, 150,   460, 550, 900, 1000, 75_000, 150_000), text(d));
+    }
 }
 
 unittest//even more set operations with BIG intervals
 {
-	mList a, b, c, d, e, f;
-	a = mList(10_000,         100_000,                            1000_000,                                10_000_000);
-	b = mList(       50_000       ,150_000, 250_000 ,350_000, 900_000       ,2300_000,  4_600_000 ,6_400_000, 8_000_000 ,12_000_000);
-	c = a | b;
-	d = a & b;
-	assert(c == uList(10_000, 100_000, 250_000, 350_000, 900_000, 12_000_000));
-	assert(d == mList(50_000, 100_000, 1_000_000, 2_300_000, 4_600_000, 6_400_000, 8_000_000, 10_000_000));
+    foreach(List; TypeTuple!(mList, cList))
+    {
+        List a, b, c, d, e, f;
+        a = List(10_000,         100_000,
+                  1_000_000,                                           10_000_000);
+        b = List(       50_000            ,150_000, 250_000 ,350_000,
+                  900_000       ,2_300_000,  4_600_000 ,6_400_000, 8_000_000 ,12_000_000);
+        c = a | b;
+        d = a & b;
+        assert(c == mList(10_000, 150_000, 250_000, 350_000, 900_000, 12_000_000));
+        assert(d == cList(50_000, 100_000, 1_000_000, 2_300_000, 4_600_000, 6_400_000, 8_000_000, 10_000_000));
 
-	c = a ~ b;
-	d = b ~ a;
-	assert(c == d);
-	assert(c == uList(10_000, 50_000, 100_000, 150_000, 250_000, 350_000, 900_000, 1_000_000,
-                   2_300_000, 4_600_000, 6_400_000, 8_000_000, 10_000_000, 12_000_000));
+        c = a ~ b;
+        d = b ~ a;
+        assert(c == d);
+        assert(c == uList(10_000, 50_000, 100_000, 150_000, 250_000, 350_000, 900_000, 1_000_000,
+                       2_300_000, 4_600_000, 6_400_000, 8_000_000, 10_000_000, 12_000_000));
 
-	c = a - b;
-	d = b - a;
+        c = a - b;
+        d = b - a;
 
-	assert(c == uList(10_000, 50_000, 2_300_000, 4_600_000, 6_400_000, 8_000_000));
-	assert(d == mList(100_000, 150_000, 250_000, 350_000, 900_000, 1_000_000,
-                   10_000_000, 12_000_000));
+        assert(c == uList(10_000, 50_000, 2_300_000, 4_600_000, 6_400_000, 8_000_000));
+        assert(d == mList(100_000, 150_000, 250_000, 350_000, 900_000, 1_000_000,
+                       10_000_000, 12_000_000));
+    }
 }
 
 unittest// vs single dchar
 {
     mList a = mList(10, 100, 120, 200);
-    assert(a - 'a' == uList(10, 65, 66, 100, 120, 200));
+    assert(a - 'A' == uList(10, 65, 66, 100, 120, 200), text(a - 'A'));
+}
+
+unittest//iteration
+{
+    import std.typecons;
+    auto arr = "ABCDEFGHIJKLMabcdefghijklm"d;
+    auto a = mList('A','N','a', 'n');
+    assert(equal(a.byInterval, [ tuple(cast(uint)'A', cast(uint)'N'), tuple(cast(uint)'a', cast(uint)'n')]), text(a.byInterval));
+
+    assert(equal(a.byCodepoint, arr), text(a.byCodepoint));
 }
 
 /++
