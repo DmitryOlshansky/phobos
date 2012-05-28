@@ -70,8 +70,10 @@ module std.uni;
 
 static import std.ascii;
 import std.traits, std.range, std.algorithm;
-
 import std.array; //@@BUG UFCS doesn't work with 'local' imports
+
+version(unittest) import std.conv, std.typetuple;
+
 enum dchar lineSep = '\u2028'; /// UTF line separator
 enum dchar paraSep = '\u2029'; /// UTF paragraph separator
 
@@ -115,12 +117,55 @@ private auto adaptIntRange(T, F)(F[] src)
 	return ConvertIntegers(src);
 }
 
+//hope to see simillar stuff in public interface... once Allocators are out
+private void genericReplace(Policy=void, T, Range)
+    (ref T dest, size_t from, size_t to, Range stuff)
+{
+     size_t delta = to - from;
+	    if(stuff.length > delta)
+        {//replace increases length
+            delta = stuff.length - delta;//now, new is > old  by delta
+            static if(is(Policy == void))
+                dest.length = dest.length+delta;//@@@BUG lame @property
+            else
+                dest = Policy.realloc(dest, dest.length+delta);
+            auto rem = moveAll(retro(dest[to..$-delta])
+                 , retro(dest[to+delta..$]));
+            assert(rem.empty);
+            copy(stuff, dest[from..from+stuff.length]);
+        }
+        else if(stuff.length == delta)
+        {
+            assert(delta != 0);
+            copy(stuff, dest[from..to]);
+        }
+        else
+        {//replace decreases length by delta
+            delta = delta - stuff.length;
+            size_t stuff_end = from+stuff.length;
+            copy(stuff, dest[from..stuff_end]);
+            auto rem =  moveAll(dest[to..$]
+                 , dest[stuff_end..$-delta]);
+            static if(is(Policy == void))
+                dest.length = dest.length - delta;//@@@BUG lame @property
+            else
+                dest = Policy.realloc(dest, dest.length-delta);
+            assert(rem.empty);
+        }
+}
+
 //Simple storage manipulation policy
 private struct GcPolicy
 {
 	static T[] dup(T)(T[] arr)
 	{
 		return arr.dup;
+	}
+
+	static T[] realloc(T)(T[] arr, size_t sz)
+	{
+	    arr.length = sz;
+	    return arr;
 	}
 
 	static void replaceImpl(T, Range)(ref T[] dest, size_t from, size_t to, Range stuff)
@@ -174,31 +219,7 @@ private struct ReallocPolicy
 
 	static void replaceImpl(T, Range)(ref T[] dest, size_t from, size_t to, Range stuff)
 	{
-	    size_t delta = to - from;
-	    if(stuff.length > delta)
-        {//replace increases length
-            delta = stuff.length - delta;//now, new is > old  by delta
-            dest = realloc(dest, delta + dest.length);
-            auto rem = moveAll(retro(dest[to..$-delta])
-                 , retro(dest[to+delta..$]));
-            assert(rem.empty);
-            copy(stuff, dest[from..from+stuff.length]);
-        }
-        else if(stuff.length == delta)
-        {
-            assert(delta != 0);
-            copy(stuff, dest[from..to]);
-        }
-        else
-        {//replace decreases length by delta
-            delta = delta - stuff.length;
-            size_t stuff_end = from+stuff.length;
-            copy(stuff, dest[from..stuff_end]);
-            auto rem =  moveAll(dest[to..$]
-                 , dest[stuff_end..$-delta]);
-            dest = realloc(dest, dest.length - delta);
-            assert(rem.empty);
-        }
+	    genericReplace!(ReallocPolicy)(dest, from, to, stuff);
 	}
 
 	static void append(T, V)(ref T[] arr, V value)
@@ -250,8 +271,11 @@ unittest
     }
 }
 
-private template BasicSetOps()
+//bootstrap full set operations from 3 primitives:
+//addInterval, skipUpTo, dropUpTo & byInterval iteration
+private mixin template BasicSetOps()
 {
+    alias typeof(this) This;
     /**
         $(P $(D RleBitSet)s support natural syntax for set algebra, namely:)
         $(BOOKTABLE
@@ -262,8 +286,8 @@ private template BasicSetOps()
             $(TR $(TD ~) $(TD a ~ b) $(TD symmetric set difference i.e. (a ∪ b) \ (a ∩ b) ))
         )
     */
-    RleBitSet opBinary(string op, U)(U rhs)
-        if(is(typeof(U.init.isRleSet)) || is(U:dchar))
+    This opBinary(string op, U)(U rhs)
+        if(is(typeof(U.init.isSet)) || is(U:dchar))
     {
         static if(op == "&" || op == "|" || op == "~")
         {
@@ -278,12 +302,12 @@ private template BasicSetOps()
             return copy;
         }
         else
-            static assert(0, "no operator "~op~" defined for RleBitSet");
+            static assert(0, "no operator "~op~" defined for Set");
     }
 
     ///The 'op=' versions of the above overloaded operators.
-    ref RleBitSet opOpAssign(string op, U)(U rhs)
-        if(is(typeof(U.init.isRleSet)) || is(U:dchar))
+    ref This opOpAssign(string op, U)(U rhs)
+        if(is(typeof(U.init.isSet)) || is(U:dchar))
     {
         static if(op == "|")    //union
         {
@@ -304,17 +328,128 @@ private template BasicSetOps()
             return this;
         }
         else
-            static assert(0, "no operator "~op~" defined for RleBitSet");
+            static assert(0, "no operator "~op~" defined for Set");
+    }
+
+    ///Range that spans each codepoint in this set.
+    @property auto byCodepoint()
+    {
+        static struct CharRange
+        {
+            this(This set)
+            {
+                this.r = set.byInterval;
+                cur = r.front.a;
+            }
+
+            @property dchar front() const
+            {
+                return cast(dchar)cur;
+            }
+
+            @property bool empty() const
+            {
+                return r.empty;
+            }
+
+            void popFront()
+            {
+                cur++;
+                while(cur >= r.b)
+                {
+                    r.popFront();
+                    if(r.empty)
+                        break;
+                    cur = r.front.a;
+                }
+            }
+        private:
+            uint cur;
+            typeof(This.init.byInterval) r;
+        }
+
+        return CharRange(this);
+    }
+
+    /**
+        $(P Obtain textual representation of this set in from of [a..b) intervals
+        and feed it to $(D sink). )
+        $(P Used by various standard formatting facilities such as
+         $(XREF std._format, formattedWrite), $(D write), $(D writef) and others.
+        )
+    */
+    void toString(scope void delegate (in char[]) sink, bool hex=false)
+    {
+        import std.format;
+        foreach(i; byInterval)
+                formattedWrite(sink, hex ? "[0x%x..0x%x) " : "[%d..%d) ", i.a, i.b);
+    }
+
+private:
+    ref add(uint a, uint b)
+    {
+        addInterval(a, b);
+        return this;
+    }
+
+    ref intersect(RleBitSet rhs)
+    {
+        Marker mark;
+        foreach( i; rhs.byInterval())
+        {
+            mark = this.dropUpTo(i.a, mark);
+            mark = this.skipUpTo(i.b, mark);
+        }
+        this.dropUpTo(uint.max, mark);
+        return this;
+    }
+
+    ref intersect(dchar ch)
+    {
+        foreach(i; byInterval)
+            if(i.a >= ch && ch < i.b)
+                return this = This.init.add(ch, ch+1);
+        this = This.init;
+        return this;
+    }
+
+    //same as the above except that skip & drop parts are swapped
+    ref sub(RleBitSet rhs)
+    {
+        uint top;
+        Marker mark;
+        foreach(i; rhs.byInterval)
+        {
+            mark = this.skipUpTo(i.a, mark);
+            mark = this.dropUpTo(i.b, mark);
+        }
+        return this;
+    }
+
+    ref sub(dchar ch)
+    {
+        Marker mark;
+        mark = skipUpTo(ch, mark);
+        if(mark.top_before_idx == ch && mark.idx+1 != data.length)
+        {
+            data[mark.idx+1] -= 1;
+            data[mark.idx] += 1;
+            assert(data[mark.idx] == 1);
+        }
+        return this;
+    }
+
+    ref add(RleBitSet rhs)
+    {
+        Marker start;
+        foreach(i; rhs.byInterval())
+        {
+            start = addInterval(i.a, i.b, start);
+        }
+        return this;
     }
 
 };
-
-//bootstrap full set operations from 3 primitives:
-//addInterval, skipUpTo, dropUpTo
-private template BasicSetBase()
-{
-
-}
 
 struct RleBitSet(T, SP=GcPolicy)
     if(isUnsigned!T)
@@ -344,7 +479,7 @@ public:
         }
     }
 
-    this(this)const
+    this(this) const
     {//TODO: COW
         data = SP.dup(data);
     }
@@ -354,7 +489,7 @@ public:
         SP.destroy(data);
     }
 
-    @property auto byInterval()()
+    @property auto byInterval()
     {
         import std.typecons;
         static struct IntervalRange
@@ -412,50 +547,8 @@ public:
             RleBitSet set;
         }
 
+
         return IntervalRange(this);
-    }
-
-    @property auto byCodepoint()
-    {
-        static struct CharRange
-        {
-            this(RleBitSet set)
-            {
-                this.set = set;
-                if(set.data.length)
-                {
-                    top = set.data[0]+set.data[1];
-                    cur = set.data[0];
-                    idx = 2;
-                }
-            }
-
-            @property dchar front() const
-            {
-                return cast(dchar)cur;
-            }
-
-            @property bool empty() const
-            {
-                return idx >= set.data.length && cur == top;
-            }
-
-            void popFront()
-            {
-                cur++;
-                while(cur >= top && idx < set.data.length)
-                {
-                    top += set.data[idx];
-                    cur = top;
-                    top += set.data[idx+1];
-                    idx += 2;
-                }
-            }
-
-            uint cur, top, idx;
-            RleBitSet set;
-        }
-        return CharRange(this);
     }
 
     bool opEquals(U)(ref const RleBitSet!U rhs) const
@@ -538,7 +631,7 @@ private:
         uint top_before_idx;
     };
 
-    enum isRleSet = true;
+    enum isSet = true;
 
     //Think of it as of RLE compressed bit-array
     //data holds _lengths_ of intervals
@@ -546,22 +639,7 @@ private:
     //3rd is negative etc. (length can be zero e.g. if interval contains 0 like [\x00-\x7f])
     T[] data;
 
-    void toString(scope void delegate (in char[]) sink, bool hex=false)
-    {
-        import std.format;
-        bool positive;
-        size_t idx=0, top=0;
-        for(; idx<data.length; idx++)
-        {
-            top += data[idx];
-            if(positive)
-                formattedWrite(sink, hex ? "0x%x] " : "%d] ", top);
-            else
-                formattedWrite(sink, hex ? "[0x%x.." : "[%d..", top);
-            positive = !positive;
-        }
-        formattedWrite(sink, "\nrepr: %s\n", data);
-    }
+
 
     static void appendPad(ref T[] dest, uint val)
     {
@@ -831,69 +909,6 @@ private:
         }
         return Marker(idx, top - data[idx]);
     }
-
-    ref add(uint a, uint b)
-    {
-        addInterval(a, b);
-        return this;
-    }
-
-    ref intersect(RleBitSet rhs)
-    {
-        Marker mark;
-        foreach( i; rhs.byInterval())
-        {
-            mark = this.dropUpTo(i.a, mark);
-            mark = this.skipUpTo(i.b, mark);
-        }
-        this.dropUpTo(uint.max, mark);
-        return this;
-    }
-
-    ref intersect(dchar ch)
-    {
-        foreach(i; byInterval)
-            if(i.a >= ch && ch < i.b)
-                return this = typeof(this).init.add(ch, ch+1);
-        this = typeof(this).init;
-        return this;
-    }
-
-    //same as the above except that skip & drop parts are swapped
-    ref sub(RleBitSet rhs)
-    {
-        uint top;
-        Marker mark;
-        foreach(i; rhs.byInterval)
-        {
-            mark = this.skipUpTo(i.a, mark);
-            mark = this.dropUpTo(i.b, mark);
-        }
-        return this;
-    }
-
-    ref sub(dchar ch)
-    {
-        Marker mark;
-        mark = skipUpTo(ch, mark);
-        if(mark.top_before_idx == ch && mark.idx+1 != data.length)
-        {
-            data[mark.idx+1] -= 1;
-            data[mark.idx] += 1;
-            assert(data[mark.idx] == 1);
-        }
-        return this;
-    }
-
-    ref add(RleBitSet rhs)
-    {
-        Marker start;
-        foreach(i; rhs.byInterval)
-        {
-            start = addInterval(i.a, i.b, start);
-        }
-        return this;
-    }
 };
 
 /**
@@ -925,24 +940,289 @@ struct InversionList(SP=GcPolicy)
 
     this(this)
     {//TODO: COW
-        data = SP.dup(data);
+        data = data.dup;
+    }
+
+private:
+    alias typeof(this) This;
+    alias size_t Marker;
+
+    //
+    version(none)
+    Marker addInterval(int a, int b, Marker hint=Marker.init)
+    in
+    {
+        assert(a <= b);
+    }
+    body
+    {
+        auto range = assumeSorted(data[]);
+        size_t pos;
+        size_t a_idx = range.lowerBound(a).length;
+        if(a_idx == range.length)
+        {
+            //  [---+++----++++----++++++]
+            //  [                         a  b]
+            data.append([a, b]);
+            return data.length-1;
+        }
+        size_t b_idx = range[a_idx..range.length].lowerBound(b).length+a_idx;
+        uint[] to_insert;
+        if(b_idx == range.length)
+        {
+            //  [-------++++++++----++++++-]
+            //  [      s     a                 b]
+            if(a_idx & 1)//a in positive
+            {
+                to_insert = [ b ];
+            }
+            else// a in negative
+            {
+                to_insert = [a , b];
+            }
+            genericReplace(data, a_idx, b_idx, to_insert);
+            return a_idx+to_insert.length-1;
+        }
+        /*
+        if(a_idx & 1)
+        {//a in positive
+            if(idx & 1)//b in positive
+            {
+                //  [-------++++++++----++++++-]
+                //  [       s    a        b    ]
+                to_insert = [top - a_start];
+            }
+            else //b in negative
+            {
+                //  [-------++++++++----++++++-]
+                //  [       s    a   b         ]
+                if(top == b)
+                {
+                    assert(idx+1 < data.length);
+                    pre_top = b + data[idx+1];
+                    pos = replacePad(data, a_idx, idx+2, [b + data[idx+1] - a_start]);
+                    pre_top -= data[pos];
+                    return Marker(pos, pre_top);
+                }
+                to_insert = [b - a_start, top - b];
+            }
+        }
+        else
+        { // a in negative
+            if(idx & 1) //b in positive
+            {
+                //  [----------+++++----++++++-]
+                //  [     a     b              ]
+                to_insert = [a - a_start, top - a];
+            }
+            else// b in negative
+            {
+                //  [----------+++++----++++++-]
+                //  [  a       s      b        ]
+                if(top == b)
+                {
+                    assert(idx+1 < data.length);
+                    pre_top = top + data[idx+1];
+                    pos = replacePad(data, a_idx, idx+2, [a - a_start, top + data[idx+1] - a ]);
+                    pre_top -= data[pos];
+                    return Marker(pos, pre_top);
+                }
+                assert(a >= a_start, text(a, "<= ", a_start));
+                to_insert = [a - a_start, b - a, top - b];
+            }
+        }
+        pos = replacePad(data, a_idx, idx+1, to_insert);
+        pre_top = top - data[pos];
+        debug(std_uni)
+        {
+            writefln("marker idx: %d; value=%d", pos, pre_top);
+            writeln("inserting ", to_insert);
+        }*/
+        return pos;
+    }
+
+private:
+    Uint24Array!GcPolicy data;
+};
+
+///Packed array of 24-bit integers.
+struct Uint24Array(SP=GcPolicy)
+{
+    this(Range)(Range range)
+        if(isInputRange!Range && hasLength!Range)
+    {
+        length = range.length;
+        copy(range, this[]);
     }
 
     ~this()
     {
         SP.destroy(data);
     }
-private:
-    uint[] data;
-};
 
-version(unittest) import std.conv, std.typetuple;
+    @property size_t length()const { return roundDiv(data.length*2, 3); }
+
+    @property void length(size_t len)
+    {
+        data = SP.realloc(data, roundDiv(len*3,2));
+    }
+
+    ///Read 24-bit packed integer
+    uint opIndex(size_t idx)const
+    {
+        uint* ptr = cast(uint*)(data.ptr+3*idx/2);
+        version(LittleEndian)
+            return idx & 1 ? *ptr >>8 : *ptr & 0xFF_FFFF;
+        else version(BigEndian)
+            return idx & 1 ? *ptr & 0xFF_FFFF : *ptr >>8;
+    }
+
+    ///Write 24-bit packed integer
+    void opIndexAssign(uint val, size_t idx)
+    in
+    {
+        assert(val <= 0xFF_FFFF);
+    }
+    body
+    {
+        uint* ptr = cast(uint*)(data.ptr+3*idx/2);
+        version(LittleEndian)
+        {
+            *ptr = idx & 1 ? (val<<8) | (*ptr&0xFF)
+                : val | (*ptr & 0xFF00_0000);
+        }
+        else version(BigEndian)
+        {
+            *ptr = idx & 1 ? val | (*ptr & 0xFF00_0000)
+                : (val<<8) | (*ptr&0xFF);
+        }
+    }
+
+
+
+    //
+    auto opSlice(size_t from, size_t to)
+    {
+        static struct Slice
+        {
+            uint opIndex(size_t idx)const
+            in
+            {
+                assert(idx < to - from);
+            }
+            body
+            {
+                return arr.opIndex(from+idx);
+            }
+
+            void opIndexAssign(uint val, size_t idx)
+            in
+            {
+                assert(idx < to - from);
+            }
+            body
+            {
+                return arr.opIndexAssign(val, from+idx);
+            }
+
+            auto opSlice(size_t a, size_t b)
+            {
+                return Slice(from+a, from+b, arr);
+            }
+
+            auto opSlice()
+            {
+                return opSlice(from, to);
+            }
+
+            @property size_t length()const{ return to-from;}
+
+            @property bool empty()const { return from == to; }
+
+            @property uint front()const { return arr.opIndex(from); }
+
+            @property void front(uint val) { arr.opIndexAssign(val, from); }
+
+            @property uint back()const { return arr.opIndex(to-1); }
+
+            @property void back(uint val) { return arr.opIndexAssign(val, to-1); }
+
+            @property auto save() { return this; }
+
+            void popFront() {   from++; }
+
+            void popBack() {   to--; }
+        private:
+             size_t from, to;
+             Uint24Array* arr;
+        }
+        return Slice(from, to, &this);
+    }
+
+    //
+    auto opSlice()
+    {
+        return opSlice(0, length);
+    }
+
+    @property auto dup()
+    {
+        Uint24Array r;
+        r.data = data.dup;
+        return r;
+    }
+
+    void append(Range)(Range range)
+        if(isInputRange!Range && hasLength!Range)
+    {
+        data.length += range.length;
+    }
+
+private:
+    static uint roundDiv(uint src, uint div)
+    {
+        return (src + div/2)/div;
+    }
+    ushort[] data;
+}
+
+
+
+
+unittest//Uint24 tests
+{
+    foreach(Policy; TypeTuple!(GcPolicy, ReallocPolicy))
+    {
+        alias typeof(Uint24Array!Policy.init[]) Range;
+        alias Uint24Array!Policy U24A;
+        static assert(isForwardRange!Range);
+        static assert(isBidirectionalRange!Range);
+        static assert(isOutputRange!(Range, uint));
+        static assert(isRandomAccessRange!(Range));
+
+        auto arr = U24A([42u, 36, 100]);
+        assert(arr[0] == 42);
+        assert(arr[1] == 36);
+        arr[0] = 72;
+        arr[1] = 0xFE_FEFE;
+        assert(arr[0] == 72);
+        assert(arr[1] == 0xFE_FEFE);
+        assert(arr[2] == 100);
+
+        InversionList!Policy list;
+        auto r2 = U24A(iota(0, 100));
+        assert(equal(r2[], iota(0, 100)), text(r2[]));
+        copy(iota(10, 170, 2), r2[10..90]);
+        assert(equal(r2[], chain(iota(0, 10), iota(10, 170, 2), iota(90, 100)))
+               , text(r2[]));
+    }
+}
 
 unittest//CodeList set ops
 {
-    foreach(i, v; TypeTuple!(ubyte, ushort,uint))
+    foreach(CodeList;
+        staticMap!(RleBitSet, TypeTuple!(ubyte, ushort,uint)))
     {
-        alias RleBitSet!uint CodeList;
         CodeList a;
 
         //"plug a hole" test
