@@ -69,7 +69,7 @@
 module std.uni;
 
 static import std.ascii;
-import std.traits, std.range, std.algorithm;
+import std.traits, std.range, std.algorithm, std.typecons;
 import std.array; //@@BUG UFCS doesn't work with 'local' imports
 
 version(unittest) import std.conv, std.typetuple;
@@ -118,40 +118,41 @@ private auto adaptIntRange(T, F)(F[] src)
 }
 
 //hope to see simillar stuff in public interface... once Allocators are out
-private void genericReplace(Policy=void, T, Range)
+//@@@BUG moveFront and friends? dunno, for now it's POD-only
+private size_t genericReplace(Policy=void, T, Range)
     (ref T dest, size_t from, size_t to, Range stuff)
 {
-     size_t delta = to - from;
-	    if(stuff.length > delta)
-        {//replace increases length
-            delta = stuff.length - delta;//now, new is > old  by delta
-            static if(is(Policy == void))
-                dest.length = dest.length+delta;//@@@BUG lame @property
-            else
-                dest = Policy.realloc(dest, dest.length+delta);
-            auto rem = moveAll(retro(dest[to..$-delta])
-                 , retro(dest[to+delta..$]));
-            assert(rem.empty);
-            copy(stuff, dest[from..from+stuff.length]);
-        }
-        else if(stuff.length == delta)
-        {
-            assert(delta != 0);
-            copy(stuff, dest[from..to]);
-        }
+    size_t delta = to - from;
+    size_t stuff_end = from+stuff.length;
+    if(stuff.length > delta)
+    {//replace increases length
+        delta = stuff.length - delta;//now, new is > old  by delta
+        static if(is(Policy == void))
+            dest.length = dest.length+delta;//@@@BUG lame @property
         else
-        {//replace decreases length by delta
-            delta = delta - stuff.length;
-            size_t stuff_end = from+stuff.length;
-            copy(stuff, dest[from..stuff_end]);
-            auto rem =  moveAll(dest[to..$]
-                 , dest[stuff_end..$-delta]);
-            static if(is(Policy == void))
-                dest.length = dest.length - delta;//@@@BUG lame @property
-            else
-                dest = Policy.realloc(dest, dest.length-delta);
-            assert(rem.empty);
-        }
+            dest = Policy.realloc(dest, dest.length+delta);
+        auto rem = copy(retro(dest[to..dest.length-delta])
+             , retro(dest[to+delta..dest.length]));
+        assert(rem.empty);
+        copy(stuff, dest[from..stuff_end]);
+    }
+    else if(stuff.length == delta)
+    {
+        copy(stuff, dest[from..to]);
+    }
+    else
+    {//replace decreases length by delta
+        delta = delta - stuff.length;
+        copy(stuff, dest[from..stuff_end]);
+        auto rem =  copy(dest[to..dest.length]
+             , dest[stuff_end..dest.length-delta]);
+        static if(is(Policy == void))
+            dest.length = dest.length - delta;//@@@BUG lame @property
+        else
+            dest = Policy.realloc(dest, dest.length-delta);
+        assert(rem.empty);
+    }
+    return stuff_end;
 }
 
 //Simple storage manipulation policy
@@ -291,9 +292,18 @@ private mixin template BasicSetOps()
     {
         static if(op == "&" || op == "|" || op == "~")
         {
-            //try hard to reuse r-value
-            mixin("rhs "~op~"= this; ");
-            return rhs;
+            static if(is(U:dchar))
+            {
+                auto copy = this;
+                mixin("copy "~op~"= rhs; ");
+                return copy;
+            }
+            else
+            {
+                //try hard to reuse r-value
+                mixin("rhs "~op~"= this; ");
+                return rhs;
+            }
         }
         else static if(op == "-")
         {
@@ -355,7 +365,7 @@ private mixin template BasicSetOps()
             void popFront()
             {
                 cur++;
-                while(cur >= r.b)
+                while(cur >= r.front.b)
                 {
                     r.popFront();
                     if(r.empty)
@@ -378,11 +388,11 @@ private mixin template BasicSetOps()
          $(XREF std._format, formattedWrite), $(D write), $(D writef) and others.
         )
     */
-    void toString(scope void delegate (in char[]) sink, bool hex=false)
+    void toString(scope void delegate (const(char)[]) sink)
     {
         import std.format;
         foreach(i; byInterval)
-                formattedWrite(sink, hex ? "[0x%x..0x%x) " : "[%d..%d) ", i.a, i.b);
+                formattedWrite(sink, "[%d..%d) ", i.a, i.b);
     }
 
 private:
@@ -392,7 +402,7 @@ private:
         return this;
     }
 
-    ref intersect(RleBitSet rhs)
+    ref intersect(This rhs)
     {
         Marker mark;
         foreach( i; rhs.byInterval())
@@ -413,8 +423,14 @@ private:
         return this;
     }
 
+    ref sub(dchar ch)
+    {
+        //workaround a BUG, somehow overload below doesn't survive if base class has sub(dchar)
+        return subChar(ch);
+    }
+
     //same as the above except that skip & drop parts are swapped
-    ref sub(RleBitSet rhs)
+    ref sub(This rhs)
     {
         uint top;
         Marker mark;
@@ -426,20 +442,7 @@ private:
         return this;
     }
 
-    ref sub(dchar ch)
-    {
-        Marker mark;
-        mark = skipUpTo(ch, mark);
-        if(mark.top_before_idx == ch && mark.idx+1 != data.length)
-        {
-            data[mark.idx+1] -= 1;
-            data[mark.idx] += 1;
-            assert(data[mark.idx] == 1);
-        }
-        return this;
-    }
-
-    ref add(RleBitSet rhs)
+    ref add(This rhs)
     {
         Marker start;
         foreach(i; rhs.byInterval())
@@ -449,6 +452,7 @@ private:
         return this;
     }
 
+    enum isSet = true;
 };
 
 struct RleBitSet(T, SP=GcPolicy)
@@ -631,15 +635,11 @@ private:
         uint top_before_idx;
     };
 
-    enum isSet = true;
-
     //Think of it as of RLE compressed bit-array
     //data holds _lengths_ of intervals
     //first value is a length of negative portion, second interval is positive,
     //3rd is negative etc. (length can be zero e.g. if interval contains 0 like [\x00-\x7f])
     T[] data;
-
-
 
     static void appendPad(ref T[] dest, uint val)
     {
@@ -685,6 +685,20 @@ private:
     }
 
     @property const(T)[] repr() const{ return data; }
+
+    //special case for RLE set
+    ref subChar(dchar ch)
+    {
+        Marker mark;
+        mark = skipUpTo(ch, mark);
+        if(mark.top_before_idx == ch && mark.idx+1 != data.length)
+        {
+            data[mark.idx+1] -= 1;
+            data[mark.idx] += 1;
+            assert(data[mark.idx] == 1);
+        }
+        return this;
+    }
 
     //returns last point of insertion (idx,  top_value right before idx),
     // so that top += data[idx] on first iteration  gives top of idx
@@ -900,8 +914,6 @@ private:
             if(top == a)//no need to split, it's end
                 return Marker(idx+1, top);
             uint start = top - data[idx];
-            if(a == start)
-                return Marker(idx-1, start);
             //split it up
             uint val = replacePad(data, idx, idx+1, [a - start, 0, top - a]);
 
@@ -932,10 +944,7 @@ struct InversionList(SP=GcPolicy)
     }
     body
     {
-        for(size_t i = 0;  i < intervals.length; i+=2){
-            append24bit(data, intervals[i], intervals[i+1]);
-            top = intervals[i+1];
-        }
+        data = Uint24Array!(SP)(intervals);
     }
 
     this(this)
@@ -943,12 +952,68 @@ struct InversionList(SP=GcPolicy)
         data = data.dup;
     }
 
+    @property auto byInterval()
+    {
+        static struct Intervals
+        {
+            @property auto front()const
+            {
+                uint a = *cast(uint*)slice.ptr;
+                uint b= *cast(uint*)(slice.ptr+1);
+                //optimize a bit, since we go by even steps
+                return Tuple!(uint, "a", uint, "b")(a & 0xFF_FFFF, b >> 8);
+            }
+
+            @property auto back()const
+            {
+                uint a = *cast(uint*)slice.ptr[len-2];
+                uint b = *cast(uint*)slice.ptr[len-1];
+                //optimize a bit, since we go by even steps
+                return Tuple!(uint, "a", uint, "b")(a & 0xFF_FFFF, b >> 8);
+            }
+
+            void popFront()
+            {
+               len -= 2;
+               slice = slice[3..$];//3*2 16bit == 2*24 bits
+            }
+
+            void popBack()
+            {
+                len -= 2;
+                slice = slice[0..$-3];
+            }
+
+            @property bool empty()const { return len == 0; }
+
+            @property auto save(){ return this; }
+        private:
+            ushort[] slice;
+            size_t len;
+        }
+        return Intervals(data.data, data.length);
+    }
+
+    mixin BasicSetOps;
+
 private:
     alias typeof(this) This;
     alias size_t Marker;
 
+    //special case for normal InversionList
+    ref subChar(dchar ch)
+    {
+        auto mark = skipUpTo(ch);
+        if(mark != data.length
+            && data[mark] == ch && data[mark-1] == ch)
+        {
+            //it has split, meaning that ch happens to be in one of intervals
+            data[mark] = data[mark]+1;
+        }
+        return this;
+    }
+
     //
-    version(none)
     Marker addInterval(int a, int b, Marker hint=Marker.init)
     in
     {
@@ -968,6 +1033,10 @@ private:
         }
         size_t b_idx = range[a_idx..range.length].lowerBound(b).length+a_idx;
         uint[] to_insert;
+        debug(std_uni)
+        {
+            writefln("a_idx=%d; b_idx=%d;", a_idx, b_idx);
+        }
         if(b_idx == range.length)
         {
             //  [-------++++++++----++++++-]
@@ -978,19 +1047,26 @@ private:
             }
             else// a in negative
             {
-                to_insert = [a , b];
+                to_insert = [a, b];
             }
             genericReplace(data, a_idx, b_idx, to_insert);
             return a_idx+to_insert.length-1;
         }
-        /*
+
+        uint top = data[b_idx];
+
+        debug(std_uni)
+        {
+            writefln("a_idx=%d; b_idx=%d;", a_idx, b_idx);
+            writefln("a=%s; b=%s; top=%s;", a, b, top);
+        }
         if(a_idx & 1)
         {//a in positive
-            if(idx & 1)//b in positive
+            if(b_idx & 1)//b in positive
             {
                 //  [-------++++++++----++++++-]
                 //  [       s    a        b    ]
-                to_insert = [top - a_start];
+                to_insert = [top];
             }
             else //b in negative
             {
@@ -998,22 +1074,20 @@ private:
                 //  [       s    a   b         ]
                 if(top == b)
                 {
-                    assert(idx+1 < data.length);
-                    pre_top = b + data[idx+1];
-                    pos = replacePad(data, a_idx, idx+2, [b + data[idx+1] - a_start]);
-                    pre_top -= data[pos];
-                    return Marker(pos, pre_top);
+                    assert(b_idx+1 < data.length);
+                    pos = genericReplace(data, a_idx, b_idx+2, [data[b_idx+1]]);
+                    return pos;
                 }
-                to_insert = [b - a_start, top - b];
+                to_insert = [b, top ];
             }
         }
         else
         { // a in negative
-            if(idx & 1) //b in positive
+            if(b_idx & 1) //b in positive
             {
                 //  [----------+++++----++++++-]
                 //  [     a     b              ]
-                to_insert = [a - a_start, top - a];
+                to_insert = [a, top];
             }
             else// b in negative
             {
@@ -1021,28 +1095,91 @@ private:
                 //  [  a       s      b        ]
                 if(top == b)
                 {
-                    assert(idx+1 < data.length);
-                    pre_top = top + data[idx+1];
-                    pos = replacePad(data, a_idx, idx+2, [a - a_start, top + data[idx+1] - a ]);
-                    pre_top -= data[pos];
-                    return Marker(pos, pre_top);
+                    assert(b_idx+1 < data.length);
+                    pos = genericReplace(data, a_idx, b_idx+2, [a, data[b_idx+1] ]);
+                    return pos;
                 }
-                assert(a >= a_start, text(a, "<= ", a_start));
-                to_insert = [a - a_start, b - a, top - b];
+                to_insert = [a, b, top];
             }
         }
-        pos = replacePad(data, a_idx, idx+1, to_insert);
-        pre_top = top - data[pos];
+        pos = genericReplace(data, a_idx, b_idx+1, to_insert);
         debug(std_uni)
         {
-            writefln("marker idx: %d; value=%d", pos, pre_top);
+            writefln("marker idx: %d; value=%d", pos, data[pos]);
             writeln("inserting ", to_insert);
-        }*/
+        }
         return pos;
     }
 
-private:
-    Uint24Array!GcPolicy data;
+    //
+    Marker dropUpTo(uint a, Marker pos=Marker.init)
+    in
+    {
+        assert(pos % 2 == 0); //at start of interval
+    }
+    body
+    {
+        auto range = assumeSorted!"a<=b"(data[pos..data.length]);
+        if(range.empty)
+            return pos;
+        size_t idx = pos;
+        idx += range.lowerBound(a).length;
+
+        debug(std_uni)
+        {
+            writeln("dropUpTo full length=", data.length);
+            writeln(pos,"~~~", idx);
+        }
+        if(idx == data.length)
+            return genericReplace(data, pos, idx, cast(uint[])[]);
+        if(idx & 1)
+        {   //a in positive
+            //[--+++----++++++----+++++++------...]
+            //      |<---si       s  a  t
+            genericReplace(data, pos, idx, [a]);
+        }
+        else
+        {   //a in negative
+            //[--+++----++++++----+++++++-------+++...]
+            //      |<---si              s  a  t
+            genericReplace(data, pos, idx, cast(uint[])[]);
+        }
+        return pos;
+    }
+
+    //
+    Marker skipUpTo(uint a, Marker pos=Marker.init)
+    out(result)
+    {
+        assert(result % 2 == 0);//always start of interval
+        //(may be  0-width after-split)
+    }
+    body
+    {
+        assert(data.length % 2 == 0);
+        auto range = assumeSorted!"a<=b"(data[pos..data.length]);
+        size_t idx = pos+range.lowerBound(a).length;
+
+        if(idx >= data.length) //could have Marker point to recently removed stuff
+            return data.length;
+
+        if(idx & 1)//inside of interval, check for split
+        {
+
+            uint top = data[idx];
+            if(top == a)//no need to split, it's end
+                return idx+1;
+            uint start = data[idx-1];
+            if(a == start)
+                return idx-1;
+            //split it up
+            genericReplace(data, idx, idx+1, [a, a, top]);
+            return idx+1;        //avoid odd index
+        }
+        return idx;
+    }
+
+    Uint24Array!SP data;
 };
 
 ///Packed array of 24-bit integers.
@@ -1053,6 +1190,11 @@ struct Uint24Array(SP=GcPolicy)
     {
         length = range.length;
         copy(range, this[]);
+    }
+
+    this(this)
+    {
+        data = SP.dup(data);
     }
 
     ~this()
@@ -1097,8 +1239,6 @@ struct Uint24Array(SP=GcPolicy)
                 : (val<<8) | (*ptr&0xFF);
         }
     }
-
-
 
     //
     auto opSlice(size_t from, size_t to)
@@ -1168,16 +1308,23 @@ struct Uint24Array(SP=GcPolicy)
     @property auto dup()
     {
         Uint24Array r;
-        r.data = data.dup;
+        r.data = SP.dup(data);
         return r;
     }
 
     void append(Range)(Range range)
         if(isInputRange!Range && hasLength!Range)
     {
-        data.length += range.length;
+        size_t nl = length + range.length;
+        length = nl;
+        copy(range, this[nl-range.length..nl]);
     }
 
+    bool opEquals(const ref Uint24Array rhs)const
+    {
+        return data[0..roundDiv(data.length*2,3)]
+            == rhs.data[0..roundDiv(rhs.data.length*2,3)];
+    }
 private:
     static uint roundDiv(uint src, uint div)
     {
@@ -1186,11 +1333,9 @@ private:
     ushort[] data;
 }
 
-
-
-
 unittest//Uint24 tests
 {
+    InversionList!GcPolicy val;
     foreach(Policy; TypeTuple!(GcPolicy, ReallocPolicy))
     {
         alias typeof(Uint24Array!Policy.init[]) Range;
@@ -1209,7 +1354,7 @@ unittest//Uint24 tests
         assert(arr[1] == 0xFE_FEFE);
         assert(arr[2] == 100);
 
-        InversionList!Policy list;
+
         auto r2 = U24A(iota(0, 100));
         assert(equal(r2[], iota(0, 100)), text(r2[]));
         copy(iota(10, 170, 2), r2[10..90]);
@@ -1218,27 +1363,29 @@ unittest//Uint24 tests
     }
 }
 
-unittest//CodeList set ops
+private alias TypeTuple!(InversionList!GcPolicy, InversionList!ReallocPolicy) AbsTypes;
+private alias staticMap!(RleBitSet, TypeTuple!(ubyte, ushort,uint)) RleTypes;
+private alias TypeTuple!(AbsTypes, RleTypes) AllSets;
+
+unittest//core set primitives test
 {
-    foreach(CodeList;
-        staticMap!(RleBitSet, TypeTuple!(ubyte, ushort,uint)))
+    foreach(CodeList; AllSets)
     {
         CodeList a;
-
         //"plug a hole" test
         a.add(10, 20).add(25, 30).add(15, 27);
-        assert(a.repr == [10, 20]);
+        assert(a == CodeList(10, 30), text(a));
 
         auto x = CodeList.init;
         x.add(10, 20).add(30, 40).add(50, 60);
 
         a = x;
         a.add(20, 49);//[10, 49) [50, 60)
-        assert(a.repr == [10, 39, 1, 10]);
+        assert(a == CodeList(10, 49, 50 ,60));
 
         a = x;
-        a.add(20, 50);//[10, 60)
-        assert(a.repr == [10, 50]);
+        a.add(20, 50);
+        assert(a == CodeList(10, 60), text(a.byInterval));
 
         //simple unions, mostly edge effects
         x = CodeList.init;
@@ -1246,50 +1393,51 @@ unittest//CodeList set ops
 
         a = x;
         a.add(10, 25); //[10, 25) [40, 60)
-        assert(a.repr == [10, 15, 15, 20]);
+        assert(a == CodeList(10, 25, 40, 60));
 
         a = x;
         a.add(5, 15); //[5, 20) [40, 60)
-        assert(a.repr == [5, 15, 20, 20]);
+        assert(a == CodeList(5, 20, 40, 60));
 
         a = x;
         a.add(0, 10); // [0, 20) [40, 60)
-        assert(a.repr == [0, 20, 20, 20]);
+        assert(a == CodeList(0, 20, 40, 60));
 
         a = x;
         a.add(0, 5); //prepand
-        assert(a.repr == [0, 5, 5, 10, 20, 20]);
+        assert(a == CodeList(0, 5, 10, 20, 40, 60));
 
         a = x;
         a.add(5, 20);
-        assert(a.repr == [5, 15, 20, 20]);
+        assert(a == CodeList(5, 20, 40, 60));
 
         a = x;
         a.add(3, 37);
-        assert(a.repr == [3, 34, 3, 20]);
+        assert(a == CodeList(3, 37, 40, 60));
 
         a = x;
         a.add(37, 65);
-        assert(a.repr == [10, 10, 17, 28]);
+        assert(a == CodeList(10, 20, 37, 65), text(a.byInterval));
 
         //some tests on helpers for set intersection
         x = CodeList.init.add(10, 20).add(40, 60).add(100, 120);
         a = x;
+
         auto m = a.skipUpTo(60);
-        a.dropUpTo(110, CodeList.Marker(m.idx, m.top_before_idx));
-        assert(a.repr == [10, 10, 20, 20, 50, 10], text(a));
+        a.dropUpTo(110, m);
+        assert(a == CodeList(10, 20, 40, 60, 110, 120), text(a.data[]));
 
         a = x;
         a.dropUpTo(100);
-        assert(a.repr == [100, 20], text(a));
+        assert(a == CodeList(100, 120), text(a.data[]));
 
         a = x;
         m = a.skipUpTo(50);
-        a.dropUpTo(140, CodeList.Marker(m.idx, m.top_before_idx));
-        assert(a.repr == [10, 10, 20, 10], text(a));
+        a.dropUpTo(140, m);
+        assert(a == CodeList(10, 20, 40, 50), text(a.data[]));
         a = x;
         a.dropUpTo(60);
-        assert(a.repr == [100, 20], text(a));
+        assert(a == CodeList(100, 120), text(a.data[]));
     }
 }
 
@@ -1302,9 +1450,8 @@ unittest//constructors
 
 unittest
 {   //full set operations
-    foreach(i, v; TypeTuple!(ubyte, ushort,uint))
+    foreach(CodeList; AllSets)
     {
-        alias RleBitSet!uint CodeList;
         CodeList a, b, c, d;
 
         //"plug a hole"
@@ -1312,25 +1459,25 @@ unittest
         b.add(40, 60).add(80, 100).add(140, 150);
         c = a | b;
         d = b | a;
-        assert(c.repr == [20, 180], text(c));
+        assert(c == CodeList(20, 200), text(c));
         assert(c == d, text(c," vs ", d));
 
         b = CodeList.init.add(25, 45).add(65, 85).add(95,110).add(150, 210);
-        c = a | b; //[20,45) [60, 85) [95, 110) [150, 210)
+        c = a | b; //[20,45) [60, 85) [95, 140) [150, 210)
         d = b | a;
-        assert(c.repr == [20, 25, 15, 25, 10, 45, 10, 60], text(c));
+        assert(c == CodeList(20, 45, 60, 85, 95, 140, 150, 210), text(c));
         assert(c == d, text(c," vs ", d));
 
         b = CodeList.init.add(10, 20).add(30,100).add(145,200);
         c = a | b;//[10, 140) [145, 200)
         d = b | a;
-        assert(c.repr == [10, 130, 5, 55]);
+        assert(c == CodeList(10, 140, 145, 200));
         assert(c == d, text(c," vs ", d));
 
-        b = CodeList.init.add(0,10).add(15, 100).add(10, 20).add(200, 220);
+        b = CodeList.init.add(0, 10).add(15, 100).add(10, 20).add(200, 220);
         c = a | b;//[0, 140) [150, 220)
         d = b | a;
-        assert(c.repr == [0, 140, 10, 70]);
+        assert(c == CodeList(0, 140, 150, 220));
         assert(c == d, text(c," vs ", d));
 
 
@@ -1338,21 +1485,22 @@ unittest
         b = CodeList.init.add(25, 35).add(65, 75);
         c = a & b;
         d = b & a;
-        assert(c.repr == [25, 10, 30, 10], text(c));
+        assert(c == CodeList(25, 35, 65, 75), text(c));
         assert(c == d, text(c," vs ", d));
 
         a = CodeList.init.add(20, 40).add(60, 80).add(100, 140).add(150, 200);
         b = CodeList.init.add(25, 35).add(65, 75).add(110, 130).add(160, 180);
         c = a & b;
         d = b & a;
-        assert(c.repr == [25, 10, 30, 10, 35, 20, 30, 20], text(c));
+        assert(c == CodeList(25, 35, 65, 75, 110, 130, 160, 180), text(c));
         assert(c == d, text(c," vs ", d));
 
         a = CodeList.init.add(20, 40).add(60, 80).add(100, 140).add(150, 200);
         b = CodeList.init.add(10, 30).add(60, 120).add(135, 160);
         c = a & b;//[20, 30)[60, 80) [100, 120) [135, 140) [150, 160)
         d = b & a;
-        assert(c.repr == [20, 10, 30, 20, 20, 20, 15, 5, 10, 10],text(c));
+
+        assert(c == CodeList(20, 30, 60, 80, 100, 120, 135, 140, 150, 160),text(c));
         assert(c == d, text(c, " vs ",d));
         assert((c & a) == c);
         assert((d & b) == d);
@@ -1361,7 +1509,7 @@ unittest
         b = CodeList.init.add(40, 60).add(80, 100).add(140, 200);
         c = a & b;
         d = b & a;
-        assert(c.repr == [150, 50], text(c));
+        assert(c == CodeList(150, 200), text(c));
         assert(c == d, text(c, " vs ",d));
         assert((c & a) == c);
         assert((d & b) == d);
@@ -1374,8 +1522,8 @@ unittest
         b = CodeList.init.add(30, 60).add(75, 120).add(190, 300);
         c = a - b;// [30, 40) [60, 75) [120, 140) [150, 190)
         d = b - a;// [40, 60) [80, 100) [200, 300)
-        assert(c.repr == [20, 10, 30, 15, 45, 20, 10, 40], text(c));
-        assert(d.repr == [40, 20, 20, 20, 100, 100], text(d));
+        assert(c == CodeList(20, 30, 60, 75, 120, 140, 150, 190), text(c));
+        assert(d == CodeList(40, 60, 80, 100, 200, 300), text(d));
         assert(c - d == c, text(c-d, " vs ", c));
         assert(d - c == d, text(d-c, " vs ", d));
         assert(c - c == CodeList.init);
@@ -1385,8 +1533,8 @@ unittest
         b = CodeList.init.add(10,  50).add(60,                           160).add(190, 300);
         c = a - b;// [160, 190)
         d = b - a;// [10, 20) [40, 50) [80, 100) [140, 150) [200, 300)
-        assert(c.repr == [160, 30], text(c));
-        assert(d.repr == [10, 10, 20, 10, 30, 20, 40, 10, 50, 100], text(d));
+        assert(c == CodeList(160, 190), text(c));
+        assert(d == CodeList(10, 20, 40, 50, 80, 100, 140, 150, 200, 300), text(d));
         assert(c - d == c, text(c-d, " vs ", c));
         assert(d - c == d, text(d-c, " vs ", d));
         assert(c - c == CodeList.init);
@@ -1396,7 +1544,8 @@ unittest
         b = CodeList.init.add(10, 30).add(45,         100).add(130,             190);
         c = a ~ b; // [10, 20) [30, 40) [45, 60) [80, 130) [140, 150) [190, 200)
         d = b ~ a;
-        assert(c.repr == [10, 10, 10, 10, 5, 15, 20, 50, 10, 10, 40, 10], text(c));
+        assert(c == CodeList(10, 20, 30, 40, 45, 60, 80, 130, 140, 150, 190, 200),
+               text(c));
         assert(c == d, text(c, " vs ", d));
     }
 }
@@ -1471,6 +1620,7 @@ unittest// vs single dchar
 {
     mList a = mList(10, 100, 120, 200);
     assert(a - 'A' == uList(10, 65, 66, 100, 120, 200), text(a - 'A'));
+    assert((a & 'B') == uList(66, 67));
 }
 
 unittest//iteration
