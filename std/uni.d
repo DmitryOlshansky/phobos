@@ -342,7 +342,7 @@ private mixin template BasicSetOps()
     }
 
     ///Range that spans each codepoint in this set.
-    @property auto byCodepoint()
+    @property auto byChar()
     {
         static struct CharRange
         {
@@ -516,12 +516,14 @@ public:
                     value += set.data[idx];
                     while(idx+1 < set.data.length && set.data[idx+1] == 0)
                     {
+                        writeln(set.data);
+                        writeln(idx);
                         assert(idx+2 < set.data.length);
                         value += set.data[idx+2];
                         idx += 2;
 
                     }
-                    idx ++;
+                    idx++;
                 }
                 return value;
             }
@@ -551,11 +553,10 @@ public:
             RleBitSet set;
         }
 
-
         return IntervalRange(this);
     }
 
-    bool opEquals(U)(ref const RleBitSet!U rhs) const
+    bool opEquals(U,SP)(ref const RleBitSet!(U,SP) rhs) const
         if(isUnsigned!U)
     {
         static if(T.sizeof == 4 && U.sizeof == 4)//short-circuit full versions
@@ -1363,9 +1364,14 @@ unittest//Uint24 tests
     }
 }
 
+version(unittest)
+{
+
 private alias TypeTuple!(InversionList!GcPolicy, InversionList!ReallocPolicy) AbsTypes;
 private alias staticMap!(RleBitSet, TypeTuple!(ubyte, ushort,uint)) RleTypes;
 private alias TypeTuple!(AbsTypes, RleTypes) AllSets;
+
+}
 
 unittest//core set primitives test
 {
@@ -1630,10 +1636,195 @@ unittest//iteration
     auto a = mList('A','N','a', 'n');
     assert(equal(a.byInterval, [ tuple(cast(uint)'A', cast(uint)'N'), tuple(cast(uint)'a', cast(uint)'n')]), text(a.byInterval));
 
-    assert(equal(a.byCodepoint, arr), text(a.byCodepoint));
+    assert(equal(a.byChar, arr), text(a.byChar));
 
     auto x = uList(100, 500, 600, 900, 1200, 1500);
     assert(equal(x.byInterval, [ tuple(100, 500), tuple(600, 900), tuple(1200, 1500)]), text(x.byInterval));
+}
+
+struct Trie(Value, Key, Prefix...)
+    if(Prefix.length >= 1 && isUnsigned!Key)
+{
+    //bool set constructor
+    this(Set)(Set set, Key maxKey=Key.max)
+        if(is(typeof(Set.init.isSet)))
+    {
+        maxKey =((maxKey + pageSize/2)>>pageBits)<<pageBits;
+        enum last = Prefix.length-1;
+        auto ivals = set.byInterval;
+
+        table.resize!(last)(pageSize);
+        Value* ptr = table.ptr!(last);
+
+        size_t[Prefix.length] idxs;
+        for(;;)
+        {
+            writeln("~!!!", idxs);
+            if(ivals.empty)
+                break;
+
+            while(idxs[$-1] < ivals.front.b)
+            {
+                addValue!(last)(idxs, idxs[$-1] >= ivals.front.a);
+                writeln(idxs[$-1]);
+            }
+            writeln("!!!~", idxs);
+            ivals.popFront();
+        }
+
+        for(;idxs[$-1]<maxKey; idxs[$-1]++)
+            addValue!(last)(idxs, false);
+    }
+
+    Value opIndex(Key key) const
+    {
+        Key idx = key;
+        alias Prefix p;
+        foreach(i, v; p[0..$-1])
+        {
+            idx = table.ptr!(i)[p[i](idx)] + p[i+1](key);
+        }
+        return table.ptr!(p.length-1)[idx];
+    }
+private:
+    enum minKey = 0, pageBits=Prefix[$-1].bitSize, pageSize = 1^^pageBits;
+
+    void addValue(size_t level, T)(size_t[] indices, T val)
+    {
+        enum thisPage = 1<<Prefix[level].bitSize;
+        auto ptr = table.ptr!(level);
+        ptr[indices[level]++] = val;
+        static if(level != 0)//last level has 1 "page"
+        {
+            size_t next_lvl_index;
+            if(indices[level] % thisPage == 0)
+            {
+                auto last = table.ptr!level + (indices[level] - pageSize);
+                auto x=table.ptr!level;
+                auto base = x;
+                for(; x<last; x+=pageSize)
+                {
+                    if(x[0..pageSize] == ptr[0..pageSize])
+                    {
+                        //get index to it, reuse ptr space for the next block
+                        next_lvl_index = (x - base)/pageSize;
+                        break;
+                    }
+                }
+                if(x == last)
+                    next_lvl_index = (ptr - base)/pageSize;
+            }
+            addValue!(level-1)(indices, next_lvl_index);
+        }
+    }
+    pragma(msg, typeof(table));
+    //last index is not stored in table, it is used as offset to values in a block.
+    MultiArray!(idxTypes!(Key, Prefix[0..$-1]), Value) table;
+
+}
+
+/**
+    Wrapper, provided to simplify definition
+    of custom Trie data structures. Use it on a lambda to indicate that
+    returned value always fits within $(D bits) of bits.
+*/
+template assumeSize(size_t bits, alias Fn)
+{
+    enum bitSize = bits;
+    alias Fn apply;
+}
+
+unittest
+{
+    alias assumeSize!(8, function (uint x) { return x&0xFF; }) fn;
+    auto set = RleBitSet!(ubyte,ReallocPolicy)('A','Z','a','z');
+    writeln(set);
+    auto trie = Trie!(bool, uint, fn)(set, 256);//simple bool array
+    //TODO: watch out!!, somehow memory corruption happens in trie constructor
+    for(int a='a'; a<'z';a++)
+    {
+        writeln(a, "\t-\t", trie[a]);
+        assert(trie[a]);
+    }
+}
+
+
+private template idxTypes(Key, Prefix...)
+{
+    static if(Prefix.length == 0)
+    {
+        alias TypeTuple!() idxTypes;
+    }
+    else
+    {
+        alias Prefix[0] pr;
+        alias TypeTuple!(typeof(pr.apply(Key.init))
+                         , idxTypes!(Key, Prefix[1..$])) idxTypes;
+    }
+}
+
+//multiple arrays squashed to one memory block
+private struct MultiArray(Types...)
+{
+    this(size_t[] sizes...)
+    {
+        size_t full_size;
+        foreach(i, v; Types)
+        {
+            pragma(msg, v.sizeof);
+            full_size += v.sizeof*sizes[i];
+            sz[i] = sizes[i];
+            static if(i >= 1)
+                offsets[i] = offsets[i-1] + sizes[i-1]*Types[i-1].sizeof;
+        }
+
+        storage = new ubyte[full_size];
+    }
+
+    @property auto ptr(size_t n)()inout
+    {
+        return cast(inout(Types[n])*)raw_ptr!n;
+    }
+
+    @property size_t length(size_t n)(){ return sz[n]; }
+
+    void resize(size_t n)(size_t new_size)
+    {
+        if(new_size > sz[n])
+        {//extend
+            size_t delta = new_size - sz[n];
+            //move all data past this array, last-one-goes-first
+            auto start = raw_ptr!(n+1);
+            storage.length +=  delta;//extend space at end
+            size_t len = storage.length;
+            copy(retro(start[0..len-delta*Types[n].sizeof])
+                 , retro(start[delta..len]));
+        }
+        else if(new_size < sz[n])
+        {//shrink
+            size_t delta = sz[n] - new_size;
+            //move all data past this array, forward direction
+            auto start = raw_ptr!(n+1);
+            size_t len = storage.length;
+            copy(start[delta..len]
+                 , start[0..len-delta*Types[n].sizeof]);
+            storage.length -= delta;
+        }
+        //else - NOP
+    }
+private:
+    @property inout(ubyte)* raw_ptr(size_t n)()inout
+    {
+        static if(n == 0)
+            return storage.ptr;
+        else static if(n == Types.length)
+            return storage.ptr+storage.length;
+        else
+            return storage.ptr + offsets[n];
+    }
+    size_t[Types.length] offsets;//offset for level x
+    size_t[Types.length] sz;//size of level x
+    ubyte[] storage;
 }
 
 /++
