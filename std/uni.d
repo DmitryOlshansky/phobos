@@ -315,6 +315,12 @@ private mixin template BasicSetOps()
             static assert(0, "no operator "~op~" defined for Set");
     }
 
+    bool opBinaryRight(string op, U)(U ch)
+        if(op == "in" && is(U : dchar))
+    {
+        return this[ch];
+    }
+
     ///The 'op=' versions of the above overloaded operators.
     ref This opOpAssign(string op, U)(U rhs)
         if(is(typeof(U.init.isSet)) || is(U:dchar))
@@ -458,7 +464,6 @@ private:
 struct RleBitSet(T, SP=GcPolicy)
     if(isUnsigned!T)
 {
-import std.array, std.algorithm;
 public:
     this(C)(in C[] regexSet)
         if(is(C : dchar))
@@ -516,12 +521,9 @@ public:
                     value += set.data[idx];
                     while(idx+1 < set.data.length && set.data[idx+1] == 0)
                     {
-                        writeln(set.data);
-                        writeln(idx);
                         assert(idx+2 < set.data.length);
                         value += set.data[idx+2];
                         idx += 2;
-
                     }
                     idx++;
                 }
@@ -626,6 +628,14 @@ public:
             }
             return idx == data.length && ridx == rhs.data.length;
         }
+    }
+
+    bool opIndex(uint val)
+    {
+        foreach(i; byInterval)
+            if(val < i.b)
+                return val >= i.a;
+        return false;
     }
 
     mixin BasicSetOps;
@@ -995,8 +1005,12 @@ struct InversionList(SP=GcPolicy)
         return Intervals(data.data, data.length);
     }
 
-    mixin BasicSetOps;
+    bool opIndex(uint val)
+    {
+        return assumeSorted(data[]).lowerBound(val).length & 1;
+    }
 
+    mixin BasicSetOps;
 private:
     alias typeof(this) This;
     alias size_t Marker;
@@ -1652,28 +1666,40 @@ struct Trie(Value, Key, Prefix...)
         maxKey =((maxKey + pageSize/2)>>pageBits)<<pageBits;
         enum last = Prefix.length-1;
         auto ivals = set.byInterval;
-
-        table.resize!(last)(pageSize);
-        Value* ptr = table.ptr!(last);
-
+        pragma(msg, "mm "~to!string(pageBits));
+        pragma(msg, "mmm "~to!string(pageSize));
         size_t[Prefix.length] idxs;
+
+
+        table = table(idxs);//table with all size == 0
+        //if not flat array, in which case it would get
+        //it's one page few lines below
+        if(Prefix.length != 1)
+            table.length!last = pageSize;
+        //0-level should be allocated manually
+        table.length!0 = 1<<Prefix[0].bitSize;
+
+        Value* ptr = table.ptr!(last);
+        size_t i = 0;
         for(;;)
         {
-            writeln("~!!!", idxs);
             if(ivals.empty)
                 break;
-
-            while(idxs[$-1] < ivals.front.b)
+            uint a = ivals.front.a, b = ivals.front.b;
+            for(; i<a; i++)
+                addValue!last(idxs, false);
+            for(; i<b; i++)
             {
-                addValue!(last)(idxs, idxs[$-1] >= ivals.front.a);
-                writeln(idxs[$-1]);
+                addValue!last(idxs, true);
             }
-            writeln("!!!~", idxs);
+
             ivals.popFront();
         }
 
-        for(;idxs[$-1]<maxKey; idxs[$-1]++)
-            addValue!(last)(idxs, false);
+        for(;i<maxKey; i++)
+            addValue!last(idxs, false);
+
+        //TODO: need a way to remove last page if it was mapped
     }
 
     Value opIndex(Key key) const
@@ -1681,41 +1707,71 @@ struct Trie(Value, Key, Prefix...)
         Key idx = key;
         alias Prefix p;
         foreach(i, v; p[0..$-1])
-        {
-            idx = table.ptr!(i)[p[i](idx)] + p[i+1](key);
-        }
+            idx = (table.ptr!(i)[p[i].apply(idx)]<<p[i+1].bitSize) + p[i+1].apply(key);
+
         return table.ptr!(p.length-1)[idx];
     }
-private:
-    enum minKey = 0, pageBits=Prefix[$-1].bitSize, pageSize = 1^^pageBits;
 
-    void addValue(size_t level, T)(size_t[] indices, T val)
+    @property size_t bytes(size_t n=size_t.max)() const
+    {
+        static if(n == size_t.max)
+            return table.storage.length;
+        else
+            return table.length!n * typeof(*(table.ptr!n)).sizeof;
+    }
+private:
+    enum minKey = 0, pageBits=Prefix[$-1].bitSize, pageSize = 1<<pageBits;
+
+    //true if page was allocated, false is it was mapped or not an end of page yet
+    bool addValue(size_t level, T)(size_t[] indices, T val)
     {
         enum thisPage = 1<<Prefix[level].bitSize;
         auto ptr = table.ptr!(level);
-        ptr[indices[level]++] = val;
+        ptr[indices[level]] = val;
+        indices[level]++;
         static if(level != 0)//last level has 1 "page"
         {
+            bool flag;
             size_t next_lvl_index;
             if(indices[level] % thisPage == 0)
             {
-                auto last = table.ptr!level + (indices[level] - pageSize);
+                auto last = table.ptr!level+table.length!level-pageSize;
                 auto x=table.ptr!level;
                 auto base = x;
+                ptr += indices[level] - pageSize;
+                writeln(last, "   base: ", base, " ptr:", ptr);
                 for(; x<last; x+=pageSize)
                 {
                     if(x[0..pageSize] == ptr[0..pageSize])
                     {
                         //get index to it, reuse ptr space for the next block
                         next_lvl_index = (x - base)/pageSize;
+                        writefln("page maped idx: %s: 0..%s  ---> [%s..%s]"
+                                ,indices[level-1], pageSize, x-base, x-base+pageSize);
+                        writeln("mapped page is: ", x, ": ", x[0..16]
+                                ,"~~~", x[pageSize-16..pageSize]);
+                        writeln("src page is :", ptr, ": ", ptr[0..16]
+                                ,"~~~", ptr[pageSize-16..pageSize]);
+                        indices[level] -= pageSize; //reuse this page, it is duplicate
                         break;
                     }
                 }
                 if(x == last)
+                {
                     next_lvl_index = (ptr - base)/pageSize;
+                    //allocate next page
+                    writeln("page allocated, before");
+                    writeln(table.storage[0..10],"~~~",table.storage[$-10..$]);
+                    table.length!level =table.length!level + pageSize;
+                    writeln("after");
+                    writeln(table.storage[0..10],"~~~",table.storage[$-10..$]);
+                    flag = true;
+                }
+                addValue!(level-1)(indices, next_lvl_index);
+                return flag;
             }
-            addValue!(level-1)(indices, next_lvl_index);
         }
+        return false;
     }
     pragma(msg, typeof(table));
     //last index is not stored in table, it is used as offset to values in a block.
@@ -1734,18 +1790,42 @@ template assumeSize(size_t bits, alias Fn)
     alias Fn apply;
 }
 
+uint low_8(uint x) { return x&0xFF; }
+uint midlow_8(uint x){ return (x&0xFF00)>>8; }
+
+alias assumeSize!(8, low_8) lo8;
+alias assumeSize!(8, midlow_8) mlo8;
+
+//---- TRIE TESTS ----
 unittest
 {
-    alias assumeSize!(8, function (uint x) { return x&0xFF; }) fn;
-    auto set = RleBitSet!(ubyte,ReallocPolicy)('A','Z','a','z');
-    writeln(set);
-    auto trie = Trie!(bool, uint, fn)(set, 256);//simple bool array
-    //TODO: watch out!!, somehow memory corruption happens in trie constructor
+    //@@@BUG link failure, lambdas not found by linker somehow (in case of trie2)
+    //alias assumeSize!(8, function (uint x) { return x&0xFF; }) lo8;
+    //alias assumeSize!(7, function (uint x) { return (x&0x7F00)>>8; }) next8;
+    alias RleBitSet!ubyte Set;
+    auto set = Set('A','Z','a','z');
+    auto trie = Trie!(bool, uint, lo8)(set, 256);//simple bool array
     for(int a='a'; a<'z';a++)
-    {
-        writeln(a, "\t-\t", trie[a]);
         assert(trie[a]);
+    for(int a='A'; a<'Z';a++)
+        assert(trie[a]);
+    for(int a=0; a<'A'; a++)
+        assert(!trie[a]);
+    for(int a ='Z'; a<'a'; a++)
+        assert(!trie[a]);
+    auto redundant2 = Set(10, 18, 256+10, 256+220, 512+10, 512+18,
+                          768+10, 768+111);
+    auto trie2 = Trie!(bool, uint, mlo8, lo8)(redundant2, 1024);
+    writefln("TRIE FOOTPRINT:\nlvl0 - %s\nlvl2 - %s\ntotal - %s"
+            , trie2.bytes!0, trie2.bytes!1, trie2.bytes);
+    foreach(e; redundant2.byChar)
+        assert(trie2[e], text(cast(uint)e, " - ", trie2[e]));
+    foreach(i; 0..1024)
+    {
+        if(i in redundant2)
+            assert(trie2[i]);
     }
+
 }
 
 
@@ -1777,7 +1857,6 @@ private struct MultiArray(Types...)
             static if(i >= 1)
                 offsets[i] = offsets[i-1] + sizes[i-1]*Types[i-1].sizeof;
         }
-
         storage = new ubyte[full_size];
     }
 
@@ -1786,29 +1865,49 @@ private struct MultiArray(Types...)
         return cast(inout(Types[n])*)raw_ptr!n;
     }
 
-    @property size_t length(size_t n)(){ return sz[n]; }
+    @property size_t length(size_t n)()const{ return sz[n]; }
 
-    void resize(size_t n)(size_t new_size)
+    @property void length(size_t n)(size_t new_size)
     {
         if(new_size > sz[n])
         {//extend
-            size_t delta = new_size - sz[n];
-            //move all data past this array, last-one-goes-first
-            auto start = raw_ptr!(n+1);
+
+            size_t delta = (new_size - sz[n]);
+            sz[n] += delta;
+            delta *= Types[n].sizeof;
+            writeln("extended by (bytes): ", delta );
+
             storage.length +=  delta;//extend space at end
+            //raw_ptr!x must follow resize as it could be moved!
+            //next 3 stmts move all data past this array, last-one-goes-first
+            auto start = raw_ptr!(n+1);
             size_t len = storage.length;
-            copy(retro(start[0..len-delta*Types[n].sizeof])
+            copy(retro(start[0..len-delta])
                  , retro(start[delta..len]));
+
+            //offsets are used for raw_ptr, ptr etc.
+            foreach(i; n+1..dim)
+                offsets[i] += delta;
         }
         else if(new_size < sz[n])
         {//shrink
-            size_t delta = sz[n] - new_size;
+            size_t delta = (sz[n] - new_size);
+            sz[n] -= delta;
+            delta *= Types[n].sizeof;
+
+
+            writeln("shrinked by (bytes): ", delta );
+
             //move all data past this array, forward direction
             auto start = raw_ptr!(n+1);
             size_t len = storage.length;
             copy(start[delta..len]
-                 , start[0..len-delta*Types[n].sizeof]);
+                 , start[0..len-delta]);
             storage.length -= delta;
+
+            //adjust offsets last, they affect raw_ptr
+            foreach(i; n+1..dim)
+                offsets[i] -= delta;
         }
         //else - NOP
     }
@@ -1824,9 +1923,69 @@ private:
     }
     size_t[Types.length] offsets;//offset for level x
     size_t[Types.length] sz;//size of level x
+    enum dim = Types.length;
     ubyte[] storage;
 }
 
+unittest
+{
+    // sizes are:
+    //lvl0: 3, lvl1 : 2, lvl2: 1
+    auto m = MultiArray!(int, ubyte, int)(3,2,1);
+
+    void check(size_t k)(int n)
+    {
+        foreach(i; 0..n)
+            assert(m.ptr!(k)[i] == i+1, text("level:",i," : ",m.ptr!(k)[0..n]));
+    }
+
+    void checkB(size_t k)(int n)
+    {
+        foreach(i; 0..n)
+            assert(m.ptr!(k)[i] == n-i, text("level:",i," : ",m.ptr!(k)[0..n]));
+    }
+
+    void fill(size_t k)(int n)
+    {
+        foreach(i; 0..n)
+            m.ptr!(k)[i] = force!ubyte(i+1);
+    }
+
+    void fillB(size_t k)(int n)
+    {
+        foreach(i; 0..n)
+            m.ptr!(k)[i] = force!ubyte(n-i);
+    }
+
+    m.length!1 = 100;
+    fill!1(100);
+    check!1(100);
+
+    m.length!0 = 220;
+    fill!0(220);
+    check!1(100);
+    check!0(220);
+
+    m.length!2 = 17;
+    fillB!2(17);
+    checkB!2(17);
+    check!0(220);
+    check!1(100);
+
+    m.length!2 = 33;
+    checkB!2(17);
+    fillB!2(33);
+    checkB!2(33);
+    check!0(220);
+    check!1(100);
+
+    m.length!1 = 195;
+    fillB!1(195);
+    checkB!1(195);
+    checkB!2(33);
+    check!0(220);
+
+}
 /++
     Whether or not $(D c) is a Unicode whitespace character.
     (general Unicode category: Part of C0(tab, vertical tab, form feed,
