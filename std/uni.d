@@ -476,7 +476,8 @@ public:
     {
         assert(intervals.length % 2 == 0, "Odd number of interval bounds [a, b)!");
         for(uint i=1; i<intervals.length; i++)
-            assert(intervals[i-1] < intervals[i]);
+            assert(intervals[i-1] < intervals[i]
+                   , text(intervals[i-1], ">", intervals[i], " in set c-tor"));
     }
     body
     {
@@ -1663,21 +1664,19 @@ struct Trie(Value, Key, Prefix...)
     this(Set)(Set set, Key maxKey=Key.max)
         if(is(typeof(Set.init.isSet)))
     {
-        maxKey =((maxKey + pageSize/2)>>pageBits)<<pageBits;
         enum last = Prefix.length-1;
+        enum pageBits=Prefix[$-1].bitSize, pageSize = 1<<pageBits;
+        maxKey =((maxKey + pageSize/2)>>pageBits)<<pageBits;
         auto ivals = set.byInterval;
         pragma(msg, "mm "~to!string(pageBits));
         pragma(msg, "mmm "~to!string(pageSize));
         size_t[Prefix.length] idxs;
 
 
-        table = table(idxs);//table with all size == 0
-        //if not flat array, in which case it would get
-        //it's one page few lines below
-        if(Prefix.length != 1)
-            table.length!last = pageSize;
-        //0-level should be allocated manually
-        table.length!0 = 1<<Prefix[0].bitSize;
+        table = table(idxs);
+        //one page per level is bootstrap minimum
+        foreach(i; Sequence!(0, Prefix.length))
+            table.length!i = (1<<Prefix[i].bitSize);
 
         Value* ptr = table.ptr!(last);
         size_t i = 0;
@@ -1698,17 +1697,33 @@ struct Trie(Value, Key, Prefix...)
 
         for(;i<maxKey; i++)
             addValue!last(idxs, false);
-
+        writeln("unique pages:");
+        for(int j=0;j<table.length!last;j+=pageSize)
+        {
+            for(int k=0;k<pageSize;k++)
+                write(cast(uint)table.ptr!last[j+k]);
+            writeln();
+        }
         //TODO: need a way to remove last page if it was mapped
+        writeln("lookup map:");
+        for(int j=0;j<maxKey;)
+        {
+            write(cast(uint)this[j]);
+            j++;
+            if(j % pageSize == 0)
+                writeln();
+        }
     }
 
     Value opIndex(Key key) const
     {
         Key idx = key;
         alias Prefix p;
+        idx = p[0].apply(key);
         foreach(i, v; p[0..$-1])
-            idx = (table.ptr!(i)[p[i].apply(idx)]<<p[i+1].bitSize) + p[i+1].apply(key);
-
+        {
+            idx = (table.ptr!i[idx]<<p[i+1].bitSize) + p[i+1].apply(key);
+        }
         return table.ptr!(p.length-1)[idx];
     }
 
@@ -1719,8 +1734,23 @@ struct Trie(Value, Key, Prefix...)
         else
             return table.length!n * typeof(*(table.ptr!n)).sizeof;
     }
+
+    @property size_t pages(size_t n=size_t.max)() const
+    {
+        return bytes!n/2^^Prefix[$-1].bitSize;
+    }
+
 private:
-    enum minKey = 0, pageBits=Prefix[$-1].bitSize, pageSize = 1<<pageBits;
+    static arrayRepr(T)(T[] x)
+    {
+        if(x.length > 32)
+        {
+            return text(x[0..16],"~~~", x[$-16..$]);
+        }
+        else
+            return text(x);
+    }
+    enum minKey = 0;
 
     //true if page was allocated, false is it was mapped or not an end of page yet
     bool addValue(size_t level, T)(size_t[] indices, T val)
@@ -1735,36 +1765,40 @@ private:
             size_t next_lvl_index;
             if(indices[level] % thisPage == 0)
             {
-                auto last = table.ptr!level+table.length!level-pageSize;
+                auto last = table.ptr!level+table.length!level-thisPage;
                 auto x=table.ptr!level;
                 auto base = x;
-                ptr += indices[level] - pageSize;
-                writeln(last, "   base: ", base, " ptr:", ptr);
-                for(; x<last; x+=pageSize)
+                ptr += indices[level] - thisPage;
+                //writeln(last, "   base: ", base, " ptr:", ptr);
+                for(; x<last; x+=thisPage)
                 {
-                    if(x[0..pageSize] == ptr[0..pageSize])
+                    if(x[0..thisPage] == ptr[0..thisPage])
                     {
                         //get index to it, reuse ptr space for the next block
-                        next_lvl_index = (x - base)/pageSize;
-                        writefln("page maped idx: %s: 0..%s  ---> [%s..%s]"
-                                ,indices[level-1], pageSize, x-base, x-base+pageSize);
-                        writeln("mapped page is: ", x, ": ", x[0..16]
-                                ,"~~~", x[pageSize-16..pageSize]);
-                        writeln("src page is :", ptr, ": ", ptr[0..16]
-                                ,"~~~", ptr[pageSize-16..pageSize]);
-                        indices[level] -= pageSize; //reuse this page, it is duplicate
+                        next_lvl_index = (x - base)/thisPage;
+                        writefln("LEVEL(%s) page maped idx: %s: 0..%s  ---> [%s..%s]"
+                                ,level
+                                ,indices[level-1], thisPage, x-base, x-base+thisPage);
+                        writeln("LEVEL(", level
+                                , ") mapped page is: ", x, ": ", arrayRepr(x[0..thisPage]));
+                        writeln("LEVEL(", level
+                                , ") src page is :", ptr, ": ", arrayRepr(ptr[0..thisPage]));
+                        indices[level] -= thisPage; //reuse this page, it is duplicate
                         break;
                     }
                 }
                 if(x == last)
                 {
-                    next_lvl_index = (ptr - base)/pageSize;
+                    next_lvl_index = (ptr - base)/thisPage;
                     //allocate next page
-                    writeln("page allocated, before");
-                    writeln(table.storage[0..10],"~~~",table.storage[$-10..$]);
-                    table.length!level =table.length!level + pageSize;
-                    writeln("after");
-                    writeln(table.storage[0..10],"~~~",table.storage[$-10..$]);
+                    writefln("LEVEL(%s) page allocated: %s"
+                             , level, arrayRepr(ptr[0..thisPage]));
+                    writefln("LEVEL(%s) index: %s ; page at this index %s"
+                             , level
+                             , next_lvl_index
+                             , arrayRepr(
+                                 (table.ptr!(level)+thisPage*next_lvl_index)[0..thisPage]));
+                    table.length!level = table.length!level + thisPage;
                     flag = true;
                 }
                 addValue!(level-1)(indices, next_lvl_index);
@@ -1793,12 +1827,43 @@ template assumeSize(size_t bits, alias Fn)
 uint low_8(uint x) { return x&0xFF; }
 uint midlow_8(uint x){ return (x&0xFF00)>>8; }
 
+uint sliceBits(size_t from, size_t to)(uint x)
+{
+    static assert(from < to);
+    return (x >> from) & ((1<<(to-from))-1);
+}
+
+
+
 alias assumeSize!(8, low_8) lo8;
 alias assumeSize!(8, midlow_8) mlo8;
+
+template Sequence(size_t start, size_t end)
+{
+    static if(start < end)
+        alias TypeTuple!(start, Sequence!(start+1, end)) Sequence;
+    else
+        alias TypeTuple!() Sequence;
+}
 
 //---- TRIE TESTS ----
 unittest
 {
+    static trieStats(TRIE)(TRIE t)
+    {
+        writeln("---TRIE FOOTPRINT STATS---");
+        foreach(i; Sequence!(0, t.table.dim) )
+        {
+            enum sz = (*t.table.ptr!(i)).sizeof;
+            writefln("lvl%s = %s bytes;  %s pages"
+                     , i, t.bytes!i, t.pages!i);
+        }
+        writefln("TOTAL: %s bytes", t.bytes);
+        writeln("INDEX (excluding value level):");
+        foreach(i; Sequence!(0, t.table.dim-1) )
+            writeln(t.table.ptr!(i)[0..t.table.length!i]);
+        writeln("---------------------------");
+    }
     //@@@BUG link failure, lambdas not found by linker somehow (in case of trie2)
     //alias assumeSize!(8, function (uint x) { return x&0xFF; }) lo8;
     //alias assumeSize!(7, function (uint x) { return (x&0x7F00)>>8; }) next8;
@@ -1813,11 +1878,11 @@ unittest
         assert(!trie[a]);
     for(int a ='Z'; a<'a'; a++)
         assert(!trie[a]);
-    auto redundant2 = Set(10, 18, 256+10, 256+220, 512+10, 512+18,
+
+    auto redundant2 = Set(10, 18, 256+10, 256+111, 512+10, 512+18,
                           768+10, 768+111);
     auto trie2 = Trie!(bool, uint, mlo8, lo8)(redundant2, 1024);
-    writefln("TRIE FOOTPRINT:\nlvl0 - %s\nlvl2 - %s\ntotal - %s"
-            , trie2.bytes!0, trie2.bytes!1, trie2.bytes);
+
     foreach(e; redundant2.byChar)
         assert(trie2[e], text(cast(uint)e, " - ", trie2[e]));
     foreach(i; 0..1024)
@@ -1825,7 +1890,23 @@ unittest
         if(i in redundant2)
             assert(trie2[i]);
     }
+    trieStats(trie2);
 
+    auto redundant3 = Set(
+          2,    4,    6,    8,    16,
+       2+16, 4+16, 16+6, 16+8, 16+16
+      );
+    enum max3 = 2^^12;
+    writeln("<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>");
+    auto trie3 = Trie!(bool, uint
+                       , assumeSize!(2, sliceBits!(6,8))
+                       , assumeSize!(2, sliceBits!(4,6))
+                       , assumeSize!(4, sliceBits!(0,4))
+                       )(redundant3, max3);
+    trieStats(trie3);
+    foreach(i; 0..32)
+        if(i in redundant3)
+            assert(trie3[i], text(cast(uint)i, " - ", trie3[i]));
 }
 
 
@@ -1875,7 +1956,6 @@ private struct MultiArray(Types...)
             size_t delta = (new_size - sz[n]);
             sz[n] += delta;
             delta *= Types[n].sizeof;
-            writeln("extended by (bytes): ", delta );
 
             storage.length +=  delta;//extend space at end
             //raw_ptr!x must follow resize as it could be moved!
