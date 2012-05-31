@@ -1687,6 +1687,7 @@ struct Trie(Value, Key, Prefix...)
             uint a = ivals.front.a, b = ivals.front.b;
             for(; i<a; i++)
                 addValue!last(idxs, false);
+            assert(i < maxKey, "set has keys > maxKey in Trie c-tor");
             for(; i<b; i++)
             {
                 addValue!last(idxs, true);
@@ -1717,7 +1718,7 @@ struct Trie(Value, Key, Prefix...)
 
     Value opIndex(Key key) const
     {
-        Key idx = key;
+        size_t idx = key;
         alias Prefix p;
         idx = p[0].apply(key);
         foreach(i, v; p[0..$-1])
@@ -1745,7 +1746,7 @@ private:
     {
         if(x.length > 32)
         {
-            return text(x[0..16],"~~~", x[$-16..$]);
+            return text(x[0..16],"~...~", x[$-16..$]);
         }
         else
             return text(x);
@@ -1827,12 +1828,14 @@ template assumeSize(size_t bits, alias Fn)
 uint low_8(uint x) { return x&0xFF; }
 uint midlow_8(uint x){ return (x&0xFF00)>>8; }
 
-uint sliceBits(size_t from, size_t to)(uint x)
+template sliceBits(size_t from, size_t to)
 {
-    static assert(from < to);
-    return (x >> from) & ((1<<(to-from))-1);
+    T sliceBits(T)(T x)
+    {
+        static assert(from < to);
+        return (x >> from) & ((1<<(to-from))-1);
+    }
 }
-
 
 
 alias assumeSize!(8, low_8) lo8;
@@ -1894,19 +1897,36 @@ unittest
 
     auto redundant3 = Set(
           2,    4,    6,    8,    16,
-       2+16, 4+16, 16+6, 16+8, 16+16
+       2+16, 4+16, 16+6, 16+8, 16+16,
+       2+32, 4+32, 32+6, 32+8,
       );
-    enum max3 = 2^^12;
-    writeln("<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>");
+
+    enum max3 = 256;
+    //sliceBits
     auto trie3 = Trie!(bool, uint
                        , assumeSize!(2, sliceBits!(6,8))
                        , assumeSize!(2, sliceBits!(4,6))
                        , assumeSize!(4, sliceBits!(0,4))
                        )(redundant3, max3);
     trieStats(trie3);
-    foreach(i; 0..32)
+    foreach(i; 0..max3)
         if(i in redundant3)
-            assert(trie3[i], text(cast(uint)i, " - ", trie3[i]));
+            assert(trie3[i], text(cast(uint)i));
+
+    auto redundant4 = Set(
+            10, 64, 64+10, 128, 128+10, 256, 256+10, 512,
+            1000, 2000, 3000, 4000, 5000, 6000
+        );
+    enum max4 = 2^^16;
+    auto trie4 = Trie!(bool, size_t
+                       , assumeSize!(3, sliceBits!(13, 16))
+                       , assumeSize!(4, sliceBits!(9, 13))
+                       , assumeSize!(3, sliceBits!(6, 9))
+                       , assumeSize!(6, sliceBits!(0, 6))
+                       )(redundant4, max4);
+    foreach(i; 0..max4)
+        if(i in redundant4)
+            assert(trie4[i], text(cast(uint)i));
 }
 
 
