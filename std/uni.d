@@ -1606,6 +1606,46 @@ unittest//iteration
 struct Trie(Value, Key, Prefix...)
     if(Prefix.length >= 1)
 {
+    ///Construct boolean Trie from array of keys
+    ///fills all possible keys with zeros in index
+    this()(Key[] keys)
+    {
+        enum last = Prefix.length-1;
+        enum pageBits=Prefix[$-1].bitSize, pageSize = 1<<pageBits;
+        size_t maxIdx = 1;
+        foreach(v; Prefix)
+            maxIdx *= 2^^v.bitSize;
+        //maximum index is sizes of each level multiplied
+        writeln("Max index is ", maxIdx);
+
+        size_t[Prefix.length] idxs;
+        table = table(idxs);
+        //one page per level is bootstrap minimum
+        foreach(i; Sequence!(0, Prefix.length))
+            table.length!i = (1<<Prefix[i].bitSize);
+
+        {//don't pollute the ctor scope
+            Value* ptr = table.ptr!(last);
+            size_t j = 0;
+            size_t prevKeyIdx = size_t.max;
+            sort(keys);//TODO: should do multi-sort sort by prefixes
+            for(int i=0;i<keys.length; i++)
+            {
+                size_t keyIdx = getIndex(keys[i]);
+                if(keyIdx != prevKeyIdx)
+                {
+                    writeln("using key ", keyIdx);
+                    addValue!last(idxs, false, keyIdx - j);
+                    addValue!last(idxs, true);
+                    j = keyIdx+1;
+                    prevKeyIdx = keyIdx;
+                }
+
+            }
+        }
+    }
+
+    ///Construct boolean Trie from set.
     this(Set)(Set set, Key maxKey=Key.max)
         if(is(typeof(Set.init.isSet)))
     {
@@ -1643,23 +1683,37 @@ struct Trie(Value, Key, Prefix...)
             addValue!last(idxs, false, maxKey - i);
         }
 
-        writeln("unique pages:");
-        for(int j=0;j<table.length!last;j+=pageSize)
+        version(none)
         {
-            for(int k=0;k<pageSize;k++)
-                write(cast(uint)table.ptr!last[j+k]);
-            writeln();
-        }
-
-        //TODO: need a way to remove last page if it was mapped
-        writeln("lookup map:");
-        for(int j=0;j<maxKey;)
-        {
-            write(cast(uint)this[j]);
-            j++;
-            if(j % pageSize == 0)
+            writeln("unique pages:");
+            for(int j=0;j<table.length!last;j+=pageSize)
+            {
+                for(int k=0;k<pageSize;k++)
+                    write(cast(uint)table.ptr!last[j+k]);
                 writeln();
+            }
+
+            //TODO: need a way to remove last page if it was mapped
+            writeln("lookup map:");
+            for(int j=0;j<maxKey;)
+            {
+                write(cast(uint)this[j]);
+                j++;
+                if(j % pageSize == 0)
+                    writeln();
+            }
         }
+    }
+
+    static size_t getIndex(Key key)//get "mapped" virtual integer index
+    {
+        alias Prefix p;
+        size_t idx = p[0].entity(key);
+        foreach(i, v; p[0..$-1])
+        {
+            idx |= (v.entity(key)<<p[i+1].bitSize) | p[i+1].entity(key);
+        }
+        return idx;
     }
 
     Value opIndex(Key key) const
@@ -1668,9 +1722,7 @@ struct Trie(Value, Key, Prefix...)
         alias Prefix p;
         idx = p[0].entity(key);
         foreach(i, v; p[0..$-1])
-        {
             idx = (table.ptr!i[idx]<<p[i+1].bitSize) + p[i+1].entity(key);
-        }
         return table.ptr!(p.length-1)[idx];
     }
 
@@ -1701,8 +1753,11 @@ private:
 
     //true if page was allocated, false is it was mapped or not an end of page yet
     void addValue(size_t level, T)(size_t[] indices, T val, size_t numVals=1)
+    body
     {
         enum pageSize = 1<<Prefix[level].bitSize;
+        if(numVals == 0)
+            return;
         do
         {
             //need to take pointer again, memory block  may move
@@ -1901,12 +1956,17 @@ unittest
             assert(trie4[i], text(cast(uint)i));
     trieStats(trie4);
 
-    /*string[] redundantS = ["tea", "tackle", "teenage", "start", "stray"];
-    auto strie = Trie!(bool, string,
-                       assumeSize!(8, x=>x[0])
-                       )(redundantS);*/
+    string[] redundantS = ["tea", "tackle", "teenage", "start", "stray"];
+    auto strie = Trie!(bool, string, useItemAt!(0, char))(redundantS);
+    assert(strie["test"], text(strie["test"]));
 }
 
+template useItemAt(size_t idx, T)
+    if(isIntegral!T || is(T: dchar))
+{
+    size_t entity(in T[] arr){ return arr[idx]; }
+    enum bitSize = 8*T.sizeof;
+}
 //TODO: benchmark for Trie vs InversionList vs RleBitSet vs std.bitmanip.BitArray
 
 
