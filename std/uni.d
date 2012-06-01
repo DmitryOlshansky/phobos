@@ -846,7 +846,7 @@ private:
         pre_top = top - data[pos];
         debug(std_uni)
         {
-            writefln("marker idx: %d; value=%d", pos, pre_top);
+            writefln("marker idx: %d; length=%d", pos, pre_top, data.length);
             writeln("inserting ", to_insert);
         }
         return Marker(pos, pre_top);
@@ -1121,7 +1121,7 @@ private:
         pos = genericReplace(data, a_idx, b_idx+1, to_insert);
         debug(std_uni)
         {
-            writefln("marker idx: %d; value=%d", pos, data[pos]);
+            writefln("marker idx: %d; length=%d", pos, data[pos], data.length);
             writeln("inserting ", to_insert);
         }
         return pos;
@@ -1259,62 +1259,8 @@ struct Uint24Array(SP=GcPolicy)
     //
     auto opSlice(size_t from, size_t to)
     {
-        static struct Slice
-        {
-            uint opIndex(size_t idx)const
-            in
-            {
-                assert(idx < to - from);
-            }
-            body
-            {
-                return arr.opIndex(from+idx);
-            }
-
-            void opIndexAssign(uint val, size_t idx)
-            in
-            {
-                assert(idx < to - from);
-            }
-            body
-            {
-                return arr.opIndexAssign(val, from+idx);
-            }
-
-            auto opSlice(size_t a, size_t b)
-            {
-                return Slice(from+a, from+b, arr);
-            }
-
-            auto opSlice()
-            {
-                return opSlice(from, to);
-            }
-
-            @property size_t length()const{ return to-from;}
-
-            @property bool empty()const { return from == to; }
-
-            @property uint front()const { return arr.opIndex(from); }
-
-            @property void front(uint val) { arr.opIndexAssign(val, from); }
-
-            @property uint back()const { return arr.opIndex(to-1); }
-
-            @property void back(uint val) { return arr.opIndexAssign(val, to-1); }
-
-            @property auto save() { return this; }
-
-            void popFront() {   from++; }
-
-            void popBack() {   to--; }
-        private:
-             size_t from, to;
-             Uint24Array* arr;
-        }
-        return Slice(from, to, &this);
+        return SliceOverIndexed!Uint24Array(from, to, &this);
     }
-
     //
     auto opSlice()
     {
@@ -1658,18 +1604,16 @@ unittest//iteration
 }
 
 struct Trie(Value, Key, Prefix...)
-    if(Prefix.length >= 1 && isUnsigned!Key)
+    if(Prefix.length >= 1)
 {
-    //bool set constructor
     this(Set)(Set set, Key maxKey=Key.max)
         if(is(typeof(Set.init.isSet)))
     {
         enum last = Prefix.length-1;
         enum pageBits=Prefix[$-1].bitSize, pageSize = 1<<pageBits;
         maxKey =((maxKey + pageSize/2)>>pageBits)<<pageBits;
+
         auto ivals = set.byInterval;
-        pragma(msg, "mm "~to!string(pageBits));
-        pragma(msg, "mmm "~to!string(pageSize));
         size_t[Prefix.length] idxs;
 
 
@@ -1718,12 +1662,12 @@ struct Trie(Value, Key, Prefix...)
 
     Value opIndex(Key key) const
     {
-        size_t idx = key;
+        size_t idx;
         alias Prefix p;
-        idx = p[0].apply(key);
+        idx = p[0].entity(key);
         foreach(i, v; p[0..$-1])
         {
-            idx = (table.ptr!i[idx]<<p[i+1].bitSize) + p[i+1].apply(key);
+            idx = (table.ptr!i[idx]<<p[i+1].bitSize) + p[i+1].entity(key);
         }
         return table.ptr!(p.length-1)[idx];
     }
@@ -1808,10 +1752,9 @@ private:
         }
         return false;
     }
-    pragma(msg, typeof(table));
+
     //last index is not stored in table, it is used as offset to values in a block.
     MultiArray!(idxTypes!(Key, Prefix[0..$-1]), Value) table;
-
 }
 
 /**
@@ -1822,19 +1765,24 @@ private:
 template assumeSize(size_t bits, alias Fn)
 {
     enum bitSize = bits;
-    alias Fn apply;
+    alias Fn entity;
 }
 
 uint low_8(uint x) { return x&0xFF; }
 uint midlow_8(uint x){ return (x&0xFF00)>>8; }
 
-template sliceBits(size_t from, size_t to)
+template sliceBitsImpl(size_t from, size_t to)
 {
-    T sliceBits(T)(T x)
+    T sliceBitsImpl(T)(T x)
     {
         static assert(from < to);
         return (x >> from) & ((1<<(to-from))-1);
     }
+}
+
+template sliceBits(size_t from, size_t to)
+{
+    alias assumeSize!(to-from, sliceBitsImpl!(from, to)) sliceBits;
 }
 
 
@@ -1885,7 +1833,7 @@ unittest
     auto redundant2 = Set(10, 18, 256+10, 256+111, 512+10, 512+18,
                           768+10, 768+111);
     auto trie2 = Trie!(bool, uint, mlo8, lo8)(redundant2, 1024);
-
+    trieStats(trie2);
     foreach(e; redundant2.byChar)
         assert(trie2[e], text(cast(uint)e, " - ", trie2[e]));
     foreach(i; 0..1024)
@@ -1904,9 +1852,9 @@ unittest
     enum max3 = 256;
     //sliceBits
     auto trie3 = Trie!(bool, uint
-                       , assumeSize!(2, sliceBits!(6,8))
-                       , assumeSize!(2, sliceBits!(4,6))
-                       , assumeSize!(4, sliceBits!(0,4))
+                       , sliceBits!(6,8)
+                       , sliceBits!(4,6)
+                       , sliceBits!(0,4)
                        )(redundant3, max3);
     trieStats(trie3);
     foreach(i; 0..max3)
@@ -1919,15 +1867,23 @@ unittest
         );
     enum max4 = 2^^16;
     auto trie4 = Trie!(bool, size_t
-                       , assumeSize!(3, sliceBits!(13, 16))
-                       , assumeSize!(4, sliceBits!(9, 13))
-                       , assumeSize!(3, sliceBits!(6, 9))
-                       , assumeSize!(6, sliceBits!(0, 6))
+                       , sliceBits!(13, 16)
+                       , sliceBits!(9, 13)
+                       , sliceBits!(6, 9)
+                       , sliceBits!(0, 6)
                        )(redundant4, max4);
     foreach(i; 0..max4)
         if(i in redundant4)
             assert(trie4[i], text(cast(uint)i));
+    trieStats(trie4);
+
+    /*string[] redundantS = ["tea", "tackle", "teenage", "start", "stray"];
+    auto strie = Trie!(bool, string,
+                       assumeSize!(8, x=>x[0])
+                       )(redundantS);*/
 }
+
+//TODO: benchmark for Trie vs InversionList vs RleBitSet vs std.bitmanip.BitArray
 
 
 private template idxTypes(Key, Prefix...)
@@ -1939,7 +1895,7 @@ private template idxTypes(Key, Prefix...)
     else
     {
         alias Prefix[0] pr;
-        alias TypeTuple!(typeof(pr.apply(Key.init))
+        alias TypeTuple!(typeof(pr.entity(Key.init))
                          , idxTypes!(Key, Prefix[1..$])) idxTypes;
     }
 }
@@ -1985,6 +1941,7 @@ private struct MultiArray(Types...)
             copy(retro(start[0..len-delta])
                  , retro(start[delta..len]));
 
+            start[0..delta] = 0;
             //offsets are used for raw_ptr, ptr etc.
             foreach(i; n+1..dim)
                 offsets[i] += delta;
@@ -2086,6 +2043,123 @@ unittest
     check!0(220);
 
 }
+
+//only per word packing, speed is more important
+//doesn't own memory, only provides access
+private struct PackedArrayView(size_t bits)
+    if(bits % 8)
+{
+    size_t opIndex(size_t idx)const
+    {
+        return (original[idx/factor] >> bits*(idx&(factor-1)))
+                 & mask;
+    }
+
+    void opIndexAssign(size_t val, size_t idx)
+    in
+    {
+        assert(val <= mask);
+    }
+    body
+    {
+        size_t tgt_shift = bits*(idx%(factor));
+        original[idx/factor] &= ~((2^^bits-1)<<tgt_shift);
+        original[idx/factor] |= val << tgt_shift;
+    }
+
+    auto opSlice(size_t from, size_t to)
+    {
+        return SliceOverIndexed!PackedArrayView(from, to, &this);
+    }
+
+    auto opSlice(){ return opSlice(0, length); }
+
+    @property size_t length()const{ return original.length*factor; }
+
+    size_t spaceFor(size_t new_len)const{ return (new_len+factor/2)/factor; }
+private:
+    //factor - number of elements in one machine word
+    enum factor = size_t.sizeof*8/bits, mask = 2^^bits-1;
+    size_t[] original;
+}
+
+private struct SliceOverIndexed(T)
+{
+    uint opIndex(size_t idx)const
+    in
+    {
+        assert(idx < to - from);
+    }
+    body
+    {
+        return arr.opIndex(from+idx);
+    }
+
+    void opIndexAssign(uint val, size_t idx)
+    in
+    {
+        assert(idx < to - from);
+    }
+    body
+    {
+        return arr.opIndexAssign(val, from+idx);
+    }
+
+    auto opSlice(size_t a, size_t b)
+    {
+        return SliceOverIndexed(from+a, from+b, arr);
+    }
+
+    auto opSlice()
+    {
+        return opSlice(from, to);
+    }
+
+    @property size_t length()const{ return to-from;}
+
+    @property bool empty()const { return from == to; }
+
+    @property uint front()const { return arr.opIndex(from); }
+
+    @property void front(uint val) { arr.opIndexAssign(val, from); }
+
+    @property uint back()const { return arr.opIndex(to-1); }
+
+    @property void back(uint val) { return arr.opIndexAssign(val, to-1); }
+
+    @property auto save() { return this; }
+
+    void popFront() {   from++; }
+
+    void popBack() {   to--; }
+private:
+     size_t from, to;
+     T* arr;
+}
+
+private auto packedArrayView(size_t bits)(size_t[] arr)
+{
+    return PackedArrayView!bits(arr);
+}
+
+unittest
+{
+    size_t[] sample = new size_t[328];
+    auto parr = packedArrayView!7(sample);
+    foreach(i; 0..parr.length)
+        parr[i] = i % 128;
+
+    foreach(i; 0..parr.length)
+        assert(parr[i] == i % 128, text(i, " vs ", parr[i]));
+
+    auto parr2 = packedArrayView!14(sample);
+    //re-viewing it as doubly sized is supported cleanly
+    for(int i=0; i<parr2.length; i++)
+        assert(parr2[i] == ((((2*i+1) % 128)<<7) | (2*i % 128)), text(i, " vs ", parr2[i]));
+    equal(parr2[0..2],  [128, 384+2]);
+}
+
+
 /++
     Whether or not $(D c) is a Unicode whitespace character.
     (general Unicode category: Part of C0(tab, vertical tab, form feed,
