@@ -1622,26 +1622,27 @@ struct Trie(Value, Key, Prefix...)
         foreach(i; Sequence!(0, Prefix.length))
             table.length!i = (1<<Prefix[i].bitSize);
 
-        Value* ptr = table.ptr!(last);
-        size_t i = 0;
-        for(;;)
-        {
-            if(ivals.empty)
-                break;
-            uint a = ivals.front.a, b = ivals.front.b;
-            for(; i<a; i++)
-                addValue!last(idxs, false);
-            assert(i < maxKey, "set has keys > maxKey in Trie c-tor");
-            for(; i<b; i++)
+        {//don't pollute the ctor scope
+            Value* ptr = table.ptr!(last);
+            size_t i = 0;
+            for(;;)
             {
-                addValue!last(idxs, true);
-            }
+                if(ivals.empty)
+                    break;
+                uint a = ivals.front.a, b = ivals.front.b;
 
-            ivals.popFront();
+                addValue!last(idxs, false, a - i);
+                i = a;
+
+                assert(i < maxKey, "set has keys > maxKey in Trie c-tor");
+                addValue!last(idxs, true, b - i);
+                i = b;
+
+                ivals.popFront();
+            }
+            addValue!last(idxs, false, maxKey - i);
         }
 
-        for(;i<maxKey; i++)
-            addValue!last(idxs, false);
         writeln("unique pages:");
         for(int j=0;j<table.length!last;j+=pageSize)
         {
@@ -1649,6 +1650,7 @@ struct Trie(Value, Key, Prefix...)
                 write(cast(uint)table.ptr!last[j+k]);
             writeln();
         }
+
         //TODO: need a way to remove last page if it was mapped
         writeln("lookup map:");
         for(int j=0;j<maxKey;)
@@ -1698,59 +1700,81 @@ private:
     enum minKey = 0;
 
     //true if page was allocated, false is it was mapped or not an end of page yet
-    bool addValue(size_t level, T)(size_t[] indices, T val)
+    void addValue(size_t level, T)(size_t[] indices, T val, size_t numVals=1)
     {
-        enum thisPage = 1<<Prefix[level].bitSize;
-        auto ptr = table.ptr!(level);
-        ptr[indices[level]] = val;
-        indices[level]++;
-        static if(level != 0)//last level has 1 "page"
+        enum pageSize = 1<<Prefix[level].bitSize;
+        do
         {
-            bool flag;
-            size_t next_lvl_index;
-            if(indices[level] % thisPage == 0)
+            //need to take pointer again, memory block  may move
+            auto ptr = table.ptr!(level);
+            if(numVals == 1)
             {
-                auto last = table.ptr!level+table.length!level-thisPage;
-                auto x=table.ptr!level;
-                auto base = x;
-                ptr += indices[level] - thisPage;
-                //writeln(last, "   base: ", base, " ptr:", ptr);
-                for(; x<last; x+=thisPage)
+                ptr[indices[level]] = val;
+                indices[level]++;
+                numVals = 0;
+            }
+            else
+            {
+                //where is the next page boundary
+                size_t nextPB = (indices[level]+pageSize)/pageSize*pageSize;
+                size_t j = indices[level];
+                size_t n =  nextPB-j;//can fill right in this page
+                if(numVals > n)
+                    numVals -= n;
+                else
                 {
-                    if(x[0..thisPage] == ptr[0..thisPage])
+                    n = numVals;
+                    numVals = 0;
+                }
+                for(int i=0;i<n; i++)
+                    ptr[j++] = val;
+                indices[level] = j;
+            }
+            static if(level != 0)//last level has 1 "page"
+            {
+                size_t next_lvl_index;
+                if(indices[level] % pageSize == 0)
+                {
+                    auto last = table.ptr!level+table.length!level-pageSize;
+                    auto x=table.ptr!level;
+                    auto base = x;
+                    ptr += indices[level] - pageSize;
+                    //writeln(last, "   base: ", base, " ptr:", ptr);
+                    for(; x<last; x+=pageSize)
                     {
-                        //get index to it, reuse ptr space for the next block
-                        next_lvl_index = (x - base)/thisPage;
-                        writefln("LEVEL(%s) page maped idx: %s: 0..%s  ---> [%s..%s]"
-                                ,level
-                                ,indices[level-1], thisPage, x-base, x-base+thisPage);
-                        writeln("LEVEL(", level
-                                , ") mapped page is: ", x, ": ", arrayRepr(x[0..thisPage]));
-                        writeln("LEVEL(", level
-                                , ") src page is :", ptr, ": ", arrayRepr(ptr[0..thisPage]));
-                        indices[level] -= thisPage; //reuse this page, it is duplicate
-                        break;
+                        if(x[0..pageSize] == ptr[0..pageSize])
+                        {
+                            //get index to it, reuse ptr space for the next block
+                            next_lvl_index = (x - base)/pageSize;
+                            writefln("LEVEL(%s) page maped idx: %s: 0..%s  ---> [%s..%s]"
+                                    ,level
+                                    ,indices[level-1], pageSize, x-base, x-base+pageSize);
+                            writeln("LEVEL(", level
+                                    , ") mapped page is: ", x, ": ", arrayRepr(x[0..pageSize]));
+                            writeln("LEVEL(", level
+                                    , ") src page is :", ptr, ": ", arrayRepr(ptr[0..pageSize]));
+                            indices[level] -= pageSize; //reuse this page, it is duplicate
+                            break;
+                        }
                     }
+                    if(x == last)
+                    {
+                        next_lvl_index = (ptr - base)/pageSize;
+                        //allocate next page
+                        writefln("LEVEL(%s) page allocated: %s"
+                                 , level, arrayRepr(ptr[0..pageSize]));
+                        writefln("LEVEL(%s) index: %s ; page at this index %s"
+                                 , level
+                                 , next_lvl_index
+                                 , arrayRepr(
+                                     (table.ptr!(level)+pageSize*next_lvl_index)[0..pageSize]));
+                        table.length!level = table.length!level + pageSize;
+                    }
+                    addValue!(level-1)(indices, next_lvl_index);
                 }
-                if(x == last)
-                {
-                    next_lvl_index = (ptr - base)/thisPage;
-                    //allocate next page
-                    writefln("LEVEL(%s) page allocated: %s"
-                             , level, arrayRepr(ptr[0..thisPage]));
-                    writefln("LEVEL(%s) index: %s ; page at this index %s"
-                             , level
-                             , next_lvl_index
-                             , arrayRepr(
-                                 (table.ptr!(level)+thisPage*next_lvl_index)[0..thisPage]));
-                    table.length!level = table.length!level + thisPage;
-                    flag = true;
-                }
-                addValue!(level-1)(indices, next_lvl_index);
-                return flag;
             }
         }
-        return false;
+        while(numVals);
     }
 
     //last index is not stored in table, it is used as offset to values in a block.
