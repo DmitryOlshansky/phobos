@@ -1613,10 +1613,9 @@ struct Trie(Value, Key, Prefix...)
         enum last = Prefix.length-1;
         enum pageBits=Prefix[$-1].bitSize, pageSize = 1<<pageBits;
         size_t maxIdx = 1;
+        //maximum index is sizes of each level multiplied
         foreach(v; Prefix)
             maxIdx *= 2^^v.bitSize;
-        //maximum index is sizes of each level multiplied
-        writeln("Max index is ", maxIdx);
 
         size_t[Prefix.length] idxs;
         table = table(idxs);
@@ -1625,23 +1624,47 @@ struct Trie(Value, Key, Prefix...)
             table.length!i = (1<<Prefix[i].bitSize);
 
         {//don't pollute the ctor scope
-            Value* ptr = table.ptr!(last);
+            V* ptr = table.ptr!(last);
             size_t j = 0;
             size_t prevKeyIdx = size_t.max;
-            sort(keys);//TODO: should do multi-sort sort by prefixes
+            alias GetComparators!(Prefix.length) Comps;
+            import std.functional;
+            /*multiSort!(Comps, SwapStrategy.unstable)
+                (keys);*/
+            sort!cmpKey(keys);
             for(int i=0;i<keys.length; i++)
             {
                 size_t keyIdx = getIndex(keys[i]);
                 if(keyIdx != prevKeyIdx)
                 {
-                    writeln("using key ", keyIdx);
-                    addValue!last(idxs, false, keyIdx - j);
-                    addValue!last(idxs, true);
-                    j = keyIdx+1;
+                    debug(std_uni) writeln("using key ", keyIdx);
+                    static if(type == TrieType.Set)
+                    {
+                        addValue!last(idxs, Key.init, keyIdx - j);
+                        addValue!last(idxs, keys[i]);
+                    }
+                    else
+                    {
+                        addValue!last(idxs, false, keyIdx - j);
+                        addValue!last(idxs, true);
+                    }
                     prevKeyIdx = keyIdx;
+                    j = keyIdx+1;
+                }
+                else
+                {//Set version can have duplicate slot keys
+                     static if(type == TrieType.Set)
+                     {
+                        idxs[last]--;
+                        addValue!last(idxs, keys[i]);
+                     }
                 }
 
             }
+            static if(type == TrieType.Set)
+                addValue!last(idxs, Key.init, maxIdx-j);
+            else
+                addValue!last(idxs, false, maxIdx-j);
         }
     }
 
@@ -1663,7 +1686,7 @@ struct Trie(Value, Key, Prefix...)
             table.length!i = (1<<Prefix[i].bitSize);
 
         {//don't pollute the ctor scope
-            Value* ptr = table.ptr!(last);
+            V* ptr = table.ptr!(last);
             size_t i = 0;
             for(;;)
             {
@@ -1682,47 +1705,37 @@ struct Trie(Value, Key, Prefix...)
             }
             addValue!last(idxs, false, maxKey - i);
         }
-
-        version(none)
-        {
-            writeln("unique pages:");
-            for(int j=0;j<table.length!last;j+=pageSize)
-            {
-                for(int k=0;k<pageSize;k++)
-                    write(cast(uint)table.ptr!last[j+k]);
-                writeln();
-            }
-
-            //TODO: need a way to remove last page if it was mapped
-            writeln("lookup map:");
-            for(int j=0;j<maxKey;)
-            {
-                write(cast(uint)this[j]);
-                j++;
-                if(j % pageSize == 0)
-                    writeln();
-            }
-        }
     }
 
-    static size_t getIndex(Key key)//get "mapped" virtual integer index
+
+
+    static if(is(Value dummy : MultiSlot!(U,Item), U, Item))
     {
-        alias Prefix p;
-        size_t idx = p[0].entity(key);
-        foreach(i, v; p[0..$-1])
+        alias U V;
+        enum type = TrieType.Set;
+        static putValue(ref V cont, Item val)
         {
-            idx |= (v.entity(key)<<p[i+1].bitSize) | p[i+1].entity(key);
+            cont.insert(val);
         }
-        return idx;
+    }
+    else
+    {
+        alias Value V;
+        enum type = TrieType.Value;
+        static putValue(ref V x, V val)
+        {
+            x = val;
+        }
     }
 
-    Value opIndex(Key key) const
+    V opIndex(Key key) const
     {
         size_t idx;
         alias Prefix p;
         idx = p[0].entity(key);
         foreach(i, v; p[0..$-1])
             idx = (table.ptr!i[idx]<<p[i+1].bitSize) + p[i+1].entity(key);
+        debug(std_uni) writeln("lookup idx:",idx);
         return table.ptr!(p.length-1)[idx];
     }
 
@@ -1739,7 +1752,42 @@ struct Trie(Value, Key, Prefix...)
         return bytes!n/2^^Prefix[$-1].bitSize;
     }
 
+
+    static bool cmpKey(Key a, Key b)
+    {
+        return getIndex(a) < getIndex(b);
+    }
+    //need for multisort to work
+    static bool cmpK(size_t i)(Key a, Key b)
+    {
+        return Prefix[i].entity(a) < Prefix[i].entity(b);
+    }
 private:
+    enum TrieType{ Value, Set, Map };
+    //for multi-sort
+    template GetComparators(size_t n)
+    {
+        static if(n > 0)
+        {
+            alias TypeTuple!(GetComparators!(n-1), cmpK!(n-1)) GetComparators;
+        }
+        else
+            alias TypeTuple!() GetComparators;
+
+    }
+    static size_t getIndex(Key key)//get "mapped" virtual integer index
+    {
+        alias Prefix p;
+        size_t idx;
+        foreach(i, v; p[0..$-1])
+        {
+            idx |= p[i].entity(key);
+            idx <<= p[i+1].bitSize;
+        }
+        idx |= p[$-1].entity(key);
+        return idx;
+    }
+
     static arrayRepr(T)(T[] x)
     {
         if(x.length > 32)
@@ -1749,7 +1797,6 @@ private:
         else
             return text(x);
     }
-    enum minKey = 0;
 
     //true if page was allocated, false is it was mapped or not an end of page yet
     void addValue(size_t level, T)(size_t[] indices, T val, size_t numVals=1)
@@ -1764,7 +1811,10 @@ private:
             auto ptr = table.ptr!(level);
             if(numVals == 1)
             {
-                ptr[indices[level]] = val;
+                static if(level == Prefix.length-1)
+                    putValue(ptr[indices[level]], val);
+                else
+                    ptr[indices[level]] = val;
                 indices[level]++;
                 numVals = 0;
             }
@@ -1781,8 +1831,13 @@ private:
                     n = numVals;
                     numVals = 0;
                 }
-                for(int i=0;i<n; i++)
-                    ptr[j++] = val;
+                static if(level == Prefix.length-1)
+                {
+                    for(int i=0;i<n; i++)
+                        putValue(ptr[j++], val);
+                }
+                else
+                    ptr[j..j+n]  = val;
                 indices[level] = j;
             }
             static if(level != 0)//last level has 1 "page"
@@ -1801,6 +1856,8 @@ private:
                         {
                             //get index to it, reuse ptr space for the next block
                             next_lvl_index = (x - base)/pageSize;
+                            version(none)
+                            {
                             writefln("LEVEL(%s) page maped idx: %s: 0..%s  ---> [%s..%s]"
                                     ,level
                                     ,indices[level-1], pageSize, x-base, x-base+pageSize);
@@ -1808,6 +1865,7 @@ private:
                                     , ") mapped page is: ", x, ": ", arrayRepr(x[0..pageSize]));
                             writeln("LEVEL(", level
                                     , ") src page is :", ptr, ": ", arrayRepr(ptr[0..pageSize]));
+                            }
                             indices[level] -= pageSize; //reuse this page, it is duplicate
                             break;
                         }
@@ -1816,6 +1874,8 @@ private:
                     {
                         next_lvl_index = (ptr - base)/pageSize;
                         //allocate next page
+                        version(none)
+                        {
                         writefln("LEVEL(%s) page allocated: %s"
                                  , level, arrayRepr(ptr[0..pageSize]));
                         writefln("LEVEL(%s) index: %s ; page at this index %s"
@@ -1823,6 +1883,7 @@ private:
                                  , next_lvl_index
                                  , arrayRepr(
                                      (table.ptr!(level)+pageSize*next_lvl_index)[0..pageSize]));
+                        }
                         table.length!level = table.length!level + pageSize;
                     }
                     addValue!(level-1)(indices, next_lvl_index);
@@ -1833,8 +1894,18 @@ private:
     }
 
     //last index is not stored in table, it is used as offset to values in a block.
-    MultiArray!(idxTypes!(Key, Prefix[0..$-1]), Value) table;
+    MultiArray!(idxTypes!(Key, Prefix[0..$-1]), V) table;
 }
+
+/**
+    Wrapper, indicates that T should be considered as a set of Item values.
+    When MultiSlot!(T,Item) is used as $(D Value) type, Trie will internally
+    translate assignments/test to insert & in operator repspecrtively.
+*/
+struct MultiSlot(T, Item)
+if(__traits(compiles, T.init.insert(Item.init))
+   && __traits(compiles, (Item.init in T.init) ))
+{}
 
 /**
     Wrapper, provided to simplify definition
@@ -1958,13 +2029,169 @@ unittest
 
     string[] redundantS = ["tea", "tackle", "teenage", "start", "stray"];
     auto strie = Trie!(bool, string, useItemAt!(0, char))(redundantS);
+    //using first char only
     assert(strie["test"], text(strie["test"]));
+    assert(!strie["aea"]);
+    assert(strie["s"]);
+
+    //A realistic example: keyword detector
+    enum keywords = [
+            "abstract",
+			"alias",
+			"align",
+			"asm",
+			"assert",
+			"auto",
+			"body",
+			"bool",
+			"break",
+			"byte",
+			"case",
+			"cast",
+			"catch",
+			"cdouble",
+			"cent",
+			"cfloat",
+			"char",
+			"class",
+			"const",
+			"continue",
+			"creal",
+			"dchar",
+			"debug",
+			"default",
+			"delegate",
+			"delete",
+			"deprecated",
+			"do",
+			"double",
+			"else",
+			"enum",
+			"export",
+			"extern",
+			"false",
+			"final",
+			"finally",
+			"float",
+			"for",
+			"foreach",
+			"foreach_reverse",
+			"function",
+			"goto",
+			"idouble",
+			"if",
+			"ifloat",
+			"immutable",
+			"import",
+			"in",
+			"inout",
+			"int",
+			"interface",
+			"invariant",
+			"ireal",
+			"is",
+			"lazy",
+			"long",
+			"macro",
+			"mixin",
+			"module",
+			"new",
+			"nothrow",
+			"null",
+			"out",
+			"override",
+			"package",
+			"pragma",
+			"private",
+			"protected",
+			"public",
+			"pure",
+			"real",
+			"ref",
+			"return",
+			"scope",
+			"shared",
+			"short",
+			"static",
+			"struct",
+			"super",
+			"switch",
+			"synchronized",
+			"template",
+			"this",
+			"throw",
+			"true",
+			"try",
+			"typedef",
+			"typeid",
+			"typeof",
+			"ubyte",
+			"ucent",
+			"uint",
+			"ulong",
+			"union",
+			"unittest",
+			"ushort",
+			"version",
+			"void",
+			"volatile",
+			"wchar",
+			"while",
+			"with",
+			"__FILE__",
+			"__gshared",
+			"__LINE__",
+			"__thread",
+			"__traits"
+    ];
+
+    //assumes T.init == empty, NG if T.init is a legal key
+    struct SmallSet(size_t N, T)
+    {
+        T[N] items;
+        void insert(T val)
+        {
+            int i;
+            if(val == T.init)
+                return;
+            for(i=0;i<N; i++)
+                if(items[i] == T.init)
+                {
+                    items[i] = val;
+                    return;
+                }
+            throw new Exception(text("out of slots in ", this," on key=", val));
+        }
+        bool opBinaryRight(string op, T)(T key)
+            if(op == "in")
+        {
+            return items[].canFind(key);
+        }
+    }
+    static size_t useLength(T)(T[] arr)
+    {
+        return arr.length > 63 ? 0 : arr.length; //need max length, 64 - 6bits
+    }
+
+    auto keyTrie = Trie!(MultiSlot!(SmallSet!(2,string), string)
+                         , string
+                         , assumeSize!(6, useLength)
+                         , useItemAt!(0, char)
+                         , useLastItem!(char))(keywords);
+    foreach(key; keywords)
+        assert( key in keyTrie[key], text(key, " in ", keyTrie[key]));
 }
 
 template useItemAt(size_t idx, T)
     if(isIntegral!T || is(T: dchar))
 {
     size_t entity(in T[] arr){ return arr[idx]; }
+    enum bitSize = 8*T.sizeof;
+}
+
+template useLastItem(T)
+{
+    size_t entity(in T[] arr){ return arr[$-1]; }
     enum bitSize = 8*T.sizeof;
 }
 //TODO: benchmark for Trie vs InversionList vs RleBitSet vs std.bitmanip.BitArray
@@ -1992,7 +2219,6 @@ private struct MultiArray(Types...)
         size_t full_size;
         foreach(i, v; Types)
         {
-            pragma(msg, v.sizeof);
             full_size += v.sizeof*sizes[i];
             sz[i] = sizes[i];
             static if(i >= 1)
