@@ -81,7 +81,9 @@ debug = std_uni;
 
 debug(std_uni) import std.stdio;
 
-private auto force(T, F)(F from)
+private:
+
+auto force(T, F)(F from)
 	if(isIntegral!T)
 {
 	assert(from <= T.max && from >= T.min);
@@ -89,7 +91,7 @@ private auto force(T, F)(F from)
 }
 
 //cheap algorithm grease ;)
-private auto adaptIntRange(T, F)(F[] src)
+auto adaptIntRange(T, F)(F[] src)
 {
 	static struct ConvertIntegers//@@@BUG when in the 9 hells will map be copyable again?!
 	{
@@ -119,7 +121,7 @@ private auto adaptIntRange(T, F)(F[] src)
 
 //hope to see simillar stuff in public interface... once Allocators are out
 //@@@BUG moveFront and friends? dunno, for now it's POD-only
-private size_t genericReplace(Policy=void, T, Range)
+size_t genericReplace(Policy=void, T, Range)
     (ref T dest, size_t from, size_t to, Range stuff)
 {
     size_t delta = to - from;
@@ -156,7 +158,7 @@ private size_t genericReplace(Policy=void, T, Range)
 }
 
 //Simple storage manipulation policy
-private struct GcPolicy
+struct GcPolicy
 {
 	static T[] dup(T)(T[] arr)
 	{
@@ -190,7 +192,7 @@ private struct GcPolicy
 }
 
 //ditto
-private struct ReallocPolicy
+struct ReallocPolicy
 {
     import std.exception, core.stdc.stdlib;
 	static T[] dup(T)(T[] arr)
@@ -274,7 +276,7 @@ unittest
 
 //bootstrap full set operations from 3 primitives:
 //addInterval, skipUpTo, dropUpTo & byInterval iteration
-private mixin template BasicSetOps()
+mixin template BasicSetOps()
 {
     alias typeof(this) This;
     /**
@@ -461,7 +463,7 @@ private:
     enum isSet = true;
 };
 
-struct RleBitSet(T, SP=GcPolicy)
+public struct RleBitSet(T, SP=GcPolicy)
     if(isUnsigned!T)
 {
 public:
@@ -939,7 +941,7 @@ private:
     $(D CodepointSet) is a packed data structure for sets of codepoints.
     Memory usage is 6 bytes per each contigous interval in a set.
 */
-struct InversionList(SP=GcPolicy)
+public struct InversionList(SP=GcPolicy)
 {
     this(C)(in C[] regexSet)
         if(is(C : dchar))
@@ -1603,12 +1605,60 @@ unittest//iteration
     assert(equal(x.byInterval, [ tuple(100, 500), tuple(600, 900), tuple(1200, 1500)]), text(x.byInterval));
 }
 
+template WrapBinary(alias filter, alias bFn)
+{
+    auto WrapBinary(A)(A a, A b)
+    {
+        return bFn(filter(a), filter(b));
+    }
+}
+
+template MapWrap(alias Fn, Ts...)
+{
+    static if(Ts.length > 0)
+        alias TypeTuple!(WrapBinary!(Fn, Ts[0]), MapWrap!(Fn, Ts[1..$])) MapPipe;
+    else
+        alias TypeTuple!() MapPipe;
+}
+
 struct Trie(Value, Key, Prefix...)
     if(Prefix.length >= 1)
 {
-    ///Construct boolean Trie from array of keys
+
+    static if(is(Value dummy : SetAsSlot!(U), U))
+    {
+        alias U V;
+        enum type = TrieType.Set;
+        static putValue(ref V cont, Key val)
+        {
+            cont.insert(val);
+        }
+    }
+    else static if(is(Value dummy: MapAsSlot!(C, U, X), C, U, X))
+    {//TODO: built-in AA are somehow sluggish and need GC addRoot (still not implemented)
+        alias C V;
+        alias U Item;
+        static assert(is(X == Key));
+        enum type = TrieType.Map;
+        static putValue(Pair)(ref V cont, Pair val)
+        {
+            cont.insert(val);
+        }
+    }
+    else
+    {
+        alias Value V;
+        enum type = TrieType.Value;
+        static putValue(ref V x, V val)
+        {
+            x = val;
+        }
+    }
+
+    ///Construct Trie from array of keys
     ///fills all possible keys with zeros in index
-    this()(Key[] keys)
+    this(Keys)(Keys keys)
+        if(!is(typeof(Set.init.isSet)))
     {
         enum last = Prefix.length-1;
         enum pageBits=Prefix[$-1].bitSize, pageSize = 1<<pageBits;
@@ -1627,21 +1677,39 @@ struct Trie(Value, Key, Prefix...)
             V* ptr = table.ptr!(last);
             size_t j = 0;
             size_t prevKeyIdx = size_t.max;
-            alias GetComparators!(Prefix.length) Comps;
-            import std.functional;
-            /*multiSort!(Comps, SwapStrategy.unstable)
-                (keys);*/
-            sort!cmpKey(keys);
-            for(int i=0;i<keys.length; i++)
+            static if(isDynamicArray!Keys)
             {
-                size_t keyIdx = getIndex(keys[i]);
+                alias GetComparators!(Prefix.length, cmpK) Comps;
+                multiSort!(Comps, SwapStrategy.unstable)
+                    (keys);
+                auto r = keys;
+            }
+            else static if(type == TrieType.Map)
+            {
+                static assert(isAssociativeArray!Keys
+                              , "MapAsSlot Tries can only be constructed out of AAs");
+                alias GetComparators!(Prefix.length, cmpK0) Comps;
+                auto r = array(zip(keys.byValue, keys.byKey));
+                multiSort!Comps(r);
+
+            }
+            else
+                static assert("unsupproted constructor for "~Keys.stringof);
+
+            for(int i=0;i<r.length; i++)
+            {
+                static if(type == TrieType.Map)
+                    size_t keyIdx = getIndex(r[i][1]);
+                else
+                    size_t keyIdx = getIndex(r[i]);
                 if(keyIdx != prevKeyIdx)
                 {
                     debug(std_uni) writeln("using key ", keyIdx);
-                    static if(type == TrieType.Set)
+                    static if(type == TrieType.Set
+                              || type == TrieType.Map)
                     {
-                        addValue!last(idxs, Key.init, keyIdx - j);
-                        addValue!last(idxs, keys[i]);
+                        addValue!last(idxs, r.front.init, keyIdx - j);
+                        addValue!last(idxs, r[i]);
                     }
                     else
                     {
@@ -1652,17 +1720,20 @@ struct Trie(Value, Key, Prefix...)
                     j = keyIdx+1;
                 }
                 else
-                {//Set version can have duplicate slot keys
-                     static if(type == TrieType.Set)
+                {//Set or map version can have "duplicate" slot keys
+                     static if(type == TrieType.Set
+                               || type == TrieType.Map)
                      {
                         idxs[last]--;
-                        addValue!last(idxs, keys[i]);
+                        addValue!last(idxs, r[i]);
                      }
                 }
 
             }
             static if(type == TrieType.Set)
                 addValue!last(idxs, Key.init, maxIdx-j);
+            else static if(type == TrieType.Map)
+                addValue!last(idxs, r.front.init, maxIdx-j);
             else
                 addValue!last(idxs, false, maxIdx-j);
         }
@@ -1707,27 +1778,6 @@ struct Trie(Value, Key, Prefix...)
         }
     }
 
-
-
-    static if(is(Value dummy : MultiSlot!(U,Item), U, Item))
-    {
-        alias U V;
-        enum type = TrieType.Set;
-        static putValue(ref V cont, Item val)
-        {
-            cont.insert(val);
-        }
-    }
-    else
-    {
-        alias Value V;
-        enum type = TrieType.Value;
-        static putValue(ref V x, V val)
-        {
-            x = val;
-        }
-    }
-
     V opIndex(Key key) const
     {
         size_t idx;
@@ -1752,29 +1802,42 @@ struct Trie(Value, Key, Prefix...)
         return bytes!n/2^^Prefix[$-1].bitSize;
     }
 
-
-    static bool cmpKey(Key a, Key b)
+    version(none)static bool cmpKey(Key a, Key b)//untested, possibly bogus
     {
-        return getIndex(a) < getIndex(b);
+        foreach(p; Prefix)
+        {
+            if(p.entity(a) < p.entity(b))
+               return true;
+        }
+        return false;
     }
-    //need for multisort to work
+
+    //needed for multisort to work
     static bool cmpK(size_t i)(Key a, Key b)
     {
         return Prefix[i].entity(a) < Prefix[i].entity(b);
     }
+
+    //ditto
+    static if(type == TrieType.Map)
+    static bool cmpK0(size_t i)
+        (const ref Tuple!(Item,Key) a, const ref Tuple!(Item, Key) b)
+    {
+        return Prefix[i].entity(a[1]) < Prefix[i].entity(b[1]);
+    }
 private:
     enum TrieType{ Value, Set, Map };
     //for multi-sort
-    template GetComparators(size_t n)
+    template GetComparators(size_t n, alias cmpFn)
     {
         static if(n > 0)
-        {
-            alias TypeTuple!(GetComparators!(n-1), cmpK!(n-1)) GetComparators;
-        }
+            alias TypeTuple!(GetComparators!(n-1, cmpFn), cmpFn!(n-1)) GetComparators;
         else
             alias TypeTuple!() GetComparators;
-
     }
+
+
+
     static size_t getIndex(Key key)//get "mapped" virtual integer index
     {
         alias Prefix p;
@@ -1898,14 +1961,15 @@ private:
 }
 
 /**
-    Wrapper, indicates that T should be considered as a set of Item values.
-    When MultiSlot!(T,Item) is used as $(D Value) type, Trie will internally
-    translate assignments/test to insert & in operator repspecrtively.
+    Wrapping T by SetAsSlot indicates that T should be considered
+    as a set of values.
+    When SetAsSlot!T is used as $(D Value) type, Trie will internally
+    translate assignments/test to insert & 'in' operator repspectively.
 */
-struct MultiSlot(T, Item)
-if(__traits(compiles, T.init.insert(Item.init))
-   && __traits(compiles, (Item.init in T.init) ))
-{}
+struct SetAsSlot(T){}
+
+///Ditto for map of Key -> Value.
+struct MapAsSlot(T, Value, Key){}
 
 /**
     Wrapper, provided to simplify definition
@@ -1948,6 +2012,124 @@ template Sequence(size_t start, size_t end)
 }
 
 //---- TRIE TESTS ----
+version(unittest)
+private enum TokenKind : ubyte { //from DCT by Roman Boiko (Boost v1.0 licence)
+		// token kind has not been initialized to a valid value
+		Invalid = 0,
+
+		// protection
+		Package, Private, Protected, Public, // note: extern also specifies protection level
+
+		// storage classes
+		Extern, Abstract, Auto, Const, Deprecated, Enum, Final, Immutable, InOut, NoThrow, Override, Pure, Scope, Shared, Static, Synchronized, _GShared,
+
+		// basic type names
+		Bool, Char, UByte, Byte, WChar, UShort, Short, DChar, UInt, Int, ULong, Long, Float, Double, Real, CFloat, CDouble, CReal, IFloat, IDouble, IReal, Void,
+
+		// other keywords
+		Alias, Align, Asm, Assert, Body, Break, Case, Cast, Catch, Cent, Class, Continue, Debug, Default, Delegate, Delete, Do, Else, Export, False, Finally, ForEach_Reverse, ForEach, For, Function,
+		GoTo, If, Import, Interface, Invariant, In, Is, Lazy, Macro, Mixin, Module, New, Null, Out, Pragma, Ref, Return, Struct, Super, Switch,
+		Template, This, Throw, True, Try, TypeDef, TypeId, TypeOf, UCent, Union, UnitTest, Version, Volatile, While, With, _FILE_, _LINE_, _Thread, _Traits,
+
+		// any identifier which is not a keyword
+		Identifier,
+
+		// literals
+		StringLiteral, CharacterLiteral, IntegerLiteral, FloatLiteral,
+
+		// punctuation
+
+		// brackets
+		LeftParen,			// (
+		RightParen,			// )
+		LeftBracket,		// [
+		RightBracket,		// ]
+		LeftCurly,			// {
+		RightCurly,			// }
+
+		// assignment operators
+		Assign,				// =
+		AmpersandAssign,	// &=
+		TildeAssign,		// ~=
+		SlashAssign,		// /=
+		LeftShiftAssign,	// <<=
+		MinusAssign,		// -=
+		PercentAssign,		// %=
+		StarAssign,			// *=
+		OrAssign,			// |=
+		PlusAssign,			// +=
+		PowerAssign,		// ^^=
+		RightShiftAssign,	// >>=
+		URightShiftAssign,	// >>>=
+		XorAssign,			// ^=
+
+		// relational operators
+		Eq,					// ==
+		NotEq,				// !=
+		GreaterThan,		// >
+		GreaterOrEq,		// >=
+		LessThan,			// <
+		LessEqOrGreater,	// <>=
+		LessOrGreater,		// <>
+		LessOrEq,			// <=
+		UnordCompare,		// !<>=
+		UnordGreaterOrEq,	// !<
+		UnordLessOrEq,		// !>
+		UnordOrEq,			// !<>
+		UnordOrGreater,		// !<=
+		UnordOrLess,		// !>=
+
+		// shift operators
+		LeftShift,			// <<
+		RightShift,			// >>
+		URightShift,		// >>>
+
+		// other binary operators
+		Power,				// ^^
+		BoolAnd,			// &&
+		BoolOr,				// ||
+		BitOr,				// |
+		BitXor,				// ^
+		Percent,			// %
+		Slash,				// /
+
+		// operators which can be either unary or binary
+		Star,				// * (multiply; pointer)
+		Minus,				// -
+		Plus,				// +
+		Ampersand,			// & (address of; bitwise and)
+		Tilde,				// ~ (concat; complement)
+
+		// unary operators
+		Bang,				// ! (not; actual compile time parameter)
+		Decrement,			// --
+		Increment,			// ++
+
+		// other punctuation
+		Dot,				// .
+		Slice,				// ..
+		Ellipsis,			// ...
+		Lambda,				// =>
+		Question,			// ?
+		Comma,				// ,
+		Semicolon,			// ;
+		Colon,				// :
+		Dollar,				// $
+		Hash,				// #
+		At,					// @
+
+		// other tokens
+
+		SpecialToken, EndOfLine,
+		// note: it is important that the following tokens are last, because column calculation depends on whether tab appears in token spelling
+		WhiteSpace, ScriptLine, Comment, SpecialTokenSequence,
+		// end of file is always inserted (at the end)
+		// it corresponds to either of \0 or \1A, but is also inserted immediately after __EOF__ special token
+		// spelling includes everything starting from frontIndex and till the physical end of file, and it may be ""
+		// __EOF__ inside a comment, character or string literal is treated as string (unlike DMD, which treats it as EoF inside token strings and character literals)
+		_EOF_
+};
+
 unittest
 {
     static trieStats(TRIE)(TRIE t)
@@ -2162,24 +2344,157 @@ unittest
                 }
             throw new Exception(text("out of slots in ", this," on key=", val));
         }
+
         bool opBinaryRight(string op, T)(T key)
             if(op == "in")
         {
-            return items[].canFind(key);
+            return  items[].countUntil(key) != -1;
         }
     }
+
+    struct SmallMap(size_t N, V, K)
+    {
+        void insert(Tuple!(V, K) t){ _set.insert(t); }
+
+        V opBinaryRight(string op, T)(T key)
+            if(op == "in")
+        {
+            auto idx = map!"a[1]"(_set.items[]).countUntil(key);
+            return idx < 0 ? V.init : _set.items[idx][0];
+        }
+        private:
+            SmallSet!(N, Tuple!(V, K)) _set;
+    }
+
     static size_t useLength(T)(T[] arr)
     {
         return arr.length > 63 ? 0 : arr.length; //need max length, 64 - 6bits
     }
 
-    auto keyTrie = Trie!(MultiSlot!(SmallSet!(2,string), string)
+    auto keyTrie = Trie!(SetAsSlot!(SmallSet!(2,string))
                          , string
                          , assumeSize!(6, useLength)
                          , useItemAt!(0, char)
                          , useLastItem!(char))(keywords);
     foreach(key; keywords)
         assert( key in keyTrie[key], text(key, " in ", keyTrie[key]));
+    auto keywordsMap = [
+			"abstract" : TokenKind.Abstract,
+			"alias" : TokenKind.Alias,
+			"align" : TokenKind.Align,
+			"asm" : TokenKind.Asm,
+			"assert" : TokenKind.Assert,
+			"auto" : TokenKind.Auto,
+			"body" : TokenKind.Body,
+			"bool" : TokenKind.Bool,
+			"break" : TokenKind.Break,
+			"byte" : TokenKind.Byte,
+			"case" : TokenKind.Case,
+			"cast" : TokenKind.Cast,
+			"catch" : TokenKind.Catch,
+			"cdouble" : TokenKind.CDouble,
+			"cent" : TokenKind.Cent,
+			"cfloat" : TokenKind.CFloat,
+			"char" : TokenKind.Char,
+			"class" : TokenKind.Class,
+			"const" : TokenKind.Const,
+			"continue" : TokenKind.Continue,
+			"creal" : TokenKind.CReal,
+			"dchar" : TokenKind.DChar,
+			"debug" : TokenKind.Debug,
+			"default" : TokenKind.Default,
+			"delegate" : TokenKind.Delegate,
+			"delete" : TokenKind.Delete,
+			"deprecated" : TokenKind.Deprecated,
+			"do" : TokenKind.Do,
+			"double" : TokenKind.Double,
+			"else" : TokenKind.Else,
+			"enum" : TokenKind.Enum,
+			"export" : TokenKind.Export,
+			"extern" : TokenKind.Extern,
+			"false" : TokenKind.False,
+			"final" : TokenKind.Final,
+			"finally" : TokenKind.Finally,
+			"float" : TokenKind.Float,
+			"for" : TokenKind.For,
+			"foreach" : TokenKind.ForEach,
+			"foreach_reverse" : TokenKind.ForEach_Reverse,
+			"function" : TokenKind.Function,
+			"goto" : TokenKind.GoTo,
+			"idouble" : TokenKind.IDouble,
+			"if" : TokenKind.If,
+			"ifloat" : TokenKind.IFloat,
+			"immutable" : TokenKind.Immutable,
+			"import" : TokenKind.Import,
+			"in" : TokenKind.In,
+			"inout" : TokenKind.InOut,
+			"int" : TokenKind.Int,
+			"interface" : TokenKind.Interface,
+			"invariant" : TokenKind.Invariant,
+			"ireal" : TokenKind.IReal,
+			"is" : TokenKind.Is,
+			"lazy" : TokenKind.Lazy,
+			"long" : TokenKind.Long,
+			"macro" : TokenKind.Macro,
+			"mixin" : TokenKind.Mixin,
+			"module" : TokenKind.Module,
+			"new" : TokenKind.New,
+			"nothrow" : TokenKind.NoThrow,
+			"null" : TokenKind.Null,
+			"out" : TokenKind.Out,
+			"override" : TokenKind.Override,
+			"package" : TokenKind.Package,
+			"pragma" : TokenKind.Pragma,
+			"private" : TokenKind.Private,
+			"protected" : TokenKind.Protected,
+			"public" : TokenKind.Public,
+			"pure" : TokenKind.Pure,
+			"real" : TokenKind.Real,
+			"ref" : TokenKind.Ref,
+			"return" : TokenKind.Return,
+			"scope" : TokenKind.Scope,
+			"shared" : TokenKind.Shared,
+			"short" : TokenKind.Short,
+			"static" : TokenKind.Static,
+			"struct" : TokenKind.Struct,
+			"super" : TokenKind.Super,
+			"switch" : TokenKind.Switch,
+			"synchronized" : TokenKind.Synchronized,
+			"template" : TokenKind.Template,
+			"this" : TokenKind.This,
+			"throw" : TokenKind.Throw,
+			"true" : TokenKind.True,
+			"try" : TokenKind.Try,
+			"typedef" : TokenKind.TypeDef,
+			"typeid" : TokenKind.TypeId,
+			"typeof" : TokenKind.TypeOf,
+			"ubyte" : TokenKind.UByte,
+			"ucent" : TokenKind.UCent,
+			"uint" : TokenKind.UInt,
+			"ulong" : TokenKind.ULong,
+			"union" : TokenKind.Union,
+			"unittest" : TokenKind.UnitTest,
+			"ushort" : TokenKind.UShort,
+			"version" : TokenKind.Version,
+			"void" : TokenKind.Void,
+			"volatile" : TokenKind.Volatile,
+			"wchar" : TokenKind.WChar,
+			"while" : TokenKind.While,
+			"with" : TokenKind.With,
+			"__FILE__" : TokenKind._FILE_,
+			"__gshared" : TokenKind._GShared,
+			"__LINE__" : TokenKind._LINE_,
+			"__thread" : TokenKind._Thread,
+			"__traits" : TokenKind._Traits,
+	];
+    auto keyTrie2 = Trie!(MapAsSlot!(SmallMap!(2, TokenKind, string), TokenKind, string)
+                         , string
+                         , assumeSize!(6, useLength)
+                         , useItemAt!(0, char)
+                         , useLastItem!(char))(keywordsMap);
+    foreach(k,v; keywordsMap)
+        assert((k in keyTrie2[k]) == v);
+    trieStats(keyTrie2);
 }
 
 template useItemAt(size_t idx, T)
@@ -2196,8 +2511,7 @@ template useLastItem(T)
 }
 //TODO: benchmark for Trie vs InversionList vs RleBitSet vs std.bitmanip.BitArray
 
-
-private template idxTypes(Key, Prefix...)
+template idxTypes(Key, Prefix...)
 {
     static if(Prefix.length == 0)
     {
@@ -2212,7 +2526,7 @@ private template idxTypes(Key, Prefix...)
 }
 
 //multiple arrays squashed to one memory block
-private struct MultiArray(Types...)
+struct MultiArray(Types...)
 {
     this(size_t[] sizes...)
     {
@@ -2224,6 +2538,7 @@ private struct MultiArray(Types...)
             static if(i >= 1)
                 offsets[i] = offsets[i-1] + sizes[i-1]*Types[i-1].sizeof;
         }
+
         storage = new ubyte[full_size];
     }
 
@@ -2238,7 +2553,6 @@ private struct MultiArray(Types...)
     {
         if(new_size > sz[n])
         {//extend
-
             size_t delta = (new_size - sz[n]);
             sz[n] += delta;
             delta *= Types[n].sizeof;
@@ -2291,6 +2605,14 @@ private:
     size_t[Types.length] offsets;//offset for level x
     size_t[Types.length] sz;//size of level x
     enum dim = Types.length;
+    static bool needNotifyGc()
+    {
+        bool yes = false;
+        foreach(v; staticMap!(hasIndirections, Types))
+            yes = yes || v;
+        return yes;
+    }
+    enum indirections = needNotifyGc();
     ubyte[] storage;
 }
 
@@ -2356,7 +2678,7 @@ unittest
 
 //only per word packing, speed is more important
 //doesn't own memory, only provides access
-private struct PackedArrayView(size_t bits)
+struct PackedArrayView(size_t bits)
     if(bits % 8)
 {
     size_t opIndex(size_t idx)const
@@ -2469,7 +2791,7 @@ unittest
     equal(parr2[0..2],  [128, 384+2]);
 }
 
-
+public: //Public API continues
 /++
     Whether or not $(D c) is a Unicode whitespace character.
     (general Unicode category: Part of C0(tab, vertical tab, form feed,
