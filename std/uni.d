@@ -77,9 +77,10 @@ version(unittest) import std.conv, std.typetuple;
 enum dchar lineSep = '\u2028'; /// UTF line separator
 enum dchar paraSep = '\u2029'; /// UTF paragraph separator
 
-debug = std_uni;
+//debug = std_uni;
 
-debug(std_uni) import std.stdio;
+//debug(std_uni) import std.stdio;
+import std.stdio;
 
 private:
 
@@ -118,6 +119,389 @@ auto adaptIntRange(T, F)(F[] src)
 	}
 	return ConvertIntegers(src);
 }
+
+//repeat bit X times pattern in val assuming it's length is 'bits'
+size_t replicateBits(size_t times, size_t bits)(size_t val)
+{
+    static if(times == 1)
+        return val;
+    else static if(times % 2)
+        return (replicateBits!(times-1, bits)(val)<<bits) | val;
+    else
+        return replicateBits!(times/2, bits*2)(val<<bits | val);
+}
+
+unittest
+{//for replicate
+    size_t m = 0b111;
+    foreach(i; TypeTuple!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10))
+    {
+        assert(replicateBits!(i, 3)(m)+1 == (1<<(3*i)));
+        //writefln("%2d:%32b", i, replicateBits!(i, 3)(m));
+    }
+}
+
+//multiple arrays squashed to one memory block
+struct MultiArray(Types...)
+{
+    this(size_t[] sizes...)
+    {
+        size_t full_size;
+        foreach(i, v; Types)
+        {
+            static if(is(v dummy: BitPacked!U, U))
+                full_size += spaceFor!(v.bitSize)(sizes[i]);
+            else
+                full_size += spaceFor!(v.sizeof*8)(sizes[i]);
+            sz[i] = sizes[i];
+            static if(i >= 1)
+                offsets[i] = offsets[i-1] +
+                    sizes[i-1]*Types[i-1].sizeof/size_t.sizeof;
+        }
+
+        storage = new size_t[full_size];
+    }
+
+    @property auto slice(size_t n)()inout
+    {
+        return packedArrayView!(Types[n], bitSizeOf!(Types[n]))(raw_slice!n);
+    }
+
+    @property size_t length(size_t n)()const{ return sz[n]; }
+
+    @property void length(size_t n)(size_t new_size)
+    {
+        if(new_size > sz[n])
+        {//extend
+            size_t delta = (new_size - sz[n]);
+            writeln("X:", sz[n]);
+            writeln("Before scaling:", delta);
+            delta = spaceFor!(bitSizeOf!(Types[n]))(delta);
+            sz[n] += delta;
+            writeln("After scaling:", delta);
+            storage.length +=  delta;//extend space at end
+            //raw_ptr!x must follow resize as it could be moved!
+            //next 3 stmts move all data past this array, last-one-goes-first
+            auto start = raw_slice!(n+1).ptr;
+            size_t len = storage.length;
+
+            copy(retro(start[0..len-delta])
+                 , retro(start[delta..len]));
+
+            start[0..delta] = 0;
+            writeln("OFFSETS before:", offsets);
+            //offsets are used for raw_ptr, ptr etc.
+            foreach(i; n+1..dim)
+                offsets[i] += delta;
+            writeln("OFFSETS after:", offsets);
+        }
+        else if(new_size < sz[n])
+        {//shrink
+            size_t delta = (sz[n] - new_size);
+            delta = (delta*Types[n].sizeof+size_t.sizeof/2)/size_t.sizeof;
+            sz[n] -= delta;
+
+            //move all data past this array, forward direction
+            auto start = raw_slice!(n+1);
+            size_t len = storage.length;
+            copy(start[delta..len]
+                 , start[0..len-delta]);
+            storage.length -= delta;
+
+            //adjust offsets last, they affect raw_ptr
+            foreach(i; n+1..dim)
+                offsets[i] -= delta;
+        }
+        //else - NOP
+    }
+private:
+    @property auto raw_slice(size_t n)()inout
+    {
+        static if(n == 0)
+            return storage[0..sz[0]];
+        else static if(n == Types.length)
+            return storage[0..$];
+        else
+        {
+            writeln(storage.length, " vs offs: ", offsets, " sizes:", sz[n]);
+            return storage[offsets[n]..offsets[n]+sz[n]];
+        }
+    }
+    size_t[Types.length] offsets;//offset for level x
+    size_t[Types.length] sz;//size of level x
+    enum dim = Types.length;
+    static bool needNotifyGc()
+    {
+        bool yes = false;
+        foreach(v; staticMap!(hasIndirections, Types))
+            yes = yes || v;
+        return yes;
+    }
+    alias staticMap!(bitSizeOf, Types) bitWidth;
+    enum indirections = needNotifyGc();
+    size_t[] storage;
+}
+
+unittest
+{
+    // sizes are:
+    //lvl0: 3, lvl1 : 2, lvl2: 1
+    auto m = MultiArray!(int, ubyte, int)(3,2,1);
+
+    void check(size_t k)(int n)
+    {
+        foreach(i; 0..n)
+            assert(m.slice!(k)[i] == i+1, text("level:",i," : ",m.slice!(k)[0..n]));
+    }
+
+    void checkB(size_t k)(int n)
+    {
+        foreach(i; 0..n)
+            assert(m.slice!(k)[i] == n-i, text("level:",i," : ",m.slice!(k)[0..n]));
+    }
+
+    void fill(size_t k)(int n)
+    {
+        foreach(i; 0..n)
+            m.slice!(k)[i] = force!ubyte(i+1);
+    }
+
+    void fillB(size_t k)(int n)
+    {
+        foreach(i; 0..n)
+            m.slice!(k)[i] = force!ubyte(n-i);
+    }
+
+    m.length!1 = 100;
+    fill!1(100);
+    check!1(100);
+
+    m.length!0 = 220;
+    fill!0(220);
+    check!1(100);
+    check!0(220);
+
+    m.length!2 = 17;
+    fillB!2(17);
+    checkB!2(17);
+    check!0(220);
+    check!1(100);
+/*
+    m.length!2 = 33;
+    checkB!2(17);
+    fillB!2(33);
+    checkB!2(33);
+    check!0(220);
+    check!1(100);
+
+    m.length!1 = 195;
+    fillB!1(195);
+    checkB!1(195);
+    checkB!2(33);
+    check!0(220);*/
+
+}
+
+size_t spaceFor(size_t bits)(size_t new_len)
+{
+    static if(bits > 8*size_t.sizeof)
+    {
+        static assert(bits % (size_t.sizeof*8) == 0);
+        return new_len * bits/(8*size_t.sizeof);
+    }
+    else
+    {
+        enum factor = size_t.sizeof*8/bits;
+        return (new_len+factor/2)/factor;
+    }
+}
+
+//only per word packing, speed is more important
+//doesn't own memory, only provides access
+struct PackedArrayView(T, size_t bits)
+{
+    this(inout(size_t)[] arr)inout
+    {
+        original = arr;
+    }
+
+    T opIndex(size_t idx)const
+    {
+        static if(bits % 8)
+        {
+            return cast(T)
+            ((original[idx/factor] >> bits*(idx%factor))
+                 & mask);
+        }
+        else
+        {//by byte granular type itself
+            return (cast(T*)original.ptr)[idx];
+        }
+    }
+
+    void opIndexAssign(T val, size_t idx)
+    in
+    {
+        static if(isIntegral!T)
+            assert(val <= mask);
+    }
+    body
+    {
+        static if(bits % 8)
+        {
+            size_t tgt_shift = bits*(idx%(factor));
+            original[idx/factor] &= ~((2^^bits-1)<<tgt_shift);
+            original[idx/factor] |= cast(size_t)val << tgt_shift;
+        }
+        else
+        {//by byte granular type itself
+            (cast(T*)original.ptr)[idx] = val;
+        }
+    }
+
+    void opSliceAssign(T val, size_t start, size_t end)
+    {
+        //rounded to factor granuarity
+        /*size_t pad_start = (start+factor/2)/factor*factor;//rounded up
+        size_t pad_end = end/factor*factor; //rounded down
+        size_t i;
+        for(i=start; i<pad_start; i++)
+            this[i] = val;
+        writeln("!!~!~!!");
+        //all in between is x*factor elements
+        if(pad_start != pad_end)
+        {
+            size_t repval = replicateBits!(factor, bits)(val);
+            for(size_t j=i/factor; i<pad_end; i+=factor, j++)
+                original[j] = repval;//so speed it up by factor
+        }
+        for(; i<end; i++)
+            this[i] = val;*/
+        for(int i=start; i<end; i++)
+            this[i] = val;
+    }
+
+    auto opSlice(size_t from, size_t to)
+    {
+        return SliceOverIndexed!PackedArrayView(from, to, &this);
+    }
+
+    auto opSlice(){ return opSlice(0, length); }
+
+    bool opEquals(T)(const ref T arr) const
+    {
+        if(length != arr.length)
+           return false;
+        for(size_t i=0;i<length; i++)
+            if(this[i] != arr[i])
+                return false;
+        return true;
+    }
+
+    @property size_t length()const{ return original.length*factor; }
+
+private:
+
+    //factor - number of elements in one machine word
+    enum factor = size_t.sizeof*8/bits, mask = 2^^bits-1;
+    size_t[] original;
+}
+
+
+private struct SliceOverIndexed(T)
+{
+    auto opIndex(size_t idx)const
+    /*in
+    {
+        assert(idx < to - from);
+    }
+    body*/
+    {
+        return arr.opIndex(from+idx);
+    }
+
+    void opIndexAssign(Item val, size_t idx)
+    in
+    {
+        assert(idx < to - from);
+    }
+    body
+    {
+        return arr.opIndexAssign(val, from+idx);
+    }
+
+    auto opSlice(size_t a, size_t b)
+    {
+        return SliceOverIndexed(from+a, from+b, arr);
+    }
+
+    void opSliceAssign(T)(T val, size_t start, size_t end)
+    {
+        return arr.opSliceAssign(val, start+from, end+from);
+    }
+
+    auto opSlice()
+    {
+        return opSlice(from, to);
+    }
+
+    @property size_t length()const{ return to-from;}
+
+    @property bool empty()const { return from == to; }
+
+    @property auto front()const { return arr.opIndex(from); }
+
+    @property void front(Item val) { arr.opIndexAssign(val, from); }
+
+    @property auto back()const { return arr.opIndex(to-1); }
+
+    @property void back(Item val) { return arr.opIndexAssign(val, to-1); }
+
+    @property auto save() { return this; }
+
+    void popFront() {   from++; }
+
+    void popBack() {   to--; }
+
+    bool opEquals(T)(const ref T arr) const
+    {
+        if(arr.length != length)
+            return false;
+        for(size_t i=0; i <length; i++)
+            if(this[i] != arr[i])
+                return false;
+        return true;
+    }
+private:
+    alias typeof(T.init[0]) Item;
+     size_t from, to;
+     T* arr;
+}
+
+private auto packedArrayView(T, size_t bits)(inout(size_t)[] arr)
+{
+    return inout(PackedArrayView!(T, bits))(arr);
+}
+
+unittest
+{
+    size_t[] sample = new size_t[328];
+    auto parr = packedArrayView!(uint, 7)(sample);
+    foreach(i; 0..parr.length)
+        parr[i] = i % 128;
+    writefln("%(%x%)", sample);
+
+    foreach(i; 0..parr.length)
+        assert(parr[i] == i % 128, text(i, " vs ", parr[i]));
+
+    auto parr2 = packedArrayView!(uint, 14)(sample);
+    //re-viewing it as doubly sized is supported cleanly
+    for(int i=0; i<parr2.length; i++)
+        assert(parr2[i] == ((((2*i+1) % 128)<<7) | (2*i % 128)), text(i, " vs ", parr2[i]));
+    equal(parr2[0..2],  [128, 384+2]);
+}
+
+
 
 //hope to see simillar stuff in public interface... once Allocators are out
 //@@@BUG moveFront and friends? dunno, for now it's POD-only
@@ -1674,7 +2058,7 @@ struct Trie(Value, Key, Prefix...)
             table.length!i = (1<<Prefix[i].bitSize);
 
         {//don't pollute the ctor scope
-            V* ptr = table.ptr!(last);
+            auto ptr = table.slice!(last);
             size_t j = 0;
             size_t prevKeyIdx = size_t.max;
             static if(isDynamicArray!Keys)
@@ -1704,7 +2088,6 @@ struct Trie(Value, Key, Prefix...)
                     size_t keyIdx = getIndex(r[i]);
                 if(keyIdx != prevKeyIdx)
                 {
-                    debug(std_uni) writeln("using key ", keyIdx);
                     static if(type == TrieType.Set
                               || type == TrieType.Map)
                     {
@@ -1757,7 +2140,7 @@ struct Trie(Value, Key, Prefix...)
             table.length!i = (1<<Prefix[i].bitSize);
 
         {//don't pollute the ctor scope
-            V* ptr = table.ptr!(last);
+            auto ptr = table.slice!(last);
             size_t i = 0;
             for(;;)
             {
@@ -1784,9 +2167,9 @@ struct Trie(Value, Key, Prefix...)
         alias Prefix p;
         idx = p[0].entity(key);
         foreach(i, v; p[0..$-1])
-            idx = (table.ptr!i[idx]<<p[i+1].bitSize) + p[i+1].entity(key);
-        debug(std_uni) writeln("lookup idx:",idx);
-        return table.ptr!(p.length-1)[idx];
+            idx = (table.slice!i[idx]<<p[i+1].bitSize) + p[i+1].entity(key);
+        //debug(std_uni) writeln("lookup idx:",idx);
+        return table.slice!(p.length-1)[idx];
     }
 
     @property size_t bytes(size_t n=size_t.max)() const
@@ -1794,7 +2177,7 @@ struct Trie(Value, Key, Prefix...)
         static if(n == size_t.max)
             return table.storage.length;
         else
-            return table.length!n * typeof(*(table.ptr!n)).sizeof;
+            return table.length!n * typeof(table.slice!n[0]).sizeof;
     }
 
     @property size_t pages(size_t n=size_t.max)() const
@@ -1851,11 +2234,11 @@ private:
         return idx;
     }
 
-    static arrayRepr(T)(T[] x)
+    static arrayRepr(T)(T x)
     {
         if(x.length > 32)
         {
-            return text(x[0..16],"~...~", x[$-16..$]);
+            return text(x[0..16],"~...~", x[x.length-16..x.length]);
         }
         else
             return text(x);
@@ -1871,18 +2254,23 @@ private:
         do
         {
             //need to take pointer again, memory block  may move
-            auto ptr = table.ptr!(level);
+            auto ptr = table.slice!(level);
+            //writeln(ptr[]);
+            //writeln(indices);
             if(numVals == 1)
             {
-                static if(level == Prefix.length-1)
+                static if(level == Prefix.length-1 && type != TrieType.Value)
                     putValue(ptr[indices[level]], val);
                 else
                     ptr[indices[level]] = val;
+                writeln(indices);
                 indices[level]++;
+                writeln(table.slice!level);
                 numVals = 0;
             }
             else
             {
+                //writeln("slice assign!");
                 //where is the next page boundary
                 size_t nextPB = (indices[level]+pageSize)/pageSize*pageSize;
                 size_t j = indices[level];
@@ -1894,58 +2282,69 @@ private:
                     n = numVals;
                     numVals = 0;
                 }
-                static if(level == Prefix.length-1)
+                static if(level == Prefix.length-1 && type != TrieType.Value)
                 {
                     for(int i=0;i<n; i++)
                         putValue(ptr[j++], val);
                 }
                 else
+                {
+                    //writeln("slice assign!");
                     ptr[j..j+n]  = val;
+                    j += n;
+                    //writeln(j);
+                }
                 indices[level] = j;
+
             }
             static if(level != 0)//last level has 1 "page"
             {
                 size_t next_lvl_index;
                 if(indices[level] % pageSize == 0)
                 {
-                    auto last = table.ptr!level+table.length!level-pageSize;
-                    auto x=table.ptr!level;
-                    auto base = x;
-                    ptr += indices[level] - pageSize;
+                    auto last = indices[level]-pageSize;
+                    auto slice = ptr[indices[level] - pageSize..indices[level]];
                     //writeln(last, "   base: ", base, " ptr:", ptr);
-                    for(; x<last; x+=pageSize)
+                    size_t j;
+                    for(j=0; j<last; j+=pageSize)
                     {
-                        if(x[0..pageSize] == ptr[0..pageSize])
+                        writefln("~~%s..%s of %s", j, j+pageSize, indices[level]);
+                        writeln("~~~", arrayRepr(ptr[j..j+pageSize]));
+                        writeln("~~~", arrayRepr(slice[0..pageSize]));
+                        writeln("Verdict: ", equal(ptr[j..j+pageSize], slice[0..pageSize]));
+                        if(equal(ptr[j..j+pageSize], slice[0..pageSize]))
                         {
                             //get index to it, reuse ptr space for the next block
-                            next_lvl_index = (x - base)/pageSize;
-                            version(none)
+                            next_lvl_index = j/pageSize;
+                            //version(none)
                             {
                             writefln("LEVEL(%s) page maped idx: %s: 0..%s  ---> [%s..%s]"
                                     ,level
-                                    ,indices[level-1], pageSize, x-base, x-base+pageSize);
+                                    ,indices[level-1], pageSize, j, j+pageSize);
                             writeln("LEVEL(", level
-                                    , ") mapped page is: ", x, ": ", arrayRepr(x[0..pageSize]));
+                                    , ") mapped page is: ", slice, ": ", arrayRepr(ptr[j..j+pageSize]));
                             writeln("LEVEL(", level
-                                    , ") src page is :", ptr, ": ", arrayRepr(ptr[0..pageSize]));
+                                    , ") src page is :", ptr, ": ", arrayRepr(slice[0..pageSize]));
                             }
                             indices[level] -= pageSize; //reuse this page, it is duplicate
                             break;
                         }
                     }
-                    if(x == last)
+                    if(j == last)
                     {
-                        next_lvl_index = (ptr - base)/pageSize;
+                        next_lvl_index = indices[level]/pageSize - 1;
                         //allocate next page
-                        version(none)
+                        //version(none)
                         {
                         writefln("LEVEL(%s) page allocated: %s"
-                                 , level, arrayRepr(ptr[0..pageSize]));
+                                 , level, arrayRepr(slice[0..pageSize]));
                         writefln("LEVEL(%s) index: %s ; page at this index %s"
                                  , level
                                  , next_lvl_index
                                  , arrayRepr(
-                                     (table.ptr!(level)+pageSize*next_lvl_index)[0..pageSize]));
+                                     table.slice!(level)
+                                      [pageSize*next_lvl_index..(next_lvl_index+1)*pageSize]
+                                    ));
                         }
                         table.length!level = table.length!level + pageSize;
                     }
@@ -1966,24 +2365,28 @@ private:
     When SetAsSlot!T is used as $(D Value) type, Trie will internally
     translate assignments/test to insert & 'in' operator repspectively.
 */
-struct SetAsSlot(T){}
+public struct SetAsSlot(T){}
 
 ///Ditto for map of Key -> Value.
-struct MapAsSlot(T, Value, Key){}
+public struct MapAsSlot(T, Value, Key){}
 
 /**
     Wrapper, provided to simplify definition
     of custom Trie data structures. Use it on a lambda to indicate that
     returned value always fits within $(D bits) of bits.
 */
-template assumeSize(size_t bits, alias Fn)
+public template assumeSize(size_t bits, alias Fn)
 {
     enum bitSize = bits;
     alias Fn entity;
 }
 
-uint low_8(uint x) { return x&0xFF; }
-uint midlow_8(uint x){ return (x&0xFF00)>>8; }
+///indicates MultiArray to apply bit packing to this field
+struct BitPacked(size_t sz, T) if(isIntegral!T || is(T:dchar))
+{
+    enum bitSize = sz;
+    alias T entity;
+}
 
 template sliceBitsImpl(size_t from, size_t to)
 {
@@ -1994,12 +2397,14 @@ template sliceBitsImpl(size_t from, size_t to)
     }
 }
 
-template sliceBits(size_t from, size_t to)
+///todo
+public template sliceBits(size_t from, size_t to)
 {
     alias assumeSize!(to-from, sliceBitsImpl!(from, to)) sliceBits;
 }
 
-
+uint low_8(uint x) { return x&0xFF; }
+uint midlow_8(uint x){ return (x&0xFF00)>>8; }
 alias assumeSize!(8, low_8) lo8;
 alias assumeSize!(8, midlow_8) mlo8;
 
@@ -2010,7 +2415,7 @@ template Sequence(size_t start, size_t end)
     else
         alias TypeTuple!() Sequence;
 }
-
+/*
 //---- TRIE TESTS ----
 version(unittest)
 private enum TokenKind : ubyte { //from DCT by Roman Boiko (Boost v1.0 licence)
@@ -2137,14 +2542,13 @@ unittest
         writeln("---TRIE FOOTPRINT STATS---");
         foreach(i; Sequence!(0, t.table.dim) )
         {
-            enum sz = (*t.table.ptr!(i)).sizeof;
             writefln("lvl%s = %s bytes;  %s pages"
                      , i, t.bytes!i, t.pages!i);
         }
         writefln("TOTAL: %s bytes", t.bytes);
         writeln("INDEX (excluding value level):");
         foreach(i; Sequence!(0, t.table.dim-1) )
-            writeln(t.table.ptr!(i)[0..t.table.length!i]);
+            writeln(t.table.slice!(i)[0..t.table.length!i]);
         writeln("---------------------------");
     }
     //@@@BUG link failure, lambdas not found by linker somehow (in case of trie2)
@@ -2162,16 +2566,15 @@ unittest
     for(int a ='Z'; a<'a'; a++)
         assert(!trie[a]);
 
-    auto redundant2 = Set(10, 18, 256+10, 256+111, 512+10, 512+18,
-                          768+10, 768+111);
+    auto redundant2 = Set(1, 18, 256+2, 256+111, 512+1, 512+18,
+                          768+2, 768+111);
     auto trie2 = Trie!(bool, uint, mlo8, lo8)(redundant2, 1024);
     trieStats(trie2);
     foreach(e; redundant2.byChar)
         assert(trie2[e], text(cast(uint)e, " - ", trie2[e]));
     foreach(i; 0..1024)
     {
-        if(i in redundant2)
-            assert(trie2[i]);
+        assert(trie2[i] == (i in redundant2));
     }
     trieStats(trie2);
 
@@ -2378,6 +2781,7 @@ unittest
                          , useLastItem!(char))(keywords);
     foreach(key; keywords)
         assert( key in keyTrie[key], text(key, " in ", keyTrie[key]));
+    trieStats(keyTrie);
     auto keywordsMap = [
 			"abstract" : TokenKind.Abstract,
 			"alias" : TokenKind.Alias,
@@ -2430,6 +2834,7 @@ unittest
 			"inout" : TokenKind.InOut,
 			"int" : TokenKind.Int,
 			"interface" : TokenKind.Interface,
+			"invariant" : TokenKind.Invariant,
 			"invariant" : TokenKind.Invariant,
 			"ireal" : TokenKind.IReal,
 			"is" : TokenKind.Is,
@@ -2496,7 +2901,7 @@ unittest
         assert((k in keyTrie2[k]) == v);
     trieStats(keyTrie2);
 }
-
+*/
 template useItemAt(size_t idx, T)
     if(isIntegral!T || is(T: dchar))
 {
@@ -2525,270 +2930,12 @@ template idxTypes(Key, Prefix...)
     }
 }
 
-//multiple arrays squashed to one memory block
-struct MultiArray(Types...)
+template bitSizeOf(T)
 {
-    this(size_t[] sizes...)
-    {
-        size_t full_size;
-        foreach(i, v; Types)
-        {
-            full_size += v.sizeof*sizes[i];
-            sz[i] = sizes[i];
-            static if(i >= 1)
-                offsets[i] = offsets[i-1] + sizes[i-1]*Types[i-1].sizeof;
-        }
-
-        storage = new ubyte[full_size];
-    }
-
-    @property auto ptr(size_t n)()inout
-    {
-        return cast(inout(Types[n])*)raw_ptr!n;
-    }
-
-    @property size_t length(size_t n)()const{ return sz[n]; }
-
-    @property void length(size_t n)(size_t new_size)
-    {
-        if(new_size > sz[n])
-        {//extend
-            size_t delta = (new_size - sz[n]);
-            sz[n] += delta;
-            delta *= Types[n].sizeof;
-
-            storage.length +=  delta;//extend space at end
-            //raw_ptr!x must follow resize as it could be moved!
-            //next 3 stmts move all data past this array, last-one-goes-first
-            auto start = raw_ptr!(n+1);
-            size_t len = storage.length;
-            copy(retro(start[0..len-delta])
-                 , retro(start[delta..len]));
-
-            start[0..delta] = 0;
-            //offsets are used for raw_ptr, ptr etc.
-            foreach(i; n+1..dim)
-                offsets[i] += delta;
-        }
-        else if(new_size < sz[n])
-        {//shrink
-            size_t delta = (sz[n] - new_size);
-            sz[n] -= delta;
-            delta *= Types[n].sizeof;
-
-
-            writeln("shrinked by (bytes): ", delta );
-
-            //move all data past this array, forward direction
-            auto start = raw_ptr!(n+1);
-            size_t len = storage.length;
-            copy(start[delta..len]
-                 , start[0..len-delta]);
-            storage.length -= delta;
-
-            //adjust offsets last, they affect raw_ptr
-            foreach(i; n+1..dim)
-                offsets[i] -= delta;
-        }
-        //else - NOP
-    }
-private:
-    @property inout(ubyte)* raw_ptr(size_t n)()inout
-    {
-        static if(n == 0)
-            return storage.ptr;
-        else static if(n == Types.length)
-            return storage.ptr+storage.length;
-        else
-            return storage.ptr + offsets[n];
-    }
-    size_t[Types.length] offsets;//offset for level x
-    size_t[Types.length] sz;//size of level x
-    enum dim = Types.length;
-    static bool needNotifyGc()
-    {
-        bool yes = false;
-        foreach(v; staticMap!(hasIndirections, Types))
-            yes = yes || v;
-        return yes;
-    }
-    enum indirections = needNotifyGc();
-    ubyte[] storage;
-}
-
-unittest
-{
-    // sizes are:
-    //lvl0: 3, lvl1 : 2, lvl2: 1
-    auto m = MultiArray!(int, ubyte, int)(3,2,1);
-
-    void check(size_t k)(int n)
-    {
-        foreach(i; 0..n)
-            assert(m.ptr!(k)[i] == i+1, text("level:",i," : ",m.ptr!(k)[0..n]));
-    }
-
-    void checkB(size_t k)(int n)
-    {
-        foreach(i; 0..n)
-            assert(m.ptr!(k)[i] == n-i, text("level:",i," : ",m.ptr!(k)[0..n]));
-    }
-
-    void fill(size_t k)(int n)
-    {
-        foreach(i; 0..n)
-            m.ptr!(k)[i] = force!ubyte(i+1);
-    }
-
-    void fillB(size_t k)(int n)
-    {
-        foreach(i; 0..n)
-            m.ptr!(k)[i] = force!ubyte(n-i);
-    }
-
-    m.length!1 = 100;
-    fill!1(100);
-    check!1(100);
-
-    m.length!0 = 220;
-    fill!0(220);
-    check!1(100);
-    check!0(220);
-
-    m.length!2 = 17;
-    fillB!2(17);
-    checkB!2(17);
-    check!0(220);
-    check!1(100);
-
-    m.length!2 = 33;
-    checkB!2(17);
-    fillB!2(33);
-    checkB!2(33);
-    check!0(220);
-    check!1(100);
-
-    m.length!1 = 195;
-    fillB!1(195);
-    checkB!1(195);
-    checkB!2(33);
-    check!0(220);
-
-}
-
-//only per word packing, speed is more important
-//doesn't own memory, only provides access
-struct PackedArrayView(size_t bits)
-    if(bits % 8)
-{
-    size_t opIndex(size_t idx)const
-    {
-        return (original[idx/factor] >> bits*(idx&(factor-1)))
-                 & mask;
-    }
-
-    void opIndexAssign(size_t val, size_t idx)
-    in
-    {
-        assert(val <= mask);
-    }
-    body
-    {
-        size_t tgt_shift = bits*(idx%(factor));
-        original[idx/factor] &= ~((2^^bits-1)<<tgt_shift);
-        original[idx/factor] |= val << tgt_shift;
-    }
-
-    auto opSlice(size_t from, size_t to)
-    {
-        return SliceOverIndexed!PackedArrayView(from, to, &this);
-    }
-
-    auto opSlice(){ return opSlice(0, length); }
-
-    @property size_t length()const{ return original.length*factor; }
-
-    size_t spaceFor(size_t new_len)const{ return (new_len+factor/2)/factor; }
-private:
-    //factor - number of elements in one machine word
-    enum factor = size_t.sizeof*8/bits, mask = 2^^bits-1;
-    size_t[] original;
-}
-
-private struct SliceOverIndexed(T)
-{
-    uint opIndex(size_t idx)const
-    in
-    {
-        assert(idx < to - from);
-    }
-    body
-    {
-        return arr.opIndex(from+idx);
-    }
-
-    void opIndexAssign(uint val, size_t idx)
-    in
-    {
-        assert(idx < to - from);
-    }
-    body
-    {
-        return arr.opIndexAssign(val, from+idx);
-    }
-
-    auto opSlice(size_t a, size_t b)
-    {
-        return SliceOverIndexed(from+a, from+b, arr);
-    }
-
-    auto opSlice()
-    {
-        return opSlice(from, to);
-    }
-
-    @property size_t length()const{ return to-from;}
-
-    @property bool empty()const { return from == to; }
-
-    @property uint front()const { return arr.opIndex(from); }
-
-    @property void front(uint val) { arr.opIndexAssign(val, from); }
-
-    @property uint back()const { return arr.opIndex(to-1); }
-
-    @property void back(uint val) { return arr.opIndexAssign(val, to-1); }
-
-    @property auto save() { return this; }
-
-    void popFront() {   from++; }
-
-    void popBack() {   to--; }
-private:
-     size_t from, to;
-     T* arr;
-}
-
-private auto packedArrayView(size_t bits)(size_t[] arr)
-{
-    return PackedArrayView!bits(arr);
-}
-
-unittest
-{
-    size_t[] sample = new size_t[328];
-    auto parr = packedArrayView!7(sample);
-    foreach(i; 0..parr.length)
-        parr[i] = i % 128;
-
-    foreach(i; 0..parr.length)
-        assert(parr[i] == i % 128, text(i, " vs ", parr[i]));
-
-    auto parr2 = packedArrayView!14(sample);
-    //re-viewing it as doubly sized is supported cleanly
-    for(int i=0; i<parr2.length; i++)
-        assert(parr2[i] == ((((2*i+1) % 128)<<7) | (2*i % 128)), text(i, " vs ", parr2[i]));
-    equal(parr2[0..2],  [128, 384+2]);
+    static if(is(T dummy : Bitpacked!U, U))
+        enum bitSizeOf = T.bitSize;
+    else
+        enum bitSizeOf = T.sizeof*8;
 }
 
 public: //Public API continues
