@@ -174,43 +174,47 @@ struct MultiArray(Types...)
         if(new_size > sz[n])
         {//extend
             size_t delta = (new_size - sz[n]);
-            writeln("X:", sz[n]);
             writeln("Before scaling:", delta);
             delta = spaceFor!(bitSizeOf!(Types[n]))(delta);
             sz[n] += delta;
             writeln("After scaling:", delta);
             storage.length +=  delta;//extend space at end
-            //raw_ptr!x must follow resize as it could be moved!
+            //raw_slice!x must follow resize as it could be moved!
             //next 3 stmts move all data past this array, last-one-goes-first
-            auto start = raw_slice!(n+1).ptr;
-            size_t len = storage.length;
+            static if(n != dim-1)
+            {
+                auto start = raw_slice!(n+1).ptr;
+                size_t len = storage.length;
+                copy(retro(start[0..len-delta])
+                    , retro(start[delta..len]));
 
-            copy(retro(start[0..len-delta])
-                 , retro(start[delta..len]));
-
-            start[0..delta] = 0;
-            writeln("OFFSETS before:", offsets);
-            //offsets are used for raw_ptr, ptr etc.
-            foreach(i; n+1..dim)
-                offsets[i] += delta;
-            writeln("OFFSETS after:", offsets);
+                start[0..delta] = 0;
+                writeln("OFFSETS before:", offsets);
+                //offsets are used for raw_slice, ptr etc.
+                foreach(i; n+1..dim)
+                    offsets[i] += delta;
+                writeln("OFFSETS after:", offsets);
+            }
         }
         else if(new_size < sz[n])
         {//shrink
             size_t delta = (sz[n] - new_size);
-            delta = (delta*Types[n].sizeof+size_t.sizeof/2)/size_t.sizeof;
+            delta = spaceFor!(bitSizeOf!(Types[n]))(delta);
             sz[n] -= delta;
-
+            writeln("Shrinking");
             //move all data past this array, forward direction
-            auto start = raw_slice!(n+1);
-            size_t len = storage.length;
-            copy(start[delta..len]
+            static if(n != dim-1)
+            {
+                auto start = raw_slice!(n+1);
+                size_t len = storage.length;
+                copy(start[delta..len]
                  , start[0..len-delta]);
-            storage.length -= delta;
+                storage.length -= delta;
 
-            //adjust offsets last, they affect raw_ptr
-            foreach(i; n+1..dim)
-                offsets[i] -= delta;
+                //adjust offsets last, they affect raw_slice
+                foreach(i; n+1..dim)
+                    offsets[i] -= delta;
+            }
         }
         //else - NOP
     }
@@ -219,11 +223,8 @@ private:
     {
         static if(n == 0)
             return storage[0..sz[0]];
-        else static if(n == Types.length)
-            return storage[0..$];
         else
         {
-            writeln(storage.length, " vs offs: ", offsets, " sizes:", sz[n]);
             return storage[offsets[n]..offsets[n]+sz[n]];
         }
     }
@@ -264,12 +265,14 @@ unittest
     {
         foreach(i; 0..n)
             m.slice!(k)[i] = force!ubyte(i+1);
+        writefln("A: %(%x %)", m.slice!(k)[]);
     }
 
     void fillB(size_t k)(int n)
     {
         foreach(i; 0..n)
             m.slice!(k)[i] = force!ubyte(n-i);
+        writefln("B: %(%x %)", m.slice!(k)[]);
     }
 
     m.length!1 = 100;
@@ -286,7 +289,7 @@ unittest
     checkB!2(17);
     check!0(220);
     check!1(100);
-/*
+
     m.length!2 = 33;
     checkB!2(17);
     fillB!2(33);
@@ -298,8 +301,7 @@ unittest
     fillB!1(195);
     checkB!1(195);
     checkB!2(33);
-    check!0(220);*/
-
+    check!0(220);
 }
 
 size_t spaceFor(size_t bits)(size_t new_len)
