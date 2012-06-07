@@ -2177,14 +2177,15 @@ struct Trie(Value, Key, Prefix...)
     @property size_t bytes(size_t n=size_t.max)() const
     {
         static if(n == size_t.max)
-            return table.storage.length;
+            return table.storage.length*size_t.sizeof;
         else
             return table.length!n * typeof(table.slice!n[0]).sizeof;
     }
 
     @property size_t pages(size_t n=size_t.max)() const
     {
-        return bytes!n/2^^Prefix[$-1].bitSize;
+        return (bytes!n+2^^(Prefix[$-1].bitSize-1))
+                /2^^Prefix[$-1].bitSize;
     }
 
     version(none)static bool cmpKey(Key a, Key b)//untested, possibly bogus
@@ -2310,15 +2311,11 @@ private:
                     size_t j;
                     for(j=0; j<last; j+=pageSize)
                     {
-                        writefln("~~%s..%s of %s", j, j+pageSize, indices[level]);
-                        writeln("~~~", arrayRepr(ptr[j..j+pageSize]));
-                        writeln("~~~", arrayRepr(slice[0..pageSize]));
-                        writeln("Verdict: ", equal(ptr[j..j+pageSize], slice[0..pageSize]));
                         if(equal(ptr[j..j+pageSize], slice[0..pageSize]))
                         {
                             //get index to it, reuse ptr space for the next block
                             next_lvl_index = j/pageSize;
-                            //version(none)
+                            version(none)
                             {
                             writefln("LEVEL(%s) page maped idx: %s: 0..%s  ---> [%s..%s]"
                                     ,level
@@ -2336,7 +2333,7 @@ private:
                     {
                         next_lvl_index = indices[level]/pageSize - 1;
                         //allocate next page
-                        //version(none)
+                        version(none)
                         {
                         writefln("LEVEL(%s) page allocated: %s"
                                  , level, arrayRepr(slice[0..pageSize]));
@@ -2417,7 +2414,7 @@ template Sequence(size_t start, size_t end)
     else
         alias TypeTuple!() Sequence;
 }
-/*
+
 //---- TRIE TESTS ----
 version(unittest)
 private enum TokenKind : ubyte { //from DCT by Roman Boiko (Boost v1.0 licence)
@@ -2595,8 +2592,7 @@ unittest
                        )(redundant3, max3);
     trieStats(trie3);
     foreach(i; 0..max3)
-        if(i in redundant3)
-            assert(trie3[i], text(cast(uint)i));
+        assert(trie3[i] == (i in redundant3), text(cast(uint)i));
 
     auto redundant4 = Set(
             10, 64, 64+10, 128, 128+10, 256, 256+10, 512,
@@ -2613,7 +2609,7 @@ unittest
         if(i in redundant4)
             assert(trie4[i], text(cast(uint)i));
     trieStats(trie4);
-
+/*
     string[] redundantS = ["tea", "tackle", "teenage", "start", "stray"];
     auto strie = Trie!(bool, string, useItemAt!(0, char))(redundantS);
     //using first char only
@@ -2901,9 +2897,9 @@ unittest
                          , useLastItem!(char))(keywordsMap);
     foreach(k,v; keywordsMap)
         assert((k in keyTrie2[k]) == v);
-    trieStats(keyTrie2);
+    trieStats(keyTrie2);*/
 }
-*/
+
 template useItemAt(size_t idx, T)
     if(isIntegral!T || is(T: dchar))
 {
