@@ -69,10 +69,10 @@
 module std.uni;
 
 static import std.ascii;
-import std.traits, std.range, std.algorithm, std.typecons;
+import std.traits, std.range, std.algorithm, std.typecons,
+    std.conv, std.typetuple;
 import std.array; //@@BUG UFCS doesn't work with 'local' imports
 
-version(unittest) import std.conv, std.typetuple;
 
 enum dchar lineSep = '\u2028'; /// UTF line separator
 enum dchar paraSep = '\u2029'; /// UTF paragraph separator
@@ -327,39 +327,37 @@ struct PackedArrayView(T, size_t bits)
         original = arr;
     }
 
-    T opIndex(size_t idx)const
-    {
-        static if(bits % 8)
-        {
-            return cast(T)
-            ((original[idx/factor] >> bits*(idx%factor))
-                 & mask);
-        }
-        else
-        {//by byte granular type itself
-            return (cast(T*)original.ptr)[idx];
-        }
-    }
+	static if(bits % 8)
+	{
+		T opIndex(size_t idx)const
+		{
+        
+				return cast(T)
+				((original[idx/factor] >> bits*(idx%factor))
+					 & mask);		
+		}
 
-    void opIndexAssign(T val, size_t idx)
-    in
-    {
-        static if(isIntegral!T)
-            assert(val <= mask);
-    }
-    body
-    {
-        static if(bits % 8)
-        {
-            size_t tgt_shift = bits*(idx%(factor));
-            original[idx/factor] &= ~((2^^bits-1)<<tgt_shift);
-            original[idx/factor] |= cast(size_t)val << tgt_shift;
-        }
-        else
-        {//by byte granular type itself
-            (cast(T*)original.ptr)[idx] = val;
-        }
-    }
+		void opIndexAssign(T val, size_t idx)
+		in
+		{
+			static if(isIntegral!T)
+				assert(val <= mask);
+		}
+		body
+		{
+				size_t tgt_shift = bits*(idx%(factor));
+				original[idx/factor] &= ~((2^^bits-1)<<tgt_shift);
+				original[idx/factor] |= cast(size_t)val << tgt_shift;
+		}
+	}
+	else
+	{//by byte granular type itself
+		ref inout(T) opIndex(size_t idx)inout
+		{
+			return (cast(inout(T)*)original.ptr)[idx];
+		}
+		pragma(msg, text("~~",typeof(this.init[0]).stringof));
+	}
 
     void opSliceAssign(T val, size_t start, size_t end)
     {
@@ -429,7 +427,7 @@ private struct SliceOverIndexed(T)
     }
     body
     {
-        return arr.opIndexAssign(val, from+idx);
+       (*arr)[from+idx] = val;
     }
 
     auto opSlice(size_t a, size_t b)
@@ -451,13 +449,13 @@ private struct SliceOverIndexed(T)
 
     @property bool empty()const { return from == to; }
 
-    @property auto front()const { return arr.opIndex(from); }
+    @property auto front()const { return (*arr)[from]; }
 
-    @property void front(Item val) { arr.opIndexAssign(val, from); }
+    @property void front(Item val) { (*arr)[from] = val; }
 
-    @property auto back()const { return arr.opIndex(to-1); }
+    @property auto back()const { return (*arr)[to-1]; }
 
-    @property void back(Item val) { return arr.opIndexAssign(val, to-1); }
+    @property void back(Item val) { (*arr)[to-1] = val; }
 
     @property auto save() { return this; }
 
@@ -484,6 +482,7 @@ private auto packedArrayView(T, size_t bits)(inout(size_t)[] arr)
 {
     return inout(PackedArrayView!(T, bits))(arr);
 }
+
 
 unittest
 {
@@ -2163,7 +2162,7 @@ struct Trie(Value, Key, Prefix...)
         }
     }
 
-    V opIndex(Key key) const
+    inout(V) opIndex(Key key) inout
     {
         size_t idx;
         alias Prefix p;
@@ -2609,7 +2608,7 @@ unittest
         if(i in redundant4)
             assert(trie4[i], text(cast(uint)i));
     trieStats(trie4);
-/*
+
     string[] redundantS = ["tea", "tackle", "teenage", "start", "stray"];
     auto strie = Trie!(bool, string, useItemAt!(0, char))(redundantS);
     //using first char only
@@ -2772,6 +2771,8 @@ unittest
         return arr.length > 63 ? 0 : arr.length; //need max length, 64 - 6bits
     }
 
+	enum k = bitSizeOf!(SmallSet!(2, string));
+
     auto keyTrie = Trie!(SetAsSlot!(SmallSet!(2,string))
                          , string
                          , assumeSize!(6, useLength)
@@ -2897,7 +2898,7 @@ unittest
                          , useLastItem!(char))(keywordsMap);
     foreach(k,v; keywordsMap)
         assert((k in keyTrie2[k]) == v);
-    trieStats(keyTrie2);*/
+    trieStats(keyTrie2);
 }
 
 template useItemAt(size_t idx, T)
@@ -2930,7 +2931,7 @@ template idxTypes(Key, Prefix...)
 
 template bitSizeOf(T)
 {
-    static if(is(T dummy : Bitpacked!U, U))
+    static if(is(T dummy : BitPacked!U, U))
         enum bitSizeOf = T.bitSize;
     else
         enum bitSizeOf = T.sizeof*8;
