@@ -149,10 +149,7 @@ struct MultiArray(Types...)
         size_t full_size;
         foreach(i, v; Types)
         {
-            static if(is(v dummy: BitPacked!U, U))
-                full_size += spaceFor!(v.bitSize)(sizes[i]);
-            else
-                full_size += spaceFor!(v.sizeof*8)(sizes[i]);
+            full_size += spaceFor!(bitSizeOf!v)(sizes[i]);
             sz[i] = sizes[i];
             static if(i >= 1)
                 offsets[i] = offsets[i-1] +
@@ -2076,7 +2073,6 @@ struct Trie(Value, Key, Prefix...)
                 alias GetComparators!(Prefix.length, cmpK0) Comps;
                 auto r = array(zip(keys.byValue, keys.byKey));
                 multiSort!Comps(r);
-
             }
             else
                 static assert("unsupproted constructor for "~Keys.stringof);
@@ -2221,8 +2217,6 @@ private:
             alias TypeTuple!() GetComparators;
     }
 
-
-
     static size_t getIndex(Key key)//get "mapped" virtual integer index
     {
         alias Prefix p;
@@ -2354,7 +2348,7 @@ private:
     }
 
     //last index is not stored in table, it is used as offset to values in a block.
-    MultiArray!(idxTypes!(Key, Prefix[0..$-1]), V) table;
+    MultiArray!(idxTypes!(Key, true, Prefix[0..$-1]), V) table;
 }
 
 /**
@@ -2915,7 +2909,7 @@ template useLastItem(T)
 }
 //TODO: benchmark for Trie vs InversionList vs RleBitSet vs std.bitmanip.BitArray
 
-template idxTypes(Key, Prefix...)
+template idxTypes(Key, bool pack, Prefix...)
 {
     static if(Prefix.length == 0)
     {
@@ -2924,14 +2918,18 @@ template idxTypes(Key, Prefix...)
     else
     {
         alias Prefix[0] pr;
-        alias TypeTuple!(typeof(pr.entity(Key.init))
-                         , idxTypes!(Key, Prefix[1..$])) idxTypes;
+		static if(pack)
+			alias TypeTuple!(BitPacked!(pr.bitSize, typeof(pr.entity(Key.init)))
+							 , idxTypes!(Key, pack, Prefix[1..$])) idxTypes;
+		else
+			alias TypeTuple!(typeof(pr.entity(Key.init))
+                         , idxTypes!(Key, pack, Prefix[1..$])) idxTypes;
     }
 }
 
 template bitSizeOf(T)
 {
-    static if(is(T dummy : BitPacked!U, U))
+    static if(is(typeof(T.bitSize)))
         enum bitSizeOf = T.bitSize;
     else
         enum bitSizeOf = T.sizeof*8;
