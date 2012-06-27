@@ -153,7 +153,7 @@ struct MultiArray(Types...)
             sz[i] = sizes[i];
             static if(i >= 1)
                 offsets[i] = offsets[i-1] +
-                    sizes[i-1]*Types[i-1].sizeof/size_t.sizeof;
+                    spaceFor!(bitSizeOf!(Types[i-1]))(sizes[i-1]);
         }
 
         storage = new size_t[full_size];
@@ -161,7 +161,7 @@ struct MultiArray(Types...)
 
     @property auto slice(size_t n)()inout
     {
-        return packedArrayView!(Types[n], bitSizeOf!(Types[n]))(raw_slice!n);
+        return packedArrayView!(Unpack!(Types[n]), bitSizeOf!(Types[n]))(raw_ptr!n[0..length!n()]);
     }
 
     @property size_t length(size_t n)()const{ return sz[n]; }
@@ -180,17 +180,17 @@ struct MultiArray(Types...)
             //next 3 stmts move all data past this array, last-one-goes-first
             static if(n != dim-1)
             {
-                auto start = raw_slice!(n+1).ptr;
+                auto start = raw_ptr!(n+1);
                 size_t len = storage.length;
                 copy(retro(start[0..len-delta])
                     , retro(start[delta..len]));
 
                 start[0..delta] = 0;
-                writeln("OFFSETS before:", offsets);
+                //writeln("OFFSETS before:", offsets);
                 //offsets are used for raw_slice, ptr etc.
                 foreach(i; n+1..dim)
                     offsets[i] += delta;
-                writeln("OFFSETS after:", offsets);
+                //writeln("OFFSETS after:", offsets);
             }
         }
         else if(new_size < sz[n])
@@ -202,7 +202,7 @@ struct MultiArray(Types...)
             //move all data past this array, forward direction
             static if(n != dim-1)
             {
-                auto start = raw_slice!(n+1);
+                auto start = raw_ptr!(n+1);
                 size_t len = storage.length;
                 copy(start[delta..len]
                  , start[0..len-delta]);
@@ -216,13 +216,13 @@ struct MultiArray(Types...)
         //else - NOP
     }
 private:
-    @property auto raw_slice(size_t n)()inout
+    @property auto raw_ptr(size_t n)()inout
     {
         static if(n == 0)
-            return storage[0..sz[0]];
+            return storage.ptr;//[0..sz[0]];
         else
         {
-            return storage[offsets[n]..offsets[n]+sz[n]];
+            return storage.ptr+offsets[n];//..offsets[n]+sz[n]];
         }
     }
     size_t[Types.length] offsets;//offset for level x
@@ -235,6 +235,16 @@ private:
             yes = yes || v;
         return yes;
     }
+	template Unpack(T)
+	{
+		 //TODO: hackish! do proper pattern matching with BitPacked!(sz, T)
+		static if(is(typeof(T.bitSize)) && is(T.entity) )
+		{
+			alias T.entity Unpack;
+		}
+		else
+			alias T Unpack;
+	}
     alias staticMap!(bitSizeOf, Types) bitWidth;
     enum indirections = needNotifyGc();
     size_t[] storage;
@@ -246,26 +256,26 @@ unittest
     //lvl0: 3, lvl1 : 2, lvl2: 1
     auto m = MultiArray!(int, ubyte, int)(3,2,1);
 
-    void check(size_t k)(int n)
+    static void check(size_t k, T)(ref T m, int n)
     {
         foreach(i; 0..n)
             assert(m.slice!(k)[i] == i+1, text("level:",i," : ",m.slice!(k)[0..n]));
     }
 
-    void checkB(size_t k)(int n)
+    static void checkB(size_t k, T)(ref T m, int n)
     {
         foreach(i; 0..n)
             assert(m.slice!(k)[i] == n-i, text("level:",i," : ",m.slice!(k)[0..n]));
     }
 
-    void fill(size_t k)(int n)
+    static void fill(size_t k, T)(ref T m, int n)
     {
         foreach(i; 0..n)
             m.slice!(k)[i] = force!ubyte(i+1);
         writefln("A: %(%x %)", m.slice!(k)[]);
     }
 
-    void fillB(size_t k)(int n)
+    static void fillB(size_t k, T)(ref T m, int n)
     {
         foreach(i; 0..n)
             m.slice!(k)[i] = force!ubyte(n-i);
@@ -273,33 +283,105 @@ unittest
     }
 
     m.length!1 = 100;
-    fill!1(100);
-    check!1(100);
+    fill!1(m, 100);
+    check!1(m, 100);
 
     m.length!0 = 220;
-    fill!0(220);
-    check!1(100);
-    check!0(220);
+    fill!0(m, 220);
+    check!1(m, 100);
+    check!0(m, 220);
 
     m.length!2 = 17;
-    fillB!2(17);
-    checkB!2(17);
-    check!0(220);
-    check!1(100);
+    fillB!2(m, 17);
+    checkB!2(m, 17);
+    check!0(m, 220);
+    check!1(m, 100);
 
     m.length!2 = 33;
-    checkB!2(17);
-    fillB!2(33);
-    checkB!2(33);
-    check!0(220);
-    check!1(100);
+    checkB!2(m, 17);
+    fillB!2(m, 33);
+    checkB!2(m, 33);
+    check!0(m, 220);
+    check!1(m, 100);
 
     m.length!1 = 195;
-    fillB!1(195);
-    checkB!1(195);
-    checkB!2(33);
-    check!0(220);
+    fillB!1(m, 195);
+    checkB!1(m, 195);
+    checkB!2(m, 33);
+    check!0(m, 220);
+
+	auto marr = MultiArray!(BitPacked!(4, uint), BitPacked!(6, uint))(20, 10);
+	marr.length!0 = 15;
+	marr.length!1 = 30;
+	fill!1(marr, 30);
+	fill!0(marr, 15);
+	check!1(marr, 30);
+	check!0(marr, 15);
 }
+
+unittest
+{//more bitpacking tests
+	alias MultiArray!(BitPacked!(3, size_t)
+				, BitPacked!(4, size_t)
+				, BitPacked!(3, size_t)
+				, BitPacked!(6, size_t)
+				, bool) Bitty;
+	alias sliceBits!(13, 16).entity fn1;
+	alias sliceBits!( 9, 13).entity fn2;
+	alias sliceBits!( 6,  9).entity fn3;
+	alias sliceBits!( 0,  6).entity fn4;
+	static void check(size_t lvl, MA)(ref MA arr){
+		for(size_t i = 0; i< arr.length!lvl; i++)
+			assert(arr.slice!(lvl)[i] == i, text("Mismatch on lvl ", lvl, " idx ", i, " value: ", arr.slice!(lvl)[i]));
+	}
+
+	static void fillIdx(size_t lvl, MA)(ref MA arr){
+		for(size_t i = 0; i< arr.length!lvl; i++)
+			arr.slice!(lvl)[i] = i;
+	}
+	Bitty m1;
+	
+	m1.length!4 = 10;
+	m1.length!3 = 2^^6;
+	m1.length!2 = 2^^3;
+	m1.length!1 = 2^^4;
+	m1.length!0 = 2^^3;
+
+	m1.length!4 = 2^^16;
+
+	for(size_t i = 0; i< m1.length!4; i++)
+		m1.slice!(4)[i] = i % 2;
+
+	fillIdx!1(m1);
+	check!1(m1);
+	fillIdx!2(m1);
+	check!2(m1);
+	fillIdx!3(m1);
+	check!3(m1);
+	fillIdx!0(m1);
+	check!0(m1);
+	check!3(m1);
+	check!2(m1);
+	check!1(m1);
+	for(size_t i=0; i < 2^^16; i++)
+	{
+		m1.slice!(4)[i] = i % 2;
+		m1.slice!(0)[fn1(i)] = fn1(i);
+		m1.slice!(1)[fn2(i)] = fn2(i);
+		m1.slice!(2)[fn3(i)] = fn3(i);
+		m1.slice!(3)[fn4(i)] = fn4(i);
+	}
+	for(size_t i=0; i < 2^^16; i++)
+	{
+		assert(m1.slice!(4)[i] == i % 2);
+		assert(m1.slice!(0)[fn1(i)] == fn1(i));
+		assert(m1.slice!(1)[fn2(i)] == fn2(i));
+		assert(m1.slice!(2)[fn3(i)] == fn3(i));
+		assert(m1.slice!(3)[fn4(i)] == fn4(i));
+	}
+}
+
+//test bit packing with MultiArrays
 
 size_t spaceFor(size_t bits)(size_t new_len)
 {
@@ -311,7 +393,7 @@ size_t spaceFor(size_t bits)(size_t new_len)
     else
     {
         enum factor = size_t.sizeof*8/bits;
-        return (new_len+factor/2)/factor;
+        return (new_len)/factor+1;
     }
 }
 
@@ -326,9 +408,8 @@ struct PackedArrayView(T, size_t bits)
 
 	static if(bits % 8)
 	{
-		T opIndex(size_t idx)const
-		{
-        
+		T opIndex(size_t idx)inout
+		{        
 				return cast(T)
 				((original[idx/factor] >> bits*(idx%factor))
 					 & mask);		
@@ -338,12 +419,12 @@ struct PackedArrayView(T, size_t bits)
 		in
 		{
 			static if(isIntegral!T)
-				assert(val <= mask);
+				assert(val <= mask, text("mask: ",mask, " bits: ", bits, "value:", val, " > ", mask));
 		}
 		body
 		{
 				size_t tgt_shift = bits*(idx%(factor));
-				original[idx/factor] &= ~((2^^bits-1)<<tgt_shift);
+				original[idx/factor] &= ~(mask<<tgt_shift);
 				original[idx/factor] |= cast(size_t)val << tgt_shift;
 		}
 	}
@@ -353,7 +434,6 @@ struct PackedArrayView(T, size_t bits)
 		{
 			return (cast(inout(T)*)original.ptr)[idx];
 		}
-		pragma(msg, text("~~",typeof(this.init[0]).stringof));
 	}
 
     void opSliceAssign(T val, size_t start, size_t end)
@@ -408,11 +488,11 @@ private:
 private struct SliceOverIndexed(T)
 {
     auto opIndex(size_t idx)const
-    /*in
+    in
     {
         assert(idx < to - from);
     }
-    body*/
+    body
     {
         return arr.opIndex(from+idx);
     }
@@ -2154,7 +2234,15 @@ struct Trie(Value, Key, Prefix...)
 
                 ivals.popFront();
             }
-            addValue!last(idxs, false, maxKey - i);
+			addValue!last(idxs, false, maxKey - i);
+            /*for(; i<maxKey; i++){
+				writeln("### i:", i);
+				foreach(j, p; Prefix)
+					writef("%1d-LVL: %d; ", j, p.entity(i));
+				writeln();
+				addValue!last(idxs, false);
+				
+			}*/
         }
     }
 
@@ -2165,7 +2253,6 @@ struct Trie(Value, Key, Prefix...)
         idx = p[0].entity(key);
         foreach(i, v; p[0..$-1])
             idx = (table.slice!i[idx]<<p[i+1].bitSize) + p[i+1].entity(key);
-        //debug(std_uni) writeln("lookup idx:",idx);
         return table.slice!(p.length-1)[idx];
     }
 
@@ -2183,7 +2270,7 @@ struct Trie(Value, Key, Prefix...)
                 /2^^Prefix[$-1].bitSize;
     }
 
-    version(none)static bool cmpKey(Key a, Key b)//untested, possibly bogus
+    version(none) static bool cmpKey(Key a, Key b)//untested, possibly bogus
     {
         foreach(p; Prefix)
         {
@@ -2259,9 +2346,9 @@ private:
                     putValue(ptr[indices[level]], val);
                 else
                     ptr[indices[level]] = val;
-                writeln(indices);
+                //writeln(indices);
                 indices[level]++;
-                writeln(table.slice!level);
+                //writeln(table.slice!level);
                 numVals = 0;
             }
             else
@@ -2271,6 +2358,7 @@ private:
                 size_t nextPB = (indices[level]+pageSize)/pageSize*pageSize;
                 size_t j = indices[level];
                 size_t n =  nextPB-j;//can fill right in this page
+				
                 if(numVals > n)
                     numVals -= n;
                 else
@@ -2348,7 +2436,8 @@ private:
     }
 
     //last index is not stored in table, it is used as offset to values in a block.
-    MultiArray!(idxTypes!(Key, true, Prefix[0..$-1]), V) table;
+    MultiArray!(idxTypes!(Key, size_t.max, true, Prefix[0..$-1]), V) table;
+	pragma(msg, typeof(table));
 }
 
 /**
@@ -2383,6 +2472,11 @@ struct BitPacked(size_t sz, T) if(isIntegral!T || is(T:dchar))
 template sliceBitsImpl(size_t from, size_t to)
 {
     T sliceBitsImpl(T)(T x)
+	out(result)
+	{
+		assert(result < (1<<to-from));
+	}
+	body
     {
         static assert(from < to);
         return (x >> from) & ((1<<(to-from))-1);
@@ -2594,13 +2688,14 @@ unittest
     enum max4 = 2^^16;
     auto trie4 = Trie!(bool, size_t
                        , sliceBits!(13, 16)
-                       , sliceBits!(9, 13)
-                       , sliceBits!(6, 9)
+                       , sliceBits!(9, 13) //changing 9 to 10
+                       , sliceBits!(6, 9) //and 9 to 10 here  fixes the problem
                        , sliceBits!(0, 6)
                        )(redundant4, max4);
-    foreach(i; 0..max4)
+    foreach(i; 0..max4){		
         if(i in redundant4)
             assert(trie4[i], text(cast(uint)i));
+	}
     trieStats(trie4);
 
     string[] redundantS = ["tea", "tackle", "teenage", "start", "stray"];
@@ -2773,7 +2868,7 @@ unittest
                          , useItemAt!(0, char)
                          , useLastItem!(char))(keywords);
     foreach(key; keywords)
-        assert( key in keyTrie[key], text(key, " in ", keyTrie[key]));
+        assert( key in keyTrie[key], text(key, (cast (size_t[])keyTrie[key].items)));
     trieStats(keyTrie);
     auto keywordsMap = [
 			"abstract" : TokenKind.Abstract,
@@ -2909,7 +3004,20 @@ template useLastItem(T)
 }
 //TODO: benchmark for Trie vs InversionList vs RleBitSet vs std.bitmanip.BitArray
 
-template idxTypes(Key, bool pack, Prefix...)
+//
+T msb(T)(T value)
+	if(isUnsigned!T)
+{
+	size_t mask = 1<<(T.sizeof*8-1), i;
+	for(i=T.sizeof*8-1; i<T.sizeof*8; i--, mask >>= 1)//count on overflow
+	{
+		if(mask & value)
+			return i;
+	}
+	return 0;
+}
+
+template idxTypes(Key, size_t maxKeyIdx, bool pack, Prefix...)
 {
     static if(Prefix.length == 0)
     {
@@ -2917,13 +3025,20 @@ template idxTypes(Key, bool pack, Prefix...)
     }
     else
     {
-        alias Prefix[0] pr;
-		static if(pack)
-			alias TypeTuple!(BitPacked!(pr.bitSize, typeof(pr.entity(Key.init)))
-							 , idxTypes!(Key, pack, Prefix[1..$])) idxTypes;
+		//Important bitpacking note:
+		//- each level has to hold enough of bits to address the next one
+		static if(Prefix.length > 1)
+		{
+			alias TypeTuple!(BitPacked!(Prefix[1].bitSize+1, typeof(Prefix[0].entity(Key.init)))
+							 , idxTypes!(Key, maxKeyIdx, pack, Prefix[1..$])) idxTypes;
+		}
 		else
-			alias TypeTuple!(typeof(pr.entity(Key.init))
-                         , idxTypes!(Key, pack, Prefix[1..$])) idxTypes;
+		{//and the last one should be able to hold
+			static if(pack)
+				alias TypeTuple!(BitPacked!(32, typeof(Prefix[0].entity(Key.init)))) idxTypes;
+			else
+				alias TypeTuple!(typeof(Prefix[0].entity(Key.init))) idxTypes;
+		}
     }
 }
 
