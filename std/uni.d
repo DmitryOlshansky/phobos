@@ -85,10 +85,16 @@ import std.stdio;
 private:
 
 auto force(T, F)(F from)
-	if(isIntegral!T)
+	if(isIntegral!T && !is(T == F))
 {
 	assert(from <= T.max && from >= T.min);
 	return cast(T)from;
+}
+
+auto force(T, F)(F from)
+    if(is(T == F))
+{
+    return from;
 }
 
 //cheap algorithm grease ;)
@@ -454,7 +460,7 @@ struct PackedArrayView(T, size_t bits)
         }
         for(; i<end; i++)
             this[i] = val;*/
-        for(int i=start; i<end; i++)
+        for(size_t i=start; i<end; i++)
             this[i] = val;
     }
 
@@ -1224,7 +1230,7 @@ private:
             else
                 SP.append(data, adaptIntRange!T([a - top, b - a]));
 
-            return Marker(data.length-1, b - data[$-1]);
+            return Marker(cast(uint)data.length-1, b - data[$-1]);
         }
 
         top -= data[idx];
@@ -1254,9 +1260,9 @@ private:
             {
                 to_insert = [ a - a_start, b - a];
             }
-            pos = replacePad(data, a_idx, idx, to_insert);
+            pos = cast(uint)replacePad(data, a_idx, idx, to_insert);
             pre_top = b - data[pos];
-            return Marker(pos, pre_top) ; //bail out early
+            return Marker(cast(uint)pos, pre_top) ; //bail out early
         }
 
         if(a_idx & 1)
@@ -1275,9 +1281,9 @@ private:
                 {
                     assert(idx+1 < data.length);
                     pre_top = b + data[idx+1];
-                    pos = replacePad(data, a_idx, idx+2, [b + data[idx+1] - a_start]);
+                    pos = cast(uint)replacePad(data, a_idx, idx+2, [b + data[idx+1] - a_start]);
                     pre_top -= data[pos];
-                    return Marker(pos, pre_top);
+                    return Marker(cast(uint)pos, pre_top);
                 }
                 to_insert = [b - a_start, top - b];
             }
@@ -1298,22 +1304,22 @@ private:
                 {
                     assert(idx+1 < data.length);
                     pre_top = top + data[idx+1];
-                    pos = replacePad(data, a_idx, idx+2, [a - a_start, top + data[idx+1] - a ]);
+                    pos = cast(uint)replacePad(data, a_idx, idx+2, [a - a_start, top + data[idx+1] - a ]);
                     pre_top -= data[pos];
-                    return Marker(pos, pre_top);
+                    return Marker(cast(uint)pos, pre_top);
                 }
                 assert(a >= a_start, text(a, "<= ", a_start));
                 to_insert = [a - a_start, b - a, top - b];
             }
         }
-        pos = replacePad(data, a_idx, idx+1, to_insert);
+        pos = cast(uint)replacePad(data, a_idx, idx+1, to_insert);
         pre_top = top - data[pos];
         debug(std_uni)
         {
             writefln("marker idx: %d; length=%d", pos, pre_top, data.length);
             writeln("inserting ", to_insert);
         }
-        return Marker(pos, pre_top);
+        return Marker(cast(uint)pos, pre_top);
     }
 
     //remove intervals up to [..a) staring at Marker(idx, top_before)
@@ -1334,7 +1340,7 @@ private:
         {
             //nothing left
             SP.replaceImpl(data, start_idx, data.length, cast(T[])[]);
-            return Marker(data.length, top);
+            return Marker(cast(uint)data.length, top);
         }
 
         if(idx & 1)
@@ -1348,7 +1354,7 @@ private:
                 if(idx + 1 == data.length)
                 {
                     replacePad(data, start_idx, data.length, cast(T[])[]);
-                    return Marker(data.length, top);
+                    return Marker(cast(uint)data.length, top);
                 }
                 replacePad(data, start_idx, idx+2, [top + data[idx+1] - top_before]);
                 return Marker(start_idx, top_before);
@@ -1383,7 +1389,7 @@ private:
                 break;
         }
         if(idx >= data.length) //could have Marker point to recently removed stuff
-            return Marker(data.length, top);
+            return Marker(cast(uint)data.length, top);
 
         if(idx & 1)//landed in positive, check for split
         {
@@ -1391,7 +1397,7 @@ private:
                 return Marker(idx+1, top);
             uint start = top - data[idx];
             //split it up
-            uint val = replacePad(data, idx, idx+1, [a - start, 0, top - a]);
+            uint val = cast(uint)replacePad(data, idx, idx+1, [a - start, 0, top - a]);
 
             return Marker(val-1, top - (data[val]+data[val-1]));        //avoid odd index
         }
@@ -1752,9 +1758,9 @@ struct Uint24Array(SP=GcPolicy)
             == rhs.data[0..roundDiv(rhs.data.length*2,3)];
     }
 private:
-    static uint roundDiv(uint src, uint div)
+    static uint roundDiv(size_t src, uint div)
     {
-        return (src + div/2)/div;
+        return cast(uint)(src + div/2)/div;
     }
     ushort[] data;
 }
@@ -2344,8 +2350,8 @@ private:
             {
                 static if(level == Prefix.length-1 && type != TrieType.Value)
                     putValue(ptr[indices[level]], val);
-                else
-                    ptr[indices[level]] = val;
+                else// can incurr narrowing conversion
+                    ptr[indices[level]] = force!(typeof(ptr[indices[level]]))(val);
                 //writeln(indices);
                 indices[level]++;
                 //writeln(table.slice!level);
@@ -2383,7 +2389,8 @@ private:
             }
             static if(level != 0)//last level has 1 "page"
             {
-                size_t next_lvl_index;
+                alias typeof(table.slice!(level-1)[0]) NextIdx;
+                NextIdx next_lvl_index;
                 if(indices[level] % pageSize == 0)
                 {
                     auto last = indices[level]-pageSize;
@@ -2395,7 +2402,7 @@ private:
                         if(equal(ptr[j..j+pageSize], slice[0..pageSize]))
                         {
                             //get index to it, reuse ptr space for the next block
-                            next_lvl_index = j/pageSize;
+                            next_lvl_index = cast(NextIdx)(j/pageSize);
                             version(none)
                             {
                             writefln("LEVEL(%s) page maped idx: %s: 0..%s  ---> [%s..%s]"
@@ -2412,7 +2419,7 @@ private:
                     }
                     if(j == last)
                     {
-                        next_lvl_index = indices[level]/pageSize - 1;
+                        next_lvl_index = cast(NextIdx)(indices[level]/pageSize - 1);
                         //allocate next page
                         version(none)
                         {
