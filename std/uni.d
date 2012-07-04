@@ -6,6 +6,50 @@
     For functions which operate on ASCII characters and ignore Unicode
     characters, see $(LINK2 std_ascii.html, std.ascii).
 
+    (Short introduction to come)
+
+    Synopsis:
+    ---
+    unittest
+    {
+        import std.uni;
+        //intialize codepoint sets using regex notation
+        //$(D set) contains codepoints from both scripts.
+        auto set = CodepointSet("[\p{Cyrilic}||\p{Armenian}]");
+        auto ascii = CodepointSet("[\p{ASCII}]");
+        auto currency = CodepointSet("[\p{Currency_Symbol}]");
+
+        //easy set ops
+        auto a = set & ascii;
+        assert(a.empty); //as it has no intersection with ascii
+        a = set | ascii;
+        auto b = currency - a; //subtract all ASCII, cyrilic and armenian
+
+        //some properties of codepoint sets
+        assert(b.length == 46); //only 46 left per unicode 6.1
+        assert(!b['$']);    //testing is not really fast but works
+
+        //building lookup tables
+        auto oneTrie = a.buildTrie!1; //1-level Trie lookup table
+        assert(oneTrie['£']);
+        //pick best trie level, and bind it as a functor
+        auto cyrilicOrArmenian = set.buildLookup;
+        import std.algorithm;
+        auto balance = find!(cyrilicOrArmenian)("Hello ընկեր!");
+        assert(balance == "ընկեր!");
+
+        //Normalization
+        string s = "Plain ascii (and not only), is always normalized!";
+        assert(s is normalize(s));//same string
+        string nonS = "eﬃcient?"); //ffi ligature
+        auto nS = normalize(nonS);
+        assert(nS == "efficient?");
+        assert(nS != n);
+        //to NFKD, if available
+        asert(normalize!NFKD("2¹⁰") == "210");
+    }
+    ---
+
     References:
         $(WEB www.digitalmars.com/d/ascii-table.html, ASCII Table),
         $(WEB en.wikipedia.org/wiki/Unicode, Wikipedia),
@@ -25,10 +69,3029 @@
 module std.uni;
 
 static import std.ascii;
+import std.traits, std.range, std.algorithm, std.typecons,
+    std.conv, std.typetuple;
+import std.array; //@@BUG UFCS doesn't work with 'local' imports
+
 
 enum dchar lineSep = '\u2028'; /// UTF line separator
 enum dchar paraSep = '\u2029'; /// UTF paragraph separator
 
+//debug = std_uni;
+
+//debug(std_uni) import std.stdio;
+import std.stdio;
+
+private:
+
+auto force(T, F)(F from)
+	if(isIntegral!T && !is(T == F))
+{
+	assert(from <= T.max && from >= T.min);
+	return cast(T)from;
+}
+
+auto force(T, F)(F from)
+    if(is(T == F))
+{
+    return from;
+}
+
+//cheap algorithm grease ;)
+auto adaptIntRange(T, F)(F[] src)
+{
+	static struct ConvertIntegers//@@@BUG when in the 9 hells will map be copyable again?!
+	{
+		private F[] data;
+
+		@property T front()
+		{
+			return force!T(data.front);
+		}
+
+		void popFront(){ data.popFront(); }
+
+		@property bool empty()const { return data.empty; }
+
+		@property size_t length()const { return data.length; }
+
+		auto opSlice(size_t s, size_t e)
+		{
+		    return ConvertIntegers(data[s..e]);
+        }
+
+        //doesn't work with slices @@@BUG 7097
+        @property size_t opDollar(){   return data.length; }
+	}
+	return ConvertIntegers(src);
+}
+
+//repeat bit X times pattern in val assuming it's length is 'bits'
+size_t replicateBits(size_t times, size_t bits)(size_t val)
+{
+    static if(times == 1)
+        return val;
+    else static if(times % 2)
+        return (replicateBits!(times-1, bits)(val)<<bits) | val;
+    else
+        return replicateBits!(times/2, bits*2)(val<<bits | val);
+}
+
+unittest
+{//for replicate
+    size_t m = 0b111;
+    foreach(i; TypeTuple!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10))
+    {
+        assert(replicateBits!(i, 3)(m)+1 == (1<<(3*i)));
+        //writefln("%2d:%32b", i, replicateBits!(i, 3)(m));
+    }
+}
+
+//multiple arrays squashed to one memory block
+struct MultiArray(Types...)
+{
+    this(size_t[] sizes...)
+    {
+        size_t full_size;
+        foreach(i, v; Types)
+        {
+            full_size += spaceFor!(bitSizeOf!v)(sizes[i]);
+            sz[i] = sizes[i];
+            static if(i >= 1)
+                offsets[i] = offsets[i-1] +
+                    spaceFor!(bitSizeOf!(Types[i-1]))(sizes[i-1]);
+        }
+
+        storage = new size_t[full_size];
+    }
+
+    @property auto slice(size_t n)()inout
+    {
+        return packedArrayView!(Unpack!(Types[n]), bitSizeOf!(Types[n]))(raw_ptr!n[0..length!n()]);
+    }
+
+    @property size_t length(size_t n)()const{ return sz[n]; }
+
+    @property void length(size_t n)(size_t new_size)
+    {
+        if(new_size > sz[n])
+        {//extend
+            size_t delta = (new_size - sz[n]);
+            writeln("Before scaling:", delta);
+            delta = spaceFor!(bitSizeOf!(Types[n]))(delta);
+            sz[n] += delta;
+            writeln("After scaling:", delta);
+            storage.length +=  delta;//extend space at end
+            //raw_slice!x must follow resize as it could be moved!
+            //next 3 stmts move all data past this array, last-one-goes-first
+            static if(n != dim-1)
+            {
+                auto start = raw_ptr!(n+1);
+                size_t len = storage.length;
+                copy(retro(start[0..len-delta])
+                    , retro(start[delta..len]));
+
+                start[0..delta] = 0;
+                //writeln("OFFSETS before:", offsets);
+                //offsets are used for raw_slice, ptr etc.
+                foreach(i; n+1..dim)
+                    offsets[i] += delta;
+                //writeln("OFFSETS after:", offsets);
+            }
+        }
+        else if(new_size < sz[n])
+        {//shrink
+            size_t delta = (sz[n] - new_size);
+            delta = spaceFor!(bitSizeOf!(Types[n]))(delta);
+            sz[n] -= delta;
+            writeln("Shrinking");
+            //move all data past this array, forward direction
+            static if(n != dim-1)
+            {
+                auto start = raw_ptr!(n+1);
+                size_t len = storage.length;
+                copy(start[delta..len]
+                 , start[0..len-delta]);
+                storage.length -= delta;
+
+                //adjust offsets last, they affect raw_slice
+                foreach(i; n+1..dim)
+                    offsets[i] -= delta;
+            }
+        }
+        //else - NOP
+    }
+private:
+    @property auto raw_ptr(size_t n)()inout
+    {
+        static if(n == 0)
+            return storage.ptr;//[0..sz[0]];
+        else
+        {
+            return storage.ptr+offsets[n];//..offsets[n]+sz[n]];
+        }
+    }
+    size_t[Types.length] offsets;//offset for level x
+    size_t[Types.length] sz;//size of level x
+    enum dim = Types.length;
+    static bool needNotifyGc()
+    {
+        bool yes = false;
+        foreach(v; staticMap!(hasIndirections, Types))
+            yes = yes || v;
+        return yes;
+    }
+	template Unpack(T)
+	{
+		 //TODO: hackish! do proper pattern matching with BitPacked!(sz, T)
+		static if(is(typeof(T.bitSize)) && is(T.entity) )
+		{
+			alias T.entity Unpack;
+		}
+		else
+			alias T Unpack;
+	}
+    alias staticMap!(bitSizeOf, Types) bitWidth;
+    enum indirections = needNotifyGc();
+    size_t[] storage;
+}
+
+unittest
+{
+    // sizes are:
+    //lvl0: 3, lvl1 : 2, lvl2: 1
+    auto m = MultiArray!(int, ubyte, int)(3,2,1);
+
+    static void check(size_t k, T)(ref T m, int n)
+    {
+        foreach(i; 0..n)
+            assert(m.slice!(k)[i] == i+1, text("level:",i," : ",m.slice!(k)[0..n]));
+    }
+
+    static void checkB(size_t k, T)(ref T m, int n)
+    {
+        foreach(i; 0..n)
+            assert(m.slice!(k)[i] == n-i, text("level:",i," : ",m.slice!(k)[0..n]));
+    }
+
+    static void fill(size_t k, T)(ref T m, int n)
+    {
+        foreach(i; 0..n)
+            m.slice!(k)[i] = force!ubyte(i+1);
+        writefln("A: %(%x %)", m.slice!(k)[]);
+    }
+
+    static void fillB(size_t k, T)(ref T m, int n)
+    {
+        foreach(i; 0..n)
+            m.slice!(k)[i] = force!ubyte(n-i);
+        writefln("B: %(%x %)", m.slice!(k)[]);
+    }
+
+    m.length!1 = 100;
+    fill!1(m, 100);
+    check!1(m, 100);
+
+    m.length!0 = 220;
+    fill!0(m, 220);
+    check!1(m, 100);
+    check!0(m, 220);
+
+    m.length!2 = 17;
+    fillB!2(m, 17);
+    checkB!2(m, 17);
+    check!0(m, 220);
+    check!1(m, 100);
+
+    m.length!2 = 33;
+    checkB!2(m, 17);
+    fillB!2(m, 33);
+    checkB!2(m, 33);
+    check!0(m, 220);
+    check!1(m, 100);
+
+    m.length!1 = 195;
+    fillB!1(m, 195);
+    checkB!1(m, 195);
+    checkB!2(m, 33);
+    check!0(m, 220);
+
+	auto marr = MultiArray!(BitPacked!(4, uint), BitPacked!(6, uint))(20, 10);
+	marr.length!0 = 15;
+	marr.length!1 = 30;
+	fill!1(marr, 30);
+	fill!0(marr, 15);
+	check!1(marr, 30);
+	check!0(marr, 15);
+}
+
+unittest
+{//more bitpacking tests
+	alias MultiArray!(BitPacked!(3, size_t)
+				, BitPacked!(4, size_t)
+				, BitPacked!(3, size_t)
+				, BitPacked!(6, size_t)
+				, bool) Bitty;
+	alias sliceBits!(13, 16).entity fn1;
+	alias sliceBits!( 9, 13).entity fn2;
+	alias sliceBits!( 6,  9).entity fn3;
+	alias sliceBits!( 0,  6).entity fn4;
+	static void check(size_t lvl, MA)(ref MA arr){
+		for(size_t i = 0; i< arr.length!lvl; i++)
+			assert(arr.slice!(lvl)[i] == i, text("Mismatch on lvl ", lvl, " idx ", i, " value: ", arr.slice!(lvl)[i]));
+	}
+
+	static void fillIdx(size_t lvl, MA)(ref MA arr){
+		for(size_t i = 0; i< arr.length!lvl; i++)
+			arr.slice!(lvl)[i] = i;
+	}
+	Bitty m1;
+	
+	m1.length!4 = 10;
+	m1.length!3 = 2^^6;
+	m1.length!2 = 2^^3;
+	m1.length!1 = 2^^4;
+	m1.length!0 = 2^^3;
+
+	m1.length!4 = 2^^16;
+
+	for(size_t i = 0; i< m1.length!4; i++)
+		m1.slice!(4)[i] = i % 2;
+
+	fillIdx!1(m1);
+	check!1(m1);
+	fillIdx!2(m1);
+	check!2(m1);
+	fillIdx!3(m1);
+	check!3(m1);
+	fillIdx!0(m1);
+	check!0(m1);
+	check!3(m1);
+	check!2(m1);
+	check!1(m1);
+	for(size_t i=0; i < 2^^16; i++)
+	{
+		m1.slice!(4)[i] = i % 2;
+		m1.slice!(0)[fn1(i)] = fn1(i);
+		m1.slice!(1)[fn2(i)] = fn2(i);
+		m1.slice!(2)[fn3(i)] = fn3(i);
+		m1.slice!(3)[fn4(i)] = fn4(i);
+	}
+	for(size_t i=0; i < 2^^16; i++)
+	{
+		assert(m1.slice!(4)[i] == i % 2);
+		assert(m1.slice!(0)[fn1(i)] == fn1(i));
+		assert(m1.slice!(1)[fn2(i)] == fn2(i));
+		assert(m1.slice!(2)[fn3(i)] == fn3(i));
+		assert(m1.slice!(3)[fn4(i)] == fn4(i));
+	}
+}
+
+//test bit packing with MultiArrays
+
+size_t spaceFor(size_t bits)(size_t new_len)
+{
+    static if(bits > 8*size_t.sizeof)
+    {
+        static assert(bits % (size_t.sizeof*8) == 0);
+        return new_len * bits/(8*size_t.sizeof);
+    }
+    else
+    {
+        enum factor = size_t.sizeof*8/bits;
+        return (new_len)/factor+1;
+    }
+}
+
+//only per word packing, speed is more important
+//doesn't own memory, only provides access
+struct PackedArrayView(T, size_t bits)
+{
+    this(inout(size_t)[] arr)inout
+    {
+        original = arr;
+    }
+
+	static if(bits % 8)
+	{
+		T opIndex(size_t idx)inout
+		{        
+				return cast(T)
+				((original[idx/factor] >> bits*(idx%factor))
+					 & mask);		
+		}
+
+		void opIndexAssign(T val, size_t idx)
+		in
+		{
+			static if(isIntegral!T)
+				assert(val <= mask, text("mask: ",mask, " bits: ", bits, "value:", val, " > ", mask));
+		}
+		body
+		{
+				size_t tgt_shift = bits*(idx%(factor));
+				original[idx/factor] &= ~(mask<<tgt_shift);
+				original[idx/factor] |= cast(size_t)val << tgt_shift;
+		}
+	}
+	else
+	{//by byte granular type itself
+		ref inout(T) opIndex(size_t idx)inout
+		{
+			return (cast(inout(T)*)original.ptr)[idx];
+		}
+	}
+
+    void opSliceAssign(T val, size_t start, size_t end)
+    {
+        //rounded to factor granuarity
+        /*size_t pad_start = (start+factor/2)/factor*factor;//rounded up
+        size_t pad_end = end/factor*factor; //rounded down
+        size_t i;
+        for(i=start; i<pad_start; i++)
+            this[i] = val;
+        writeln("!!~!~!!");
+        //all in between is x*factor elements
+        if(pad_start != pad_end)
+        {
+            size_t repval = replicateBits!(factor, bits)(val);
+            for(size_t j=i/factor; i<pad_end; i+=factor, j++)
+                original[j] = repval;//so speed it up by factor
+        }
+        for(; i<end; i++)
+            this[i] = val;*/
+        for(size_t i=start; i<end; i++)
+            this[i] = val;
+    }
+
+    auto opSlice(size_t from, size_t to)
+    {
+        return SliceOverIndexed!PackedArrayView(from, to, &this);
+    }
+
+    auto opSlice(){ return opSlice(0, length); }
+
+    bool opEquals(T)(const ref T arr) const
+    {
+        if(length != arr.length)
+           return false;
+        for(size_t i=0;i<length; i++)
+            if(this[i] != arr[i])
+                return false;
+        return true;
+    }
+
+    @property size_t length()const{ return original.length*factor; }
+
+private:
+
+    //factor - number of elements in one machine word
+    enum factor = size_t.sizeof*8/bits, mask = 2^^bits-1;
+    size_t[] original;
+}
+
+
+private struct SliceOverIndexed(T)
+{
+    auto opIndex(size_t idx)const
+    in
+    {
+        assert(idx < to - from);
+    }
+    body
+    {
+        return arr.opIndex(from+idx);
+    }
+
+    void opIndexAssign(Item val, size_t idx)
+    in
+    {
+        assert(idx < to - from);
+    }
+    body
+    {
+       (*arr)[from+idx] = val;
+    }
+
+    auto opSlice(size_t a, size_t b)
+    {
+        return SliceOverIndexed(from+a, from+b, arr);
+    }
+
+    void opSliceAssign(T)(T val, size_t start, size_t end)
+    {
+        return arr.opSliceAssign(val, start+from, end+from);
+    }
+
+    auto opSlice()
+    {
+        return opSlice(from, to);
+    }
+
+    @property size_t length()const{ return to-from;}
+
+    @property bool empty()const { return from == to; }
+
+    @property auto front()const { return (*arr)[from]; }
+
+    @property void front(Item val) { (*arr)[from] = val; }
+
+    @property auto back()const { return (*arr)[to-1]; }
+
+    @property void back(Item val) { (*arr)[to-1] = val; }
+
+    @property auto save() { return this; }
+
+    void popFront() {   from++; }
+
+    void popBack() {   to--; }
+
+    bool opEquals(T)(const ref T arr) const
+    {
+        if(arr.length != length)
+            return false;
+        for(size_t i=0; i <length; i++)
+            if(this[i] != arr[i])
+                return false;
+        return true;
+    }
+private:
+    alias typeof(T.init[0]) Item;
+     size_t from, to;
+     T* arr;
+}
+
+private auto packedArrayView(T, size_t bits)(inout(size_t)[] arr)
+{
+    return inout(PackedArrayView!(T, bits))(arr);
+}
+
+/*
+unittest
+{
+    size_t[] sample = new size_t[328];
+    auto parr = packedArrayView!(uint, 7)(sample);
+    foreach(i; 0..parr.length)
+        parr[i] = i % 128;
+    writefln("%(%x%)", sample);
+
+    foreach(i; 0..parr.length)
+        assert(parr[i] == i % 128, text(i, " vs ", parr[i]));
+
+    auto parr2 = packedArrayView!(uint, 14)(sample);
+    //re-viewing it as doubly sized is supported cleanly
+    for(int i=0; i<parr2.length; i++)
+        assert(parr2[i] == ((((2*i+1) % 128)<<7) | (2*i % 128)), text(i, " vs ", parr2[i]));
+    equal(parr2[0..2],  [128, 384+2]);
+}
+
+*/
+
+//hope to see simillar stuff in public interface... once Allocators are out
+//@@@BUG moveFront and friends? dunno, for now it's POD-only
+size_t genericReplace(Policy=void, T, Range)
+    (ref T dest, size_t from, size_t to, Range stuff)
+{
+    size_t delta = to - from;
+    size_t stuff_end = from+stuff.length;
+    if(stuff.length > delta)
+    {//replace increases length
+        delta = stuff.length - delta;//now, new is > old  by delta
+        static if(is(Policy == void))
+            dest.length = dest.length+delta;//@@@BUG lame @property
+        else
+            dest = Policy.realloc(dest, dest.length+delta);
+        auto rem = copy(retro(dest[to..dest.length-delta])
+             , retro(dest[to+delta..dest.length]));
+        assert(rem.empty);
+        copy(stuff, dest[from..stuff_end]);
+    }
+    else if(stuff.length == delta)
+    {
+        copy(stuff, dest[from..to]);
+    }
+    else
+    {//replace decreases length by delta
+        delta = delta - stuff.length;
+        copy(stuff, dest[from..stuff_end]);
+        auto rem =  copy(dest[to..dest.length]
+             , dest[stuff_end..dest.length-delta]);
+        static if(is(Policy == void))
+            dest.length = dest.length - delta;//@@@BUG lame @property
+        else
+            dest = Policy.realloc(dest, dest.length-delta);
+        assert(rem.empty);
+    }
+    return stuff_end;
+}
+
+//Simple storage manipulation policy
+//TODO: stop working around the bugs rorts them!
+public struct GcPolicy
+{
+	static T[] dup(T)(const T[] arr)
+	{
+		return arr.dup;
+	}
+
+	static T[] realloc(T)(T[] arr, size_t sz)
+	{
+	    arr.length = sz;
+	    return arr;
+	}
+
+	static void replaceImpl(T, Range)(ref T[] dest, size_t from, size_t to, Range stuff)
+	{
+		replaceInPlace(dest, from, to, stuff);
+	}
+
+	static void append(T, V)(ref T[] arr, V value)
+		if(!isInputRange!V)
+	{
+		arr ~= force!T(value);
+	}
+
+	static void append(T, V)(ref T[] arr, V value)
+		if(isInputRange!V)
+	{
+		insertInPlace(arr, arr.length, value);
+	}
+
+	static void destroy(T)(ref T arr)
+		if(isDynamicArray!T && is(Unqual!T == T))
+	{
+		arr[] = cast(typeof(T.init[0]))(0xdead_beef); 
+	}
+
+	static void destroy(T)(ref T arr)
+		if(isDynamicArray!T && !is(Unqual!T == T))
+	{ /*NOP*/ }
+}
+
+//ditto
+struct ReallocPolicy
+{
+    import std.exception, core.stdc.stdlib;
+	static T[] dup(T)(const T[] arr)
+	{
+	    auto result = alloc!T(arr.length);
+	    result[] = arr[];
+		return result;
+	}
+
+	static T[] alloc(T)(size_t size)
+	{
+	    auto ptr = cast(T*)enforce(malloc(T.sizeof*size), "out of memory on C heap");
+        return ptr[0..size];
+	}
+
+	static T[] realloc(T)(T[] arr, size_t size)
+	{
+	    if(!size)
+	    {
+	        destroy(arr);
+            return null;
+	    }
+	    auto ptr = cast(T*)enforce(core.stdc.stdlib.realloc(
+                             arr.ptr, T.sizeof*size), "out of memory on C heap");
+        return ptr[0..size];
+	}
+
+	static void replaceImpl(T, Range)(ref T[] dest, size_t from, size_t to, Range stuff)
+	{
+	    genericReplace!(ReallocPolicy)(dest, from, to, stuff);
+	}
+
+	static void append(T, V)(ref T[] arr, V value)
+		if(!isInputRange!V)
+	{
+		arr = realloc(arr, arr.length+1);
+		arr[$-1] = force!T(value);
+	}
+
+	static void append(T, V)(ref T[] arr, V value)
+		if(isInputRange!V && hasLength!V)
+	{
+	    arr = realloc(arr, arr.length+value.length);
+		copy(value, arr[$-value.length..$]);
+	}
+
+	static void destroy(T)(ref T[] arr)
+	{
+	    free(arr.ptr);
+        arr = null;
+    }
+}
+
+unittest
+{
+    with(ReallocPolicy)
+    {
+        bool test(T, U, V)(T orig, size_t from, size_t to, U toReplace, V result,
+                   string file = __FILE__, size_t line = __LINE__)
+        {
+            {
+                replaceImpl(orig, from, to, toReplace);
+                scope(exit) destroy(orig);
+                if(!std.algorithm.equal(orig, result))
+                    return false;
+            }
+            return true;
+        }
+        static T[] arr(T)(T[] args... )
+        {
+            return dup(args);
+        }
+
+        assert(test(arr([1, 2, 3, 4]), 0, 0, [5, 6, 7], [5, 6, 7, 1, 2, 3, 4]));
+        assert(test(arr([1, 2, 3, 4]), 0, 2, cast(int[])[], [3, 4]));
+        assert(test(arr([1, 2, 3, 4]), 0, 4, [5, 6, 7], [5, 6, 7]));
+        assert(test(arr([1, 2, 3, 4]), 0, 2, [5, 6, 7], [5, 6, 7, 3, 4]));
+        assert(test(arr([1, 2, 3, 4]), 2, 3, [5, 6, 7], [1, 2, 5, 6, 7, 4]));
+    }
+}
+
+//bootstrap full set operations from 3 primitives:
+//addInterval, skipUpTo, dropUpTo & byInterval iteration
+mixin template BasicSetOps()
+{
+    alias typeof(this) This;
+    /**
+        $(P $(D RleBitSet)s support natural syntax for set algebra, namely:)
+        $(BOOKTABLE
+            $(TR $(TH Operator) $(TH Math notation) $(TH Description) )
+            $(TR $(TD &) $(TD a ∩ b) $(TD intersection) )
+            $(TR $(TD |) $(TD a ∪ b) $(TD union) )
+            $(TR $(TD -) $(TD a ∖ b) $(TD subtraction) )
+            $(TR $(TD ~) $(TD a ~ b) $(TD symmetric set difference i.e. (a ∪ b) \ (a ∩ b) ))
+        )
+    */
+    const This opBinary(string op, U)(U rhs) 
+        if(is(typeof(U.init.isSet)) || is(U:dchar))
+    {
+        static if(op == "&" || op == "|" || op == "~")
+        {//symmetric ops thus can swap arguments to reuse r-value
+            static if(is(U:dchar))
+            {
+                auto copy = this.dup;
+                mixin("copy "~op~"= rhs; ");
+                return copy;
+            }
+            else
+            {
+				static if(is(Unqual!U == U))
+				{
+					//try hard to reuse r-value			
+		            mixin("rhs "~op~"= this;");
+			        return rhs;
+				}
+				else
+				{
+					auto tmp = this.dup;
+					mixin("tmp "~op~"= rhs;");
+					return tmp;
+				}
+            }
+        }
+        else static if(op == "-")
+        {
+            auto copy = this.dup;
+            copy -= rhs;
+            return copy;
+        }
+        else
+            static assert(0, "no operator "~op~" defined for Set");
+    }
+
+    bool opBinaryRight(string op, U)(U ch)
+        if(op == "in" && is(U : dchar))
+    {
+        return this[ch];
+    }
+
+    ///The 'op=' versions of the above overloaded operators.
+    ref This opOpAssign(string op, U)(in U rhs)
+        if(is(typeof(U.init.isSet)) || is(U:dchar))
+    {
+        static if(op == "|")    //union
+        {
+            static if(is(U:dchar))
+                return this.addInterval(rhs, rhs+1);
+            else
+                return this.add(rhs);
+        }
+        else static if(op == "&")   //intersection
+                return this.intersect(rhs);//overloaded
+        else static if(op == "-")   //set difference
+                return this.sub(rhs);//overloaded
+        else static if(op == "~")   //symmetric set difference
+        {
+            auto copy = this & rhs;
+            this |= rhs;
+            this -= copy;
+            return this;
+        }
+        else
+            static assert(0, "no operator "~op~" defined for Set");
+    }
+
+    ///Range that spans each codepoint in this set.
+    @property auto byChar()
+    {
+        static struct CharRange
+        {
+            this(This set)
+            {
+                this.r = set.byInterval;
+                cur = r.front.a;
+            }
+
+            @property dchar front() const
+            {
+                return cast(dchar)cur;
+            }
+
+            @property bool empty() const
+            {
+                return r.empty;
+            }
+
+            void popFront()
+            {
+                cur++;
+                while(cur >= r.front.b)
+                {
+                    r.popFront();
+                    if(r.empty)
+                        break;
+                    cur = r.front.a;
+                }
+            }
+        private:
+            uint cur;
+            typeof(This.init.byInterval) r;
+        }
+
+        return CharRange(this);
+    }
+
+    /**
+        $(P Obtain textual representation of this set in from of [a..b) intervals
+        and feed it to $(D sink). )
+        $(P Used by various standard formatting facilities such as
+         $(XREF std._format, formattedWrite), $(D write), $(D writef) and others.
+        )
+    */
+    void toString(scope void delegate (const(char)[]) sink)
+    {
+        import std.format;
+        foreach(i; byInterval)
+                formattedWrite(sink, "[%d..%d) ", i.a, i.b);
+    }
+
+private:
+    ref add(uint a, uint b)
+    {
+        addInterval(a, b);
+        return this;
+    }
+
+    ref intersect(in This rhs)
+    {
+        Marker mark;
+        foreach( i; rhs.byInterval())
+        {
+            mark = this.dropUpTo(i.a, mark);
+            mark = this.skipUpTo(i.b, mark);
+        }
+        this.dropUpTo(uint.max, mark);
+        return this;
+    }
+
+    ref intersect(dchar ch)
+    {
+        foreach(i; byInterval)
+            if(i.a >= ch && ch < i.b)
+                return this = This.init.add(ch, ch+1);
+        this = This.init;
+        return this;
+    }
+
+    ref sub(dchar ch)
+    {
+        //workaround a BUG, somehow overload below doesn't survive if base class has sub(dchar)
+        return subChar(ch);
+    }
+
+    //same as the above except that skip & drop parts are swapped
+    ref sub(in This rhs)
+    {
+        uint top;
+        Marker mark;
+        foreach(i; rhs.byInterval)
+        {
+            mark = this.skipUpTo(i.a, mark);
+            mark = this.dropUpTo(i.b, mark);
+        }
+        return this;
+    }
+
+    ref add(in This rhs)
+    {
+        Marker start;
+        foreach(i; rhs.byInterval())
+        {
+            start = addInterval(i.a, i.b, start);
+        }
+        return this;
+    }
+
+    enum isSet = true;
+};
+
+public struct RleBitSet(T, SP=GcPolicy)
+    if(isUnsigned!T)
+{
+public:
+    /*this(C)(in C[] regexSet)
+        if(is(C : dchar))
+    {
+        assert(0);
+    }
+*/
+    this()(uint[] intervals...)
+    in
+    {
+        assert(intervals.length % 2 == 0, "Odd number of interval bounds [a, b)!");
+        for(uint i=1; i<intervals.length; i++)
+            assert(intervals[i-1] < intervals[i]
+                   , text(intervals[i-1], ">", intervals[i], " in set c-tor"));
+    }
+    body
+    {
+        size_t top=0;
+        for(size_t i = 0;  i < intervals.length; i+=2){
+            appendPad(data, intervals[i] - top);
+            appendPad(data, intervals[i+1] - intervals[i]);
+            top = intervals[i+1];
+        }
+    }
+
+    this(this) 
+    {//TODO: COW
+        data = SP.dup(data);
+    }
+
+    const ~this() 
+    {
+        SP.destroy(data);
+    }
+
+	///Make a mutable copy of this set.
+	@property auto dup()const
+	{
+		RleBitSet s;
+		s.data = SP.dup(data);
+		return s;
+	}
+
+    @property auto byInterval() const
+    {
+        import std.typecons;
+        static struct IntervalRange
+        {
+            this(in RleBitSet set_)
+            {
+                data = set_.data;
+                popFront();
+            }
+
+            uint step(ref uint idx, uint value)
+            {
+                static if(T.sizeof == 4)
+                {
+                    value += data[idx];
+                    idx++;
+                }
+                else
+                {
+                    value += data[idx];
+                    while(idx+1 < data.length && data[idx+1] == 0)
+                    {
+                        assert(idx+2 < data.length);
+                        value += data[idx+2];
+                        idx += 2;
+                    }
+                    idx++;
+                }
+                return value;
+            }
+
+            @property auto front() const
+            {
+                return Tuple!(uint,"a", uint,"b")(a, b);
+            }
+
+            @property bool empty() const
+            {
+                return data == null;
+            }
+
+            void popFront()
+            {
+                if(idx == data.length)
+                {
+                    data = null;
+                    return;
+                }
+                a = step(idx, b);
+                b = step(idx, a);
+            }
+
+            uint a, b, idx;
+            const(T)[] data;
+        }
+
+        return IntervalRange(this);
+    }
+
+    bool opEquals(U,SP)(ref const RleBitSet!(U,SP) rhs) const
+        if(isUnsigned!U)
+    {
+        static if(T.sizeof == 4 && U.sizeof == 4)//short-circuit full versions
+            return repr == rhs.repr;
+        else
+        {
+            uint top=0, rtop=0, idx=0, ridx=0;
+            while(idx < data.length && ridx < rhs.data.length)
+            {
+                top += data[idx];
+                rtop += rhs.data[ridx];
+                while(rtop != top)
+                {
+                    //check for ... x 0 y "prolong" sequence
+                    if(ridx + 1 < rhs.data.length && rhs.data[ridx+1] == 0)
+                    {
+                        //OK rhs has extra segment
+                        assert(ridx+2 < rhs.data.length); // 0 at the end is an error
+                        rtop += rhs.data[ridx+2];
+                        ridx += 2;
+                    }
+                    else if(idx + 1 < data.length && data[idx+1] == 0)
+                    {
+                        assert(idx+2 < data.length); // ditto at end
+                        top += data[idx+2];
+                        idx += 2;
+                    }
+                    else
+                        return false;
+                }
+                idx++;
+                ridx++;
+            }
+            if(idx == data.length)
+            {
+                if(ridx == rhs.data.length)
+                    return true;
+                //check overlong sequence
+                rtop += rhs.data[ridx];
+                while(rtop != top)
+                    if(ridx + 1 < rhs.data.length && rhs.data[ridx+1] == 0)
+                    {
+                        //rhs has extra segment
+                        assert(ridx+2 < rhs.data.length); // 0 at the end is an error
+                        rtop += rhs.data[ridx+2];
+                        ridx += 2;
+                    }
+                    else
+                        return false;
+            }
+            else
+            {
+                if(idx == data.length)
+                    return true;
+                //check overlong sequence
+                top += data[idx];
+                while(rtop != top)
+                    if(idx + 1 < data.length && data[idx+1] == 0)
+                    {
+                        //rhs has extra segment
+                        assert(idx+2 < data.length); // 0 at the end is an error
+                        top += data[idx+2];
+                        idx += 2;
+                    }
+                    else
+                        return false;
+            }
+            return idx == data.length && ridx == rhs.data.length;
+        }
+    }
+
+    bool opIndex(uint val)
+    {
+        foreach(i; byInterval)
+            if(val < i.b)
+                return val >= i.a;
+        return false;
+    }
+
+    mixin BasicSetOps;
+private:
+    struct Marker//denotes position in RleBitSet
+    {
+        uint idx;
+        uint top_before_idx;
+    };
+
+    //Think of it as of RLE compressed bit-array
+    //data holds _lengths_ of intervals
+    //first value is a length of negative portion, second interval is positive,
+    //3rd is negative etc. (length can be zero e.g. if interval contains 0 like [\x00-\x7f])
+    T[] data;
+
+    static void appendPad(ref T[] dest, size_t val)
+    {
+        while(val > T.max)
+        {//should be somewhat rare(!)
+            val -= T.max;
+            SP.append(dest, adaptIntRange!T([T.max, 0]));
+        }
+        SP.append(dest, val);
+    }
+
+    static size_t replacePad(ref T[] dest, size_t from, size_t to, uint[] to_insert)
+    {
+        static if(T.sizeof == 4)//short-circuit to optimal version
+        {
+	        SP.replaceImpl(dest, from, to, to_insert);
+            return from+to_insert.length-1;
+        }
+        else
+        {
+            T[] scratch_space;//TODO mem leak
+            size_t s=0;
+            foreach(i, v; to_insert)
+                if(v > T.max)
+                {
+                    SP.append(scratch_space, adaptIntRange!T(to_insert[s..i]));
+                    appendPad(scratch_space, v);
+                    s = i+1;
+                }
+
+            if(s == 0)
+            {
+                SP.replaceImpl(dest, from, to, adaptIntRange!T(to_insert)); // short-circuit #2
+                return from+to_insert.length-1;
+            }
+            else
+            {// some of (T.max, 0) ended up there
+                SP.append(scratch_space, adaptIntRange!T(to_insert[s..$]));
+                SP.replaceImpl(dest, from, to, scratch_space);
+                return from+scratch_space.length-1;
+            }
+        }
+    }
+
+    @property const(T)[] repr() const{ return data; }
+
+    //special case for RLE set
+    ref subChar(dchar ch)
+    {
+        Marker mark;
+        mark = skipUpTo(ch, mark);
+        if(mark.top_before_idx == ch && mark.idx+1 != data.length)
+        {
+            data[mark.idx+1] -= 1;
+            data[mark.idx] += 1;
+            assert(data[mark.idx] == 1);
+        }
+        return this;
+    }
+
+    //returns last point of insertion (idx,  top_value right before idx),
+    // so that top += data[idx] on first iteration  gives top of idx
+    Marker addInterval(uint a, uint b, Marker mark=Marker.init)
+    in
+    {
+        assert(a <= b);
+    }
+    body
+    {
+        uint hint = mark.idx, hint_top_before=mark.top_before_idx;
+        static if(T.sizeof != 4)
+            if(a == b)//empty interval, happens often with ushort/ubyte lists
+                return Marker(hint, hint_top_before);
+        uint top=hint_top_before, idx, a_start, a_idx;
+        debug(std_uni)
+        {
+            scope(exit){
+                writefln("after adding (%d, %d):", a, b);
+                toString((x){ write(x); });
+            }
+        }
+        uint pos, pre_top;//marker that indicates place of insertion
+        assert(a >= top, text(a, "<=", top));
+        for(idx=hint; idx < data.length; idx++)
+        {
+            top += data[idx];
+            if(a <= top)
+            {
+                assert(top >=  data[idx]);
+                a_start = top - data[idx];
+                assert(a_start <= a);
+                a_idx = idx;
+                break;
+            }
+        }
+
+        if(idx == data.length)
+        {
+            //  [---+++----++++----++++++]
+            //  [                         a  b]
+            static if(T.sizeof < 4)
+            {
+               appendPad(data, a - top);
+               appendPad(data, b - a);
+            }
+            else
+                SP.append(data, adaptIntRange!T([a - top, b - a]));
+
+            return Marker(cast(uint)data.length-1, b - data[$-1]);
+        }
+
+        top -= data[idx];
+        for(; idx<data.length;idx++)
+        {
+            top += data[idx];
+            if(b <= top)
+                break;
+        }
+
+        debug(std_uni)
+        {
+            writefln("a_start=%d; a_idx=%d; idx=%d;", a_start, a_idx, idx);
+            writefln("a=%s; b=%s; top=%s; a_start=%s;", a, b, top, a_start);
+        }
+
+        uint[] to_insert;
+        if(idx == data.length)
+        {
+            //  [-------++++++++----++++++-]
+            //  [      s     a                 b]
+            if(a_idx & 1)//a in positive
+            {
+                to_insert = [ b - a_start ];
+            }
+            else// a in negative
+            {
+                to_insert = [ a - a_start, b - a];
+            }
+            pos = cast(uint)replacePad(data, a_idx, idx, to_insert);
+            pre_top = b - data[pos];
+            return Marker(cast(uint)pos, pre_top) ; //bail out early
+        }
+
+        if(a_idx & 1)
+        {//a in positive
+            if(idx & 1)//b in positive
+            {
+                //  [-------++++++++----++++++-]
+                //  [       s    a        b    ]
+                to_insert = [top - a_start];
+            }
+            else //b in negative
+            {
+                //  [-------++++++++----++++++-]
+                //  [       s    a   b         ]
+                if(top == b)
+                {
+                    assert(idx+1 < data.length);
+                    pre_top = b + data[idx+1];
+                    pos = cast(uint)replacePad(data, a_idx, idx+2, [b + data[idx+1] - a_start]);
+                    pre_top -= data[pos];
+                    return Marker(cast(uint)pos, pre_top);
+                }
+                to_insert = [b - a_start, top - b];
+            }
+        }
+        else
+        { // a in negative
+            if(idx & 1) //b in positive
+            {
+                //  [----------+++++----++++++-]
+                //  [     a     b              ]
+                to_insert = [a - a_start, top - a];
+            }
+            else// b in negative
+            {
+                //  [----------+++++----++++++-]
+                //  [  a       s      b        ]
+                if(top == b)
+                {
+                    assert(idx+1 < data.length);
+                    pre_top = top + data[idx+1];
+                    pos = cast(uint)replacePad(data, a_idx, idx+2, [a - a_start, top + data[idx+1] - a ]);
+                    pre_top -= data[pos];
+                    return Marker(cast(uint)pos, pre_top);
+                }
+                assert(a >= a_start, text(a, "<= ", a_start));
+                to_insert = [a - a_start, b - a, top - b];
+            }
+        }
+        pos = cast(uint)replacePad(data, a_idx, idx+1, to_insert);
+        pre_top = top - data[pos];
+        debug(std_uni)
+        {
+            writefln("marker idx: %d; length=%d", pos, pre_top, data.length);
+            writeln("inserting ", to_insert);
+        }
+        return Marker(cast(uint)pos, pre_top);
+    }
+
+    //remove intervals up to [..a) staring at Marker(idx, top_before)
+    Marker dropUpTo(uint a, Marker mark=Marker.init)
+    {
+        uint start_idx = mark.idx, top_before = mark.top_before_idx;
+        uint top=top_before, idx=start_idx;
+        uint pos, pre_top;//marker that indicates place of insertion
+        assert(idx % 2 == 0); //can't start in positive interval,
+        //though negative interval can be of length zero
+        for(; idx < data.length; idx++)
+        {
+            top += data[idx];
+            if(a <= top)
+                break;
+        }
+        if(idx >= data.length)
+        {
+            //nothing left
+            SP.replaceImpl(data, start_idx, data.length, cast(T[])[]);
+            return Marker(cast(uint)data.length, top);
+        }
+
+        if(idx & 1)
+        {   //a in positive
+            //[--+++----++++++----+++++++------...]
+            //      |<---si       s  a  t
+            uint start = top - data[idx];
+            if(top == a)//glue two negative intervals
+            {
+                // for negative stuff, idx can be equal data.length-1
+                if(idx + 1 == data.length)
+                {
+                    replacePad(data, start_idx, data.length, cast(T[])[]);
+                    return Marker(cast(uint)data.length, top);
+                }
+                replacePad(data, start_idx, idx+2, [top + data[idx+1] - top_before]);
+                return Marker(start_idx, top_before);
+            }
+            replacePad(data, start_idx, idx+1, [a - top_before, top - a]);
+        }
+        else
+        {   //a in negative
+            //[--+++----++++++----+++++++-------+++...]
+            //      |<---si              s  a  t
+            replacePad(data, start_idx, idx+1, [top - top_before]);
+        }
+        return Marker(start_idx, top_before);
+    }
+
+    //skip intervals up to ..a)
+    Marker skipUpTo(uint a, Marker mark=Marker.init)
+    out(result)
+    {
+        assert(result.idx % 2 == 0);//always negative intervals
+        //(may be  0-width after-split)
+    }
+    body
+    {
+        uint start_idx = mark.idx, top_before = mark.top_before_idx;
+        uint top=top_before, idx=start_idx;
+        assert(data.length % 2 == 0);
+        for(; idx < data.length; idx++)
+        {
+            top += data[idx];
+            if(a <= top)
+                break;
+        }
+        if(idx >= data.length) //could have Marker point to recently removed stuff
+            return Marker(cast(uint)data.length, top);
+
+        if(idx & 1)//landed in positive, check for split
+        {
+            if(top == a)//no need to split, it's end
+                return Marker(idx+1, top);
+            uint start = top - data[idx];
+            //split it up
+            uint val = cast(uint)replacePad(data, idx, idx+1, [a - start, 0, top - a]);
+
+            return Marker(val-1, top - (data[val]+data[val-1]));        //avoid odd index
+        }
+        return Marker(idx, top - data[idx]);
+    }
+};
+
+/**
+    $(D CodepointSet) is a packed data structure for sets of codepoints.
+    Memory usage is 6 bytes per each contigous interval in a set.
+*/
+public struct InversionList(SP=GcPolicy)
+{
+    this(C)(in C[] regexSet)
+        if(is(C : dchar))
+    {
+        assert(0);
+    }
+
+    this()(uint[] intervals...)
+    in
+    {
+        assert(intervals.length % 2 == 0, "Odd number of interval bounds [a, b)!");
+        for(uint i=1; i<intervals.length; i++)
+            assert(intervals[i-1] < intervals[i]);
+    }
+    body
+    {
+        data = Uint24Array!(SP)(intervals);
+    }
+
+    this(this)
+    {//TODO: COW
+        data = data.dup;
+    }
+
+	///Make a mutable copy of this set.
+	@property auto dup()const
+	{
+		InversionList s;
+		s.data = data.dup;
+		return s;
+	}
+
+    @property auto byInterval()const 
+    {
+        static struct Intervals
+        {
+            @property auto front()const
+            {
+                uint a = *cast(uint*)slice.ptr;
+                uint b= *cast(uint*)(slice.ptr+1);
+                //optimize a bit, since we go by even steps
+                return Tuple!(uint, "a", uint, "b")(a & 0xFF_FFFF, b >> 8);
+            }
+
+            @property auto back()const
+            {
+                uint a = *cast(uint*)slice.ptr[len-2];
+                uint b = *cast(uint*)slice.ptr[len-1];
+                //optimize a bit, since we go by even steps
+                return Tuple!(uint, "a", uint, "b")(a & 0xFF_FFFF, b >> 8);
+            }
+
+            void popFront()
+            {
+               len -= 2;
+               slice = slice[3..$];//3*2 16bit == 2*24 bits
+            }
+
+            void popBack()
+            {
+                len -= 2;
+                slice = slice[0..$-3];
+            }
+
+            @property bool empty()const { return len == 0; }
+
+            @property auto save(){ return this; }
+        private:
+            const(ushort)[] slice;
+            size_t len;
+        }
+        return Intervals(data.data, data.length);
+    }
+
+    bool opIndex(uint val)
+    {
+        return assumeSorted(data[]).lowerBound(val).length & 1;
+    }
+
+    mixin BasicSetOps;
+private:
+    alias typeof(this) This;
+    alias size_t Marker;
+
+    //special case for normal InversionList
+    ref subChar(dchar ch)
+    {
+        auto mark = skipUpTo(ch);
+        if(mark != data.length
+            && data[mark] == ch && data[mark-1] == ch)
+        {
+            //it has split, meaning that ch happens to be in one of intervals
+            data[mark] = data[mark]+1;
+        }
+        return this;
+    }
+
+    //
+    Marker addInterval(int a, int b, Marker hint=Marker.init)
+    in
+    {
+        assert(a <= b);
+    }
+    body
+    {
+        auto range = assumeSorted(data[]);
+        size_t pos;
+        size_t a_idx = range.lowerBound(a).length;
+        if(a_idx == range.length)
+        {
+            //  [---+++----++++----++++++]
+            //  [                         a  b]
+            data.append([a, b]);
+            return data.length-1;
+        }
+        size_t b_idx = range[a_idx..range.length].lowerBound(b).length+a_idx;
+        uint[] to_insert;
+        debug(std_uni)
+        {
+            writefln("a_idx=%d; b_idx=%d;", a_idx, b_idx);
+        }
+        if(b_idx == range.length)
+        {
+            //  [-------++++++++----++++++-]
+            //  [      s     a                 b]
+            if(a_idx & 1)//a in positive
+            {
+                to_insert = [ b ];
+            }
+            else// a in negative
+            {
+                to_insert = [a, b];
+            }
+            genericReplace(data, a_idx, b_idx, to_insert);
+            return a_idx+to_insert.length-1;
+        }
+
+        uint top = data[b_idx];
+
+        debug(std_uni)
+        {
+            writefln("a_idx=%d; b_idx=%d;", a_idx, b_idx);
+            writefln("a=%s; b=%s; top=%s;", a, b, top);
+        }
+        if(a_idx & 1)
+        {//a in positive
+            if(b_idx & 1)//b in positive
+            {
+                //  [-------++++++++----++++++-]
+                //  [       s    a        b    ]
+                to_insert = [top];
+            }
+            else //b in negative
+            {
+                //  [-------++++++++----++++++-]
+                //  [       s    a   b         ]
+                if(top == b)
+                {
+                    assert(b_idx+1 < data.length);
+                    pos = genericReplace(data, a_idx, b_idx+2, [data[b_idx+1]]);
+                    return pos;
+                }
+                to_insert = [b, top ];
+            }
+        }
+        else
+        { // a in negative
+            if(b_idx & 1) //b in positive
+            {
+                //  [----------+++++----++++++-]
+                //  [     a     b              ]
+                to_insert = [a, top];
+            }
+            else// b in negative
+            {
+                //  [----------+++++----++++++-]
+                //  [  a       s      b        ]
+                if(top == b)
+                {
+                    assert(b_idx+1 < data.length);
+                    pos = genericReplace(data, a_idx, b_idx+2, [a, data[b_idx+1] ]);
+                    return pos;
+                }
+                to_insert = [a, b, top];
+            }
+        }
+        pos = genericReplace(data, a_idx, b_idx+1, to_insert);
+        debug(std_uni)
+        {
+            writefln("marker idx: %d; length=%d", pos, data[pos], data.length);
+            writeln("inserting ", to_insert);
+        }
+        return pos;
+    }
+
+    //
+    Marker dropUpTo(uint a, Marker pos=Marker.init)
+    in
+    {
+        assert(pos % 2 == 0); //at start of interval
+    }
+    body
+    {
+        auto range = assumeSorted!"a<=b"(data[pos..data.length]);
+        if(range.empty)
+            return pos;
+        size_t idx = pos;
+        idx += range.lowerBound(a).length;
+
+        debug(std_uni)
+        {
+            writeln("dropUpTo full length=", data.length);
+            writeln(pos,"~~~", idx);
+        }
+        if(idx == data.length)
+            return genericReplace(data, pos, idx, cast(uint[])[]);
+        if(idx & 1)
+        {   //a in positive
+            //[--+++----++++++----+++++++------...]
+            //      |<---si       s  a  t
+            genericReplace(data, pos, idx, [a]);
+        }
+        else
+        {   //a in negative
+            //[--+++----++++++----+++++++-------+++...]
+            //      |<---si              s  a  t
+            genericReplace(data, pos, idx, cast(uint[])[]);
+        }
+        return pos;
+    }
+
+    //
+    Marker skipUpTo(uint a, Marker pos=Marker.init)
+    out(result)
+    {
+        assert(result % 2 == 0);//always start of interval
+        //(may be  0-width after-split)
+    }
+    body
+    {
+        assert(data.length % 2 == 0);
+        auto range = assumeSorted!"a<=b"(data[pos..data.length]);
+        size_t idx = pos+range.lowerBound(a).length;
+
+        if(idx >= data.length) //could have Marker point to recently removed stuff
+            return data.length;
+
+        if(idx & 1)//inside of interval, check for split
+        {
+
+            uint top = data[idx];
+            if(top == a)//no need to split, it's end
+                return idx+1;
+            uint start = data[idx-1];
+            if(a == start)
+                return idx-1;
+            //split it up
+            genericReplace(data, idx, idx+1, [a, a, top]);
+            return idx+1;        //avoid odd index
+        }
+        return idx;
+    }
+
+    Uint24Array!SP data;
+};
+
+///Packed array of 24-bit integers.
+struct Uint24Array(SP=GcPolicy)
+{
+    this(Range)(Range range)
+        if(isInputRange!Range && hasLength!Range)
+    {
+        length = range.length;
+        copy(range, this[]);
+    }
+
+    this(this)
+    {
+        data = SP.dup(data);
+    }
+
+    ~this()
+    {
+        SP.destroy(data);
+    }
+
+    @property size_t length()const { return roundDiv(data.length*2, 3); }
+
+    @property void length(size_t len)
+    {
+        data = SP.realloc(data, roundDiv(len*3,2));
+    }
+
+    ///Read 24-bit packed integer
+    uint opIndex(size_t idx)const
+    {
+        uint* ptr = cast(uint*)(data.ptr+3*idx/2);
+        version(LittleEndian)
+            return idx & 1 ? *ptr >>8 : *ptr & 0xFF_FFFF;
+        else version(BigEndian)
+            return idx & 1 ? *ptr & 0xFF_FFFF : *ptr >>8;
+    }
+
+    ///Write 24-bit packed integer
+    void opIndexAssign(uint val, size_t idx)
+    in
+    {
+        assert(val <= 0xFF_FFFF);
+    }
+    body
+    {
+        uint* ptr = cast(uint*)(data.ptr+3*idx/2);
+        version(LittleEndian)
+        {
+            *ptr = idx & 1 ? (val<<8) | (*ptr&0xFF)
+                : val | (*ptr & 0xFF00_0000);
+        }
+        else version(BigEndian)
+        {
+            *ptr = idx & 1 ? val | (*ptr & 0xFF00_0000)
+                : (val<<8) | (*ptr&0xFF);
+        }
+    }
+
+    //
+    auto opSlice(size_t from, size_t to)
+    {
+        return SliceOverIndexed!Uint24Array(from, to, &this);
+    }
+    //
+    auto opSlice()
+    {
+        return opSlice(0, length);
+    }
+
+    @property auto dup() const
+    {
+        Uint24Array r;
+        r.data = SP.dup(data);
+        return r;
+    }
+
+    void append(Range)(Range range)
+        if(isInputRange!Range && hasLength!Range)
+    {
+        size_t nl = length + range.length;
+        length = nl;
+        copy(range, this[nl-range.length..nl]);
+    }
+
+    bool opEquals(const ref Uint24Array rhs)const
+    {
+        return data[0..roundDiv(data.length*2,3)]
+            == rhs.data[0..roundDiv(rhs.data.length*2,3)];
+    }
+private:
+    static uint roundDiv(size_t src, uint div)
+    {
+        return cast(uint)(src + div/2)/div;
+    }
+    ushort[] data;
+}
+
+unittest//Uint24 tests
+{
+    InversionList!GcPolicy val;
+    foreach(Policy; TypeTuple!(GcPolicy, ReallocPolicy))
+    {
+        alias typeof(Uint24Array!Policy.init[]) Range;
+        alias Uint24Array!Policy U24A;
+        static assert(isForwardRange!Range);
+        static assert(isBidirectionalRange!Range);
+        static assert(isOutputRange!(Range, uint));
+        static assert(isRandomAccessRange!(Range));
+
+        auto arr = U24A([42u, 36, 100]);
+        assert(arr[0] == 42);
+        assert(arr[1] == 36);
+        arr[0] = 72;
+        arr[1] = 0xFE_FEFE;
+        assert(arr[0] == 72);
+        assert(arr[1] == 0xFE_FEFE);
+        assert(arr[2] == 100);
+
+
+        auto r2 = U24A(iota(0, 100));
+        assert(equal(r2[], iota(0, 100)), text(r2[]));
+        copy(iota(10, 170, 2), r2[10..90]);
+        assert(equal(r2[], chain(iota(0, 10), iota(10, 170, 2), iota(90, 100)))
+               , text(r2[]));
+    }
+}
+
+version(unittest)
+{
+
+private alias TypeTuple!(InversionList!GcPolicy, InversionList!ReallocPolicy) AbsTypes;
+private alias staticMap!(RleBitSet, TypeTuple!(ubyte, ushort,uint)) RleTypes;
+private alias TypeTuple!(AbsTypes, RleTypes) AllSets;
+
+}
+
+unittest//core set primitives test
+{
+    foreach(CodeList; AllSets)
+    {
+        CodeList a;
+        //"plug a hole" test
+        a.add(10, 20).add(25, 30).add(15, 27);
+        assert(a == CodeList(10, 30), text(a));
+
+        auto x = CodeList.init;
+        x.add(10, 20).add(30, 40).add(50, 60);
+
+        a = x;
+        a.add(20, 49);//[10, 49) [50, 60)
+        assert(a == CodeList(10, 49, 50 ,60));
+
+        a = x;
+        a.add(20, 50);
+        assert(a == CodeList(10, 60), text(a.byInterval));
+
+        //simple unions, mostly edge effects
+        x = CodeList.init;
+        x.add(10, 20).add(40, 60);
+
+        a = x;
+        a.add(10, 25); //[10, 25) [40, 60)
+        assert(a == CodeList(10, 25, 40, 60));
+
+        a = x;
+        a.add(5, 15); //[5, 20) [40, 60)
+        assert(a == CodeList(5, 20, 40, 60));
+
+        a = x;
+        a.add(0, 10); // [0, 20) [40, 60)
+        assert(a == CodeList(0, 20, 40, 60));
+
+        a = x;
+        a.add(0, 5); //prepand
+        assert(a == CodeList(0, 5, 10, 20, 40, 60));
+
+        a = x;
+        a.add(5, 20);
+        assert(a == CodeList(5, 20, 40, 60));
+
+        a = x;
+        a.add(3, 37);
+        assert(a == CodeList(3, 37, 40, 60));
+
+        a = x;
+        a.add(37, 65);
+        assert(a == CodeList(10, 20, 37, 65), text(a.byInterval));
+
+        //some tests on helpers for set intersection
+        x = CodeList.init.add(10, 20).add(40, 60).add(100, 120);
+        a = x;
+
+        auto m = a.skipUpTo(60);
+        a.dropUpTo(110, m);
+        assert(a == CodeList(10, 20, 40, 60, 110, 120), text(a.data[]));
+
+        a = x;
+        a.dropUpTo(100);
+        assert(a == CodeList(100, 120), text(a.data[]));
+
+        a = x;
+        m = a.skipUpTo(50);
+        a.dropUpTo(140, m);
+        assert(a == CodeList(10, 20, 40, 50), text(a.data[]));
+        a = x;
+        a.dropUpTo(60);
+        assert(a == CodeList(100, 120), text(a.data[]));
+    }
+}
+
+unittest//constructors
+{
+    alias RleBitSet!ushort CodeList;
+    auto a = CodeList(10, 25, 30, 45);
+    assert(a.repr == [10, 15, 5, 15]);
+}
+
+unittest
+{   //full set operations
+    foreach(CodeList; AllSets)
+    {
+        CodeList a, b, c, d;
+
+        //"plug a hole"
+        a.add(20, 40).add(60, 80).add(100, 140).add(150, 200);
+        b.add(40, 60).add(80, 100).add(140, 150);
+        c = a | b;
+        d = b | a;
+        assert(c == CodeList(20, 200), text(c));
+        assert(c == d, text(c," vs ", d));
+
+        b = CodeList.init.add(25, 45).add(65, 85).add(95,110).add(150, 210);
+        c = a | b; //[20,45) [60, 85) [95, 140) [150, 210)
+        d = b | a;
+        assert(c == CodeList(20, 45, 60, 85, 95, 140, 150, 210), text(c));
+        assert(c == d, text(c," vs ", d));
+
+        b = CodeList.init.add(10, 20).add(30,100).add(145,200);
+        c = a | b;//[10, 140) [145, 200)
+        d = b | a;
+        assert(c == CodeList(10, 140, 145, 200));
+        assert(c == d, text(c," vs ", d));
+
+        b = CodeList.init.add(0, 10).add(15, 100).add(10, 20).add(200, 220);
+        c = a | b;//[0, 140) [150, 220)
+        d = b | a;
+        assert(c == CodeList(0, 140, 150, 220));
+        assert(c == d, text(c," vs ", d));
+
+
+        a = CodeList.init.add(20, 40).add(60, 80);
+        b = CodeList.init.add(25, 35).add(65, 75);
+        c = a & b;
+        d = b & a;
+        assert(c == CodeList(25, 35, 65, 75), text(c));
+        assert(c == d, text(c," vs ", d));
+
+        a = CodeList.init.add(20, 40).add(60, 80).add(100, 140).add(150, 200);
+        b = CodeList.init.add(25, 35).add(65, 75).add(110, 130).add(160, 180);
+        c = a & b;
+        d = b & a;
+        assert(c == CodeList(25, 35, 65, 75, 110, 130, 160, 180), text(c));
+        assert(c == d, text(c," vs ", d));
+
+        a = CodeList.init.add(20, 40).add(60, 80).add(100, 140).add(150, 200);
+        b = CodeList.init.add(10, 30).add(60, 120).add(135, 160);
+        c = a & b;//[20, 30)[60, 80) [100, 120) [135, 140) [150, 160)
+        d = b & a;
+
+        assert(c == CodeList(20, 30, 60, 80, 100, 120, 135, 140, 150, 160),text(c));
+        assert(c == d, text(c, " vs ",d));
+        assert((c & a) == c);
+        assert((d & b) == d);
+        assert((c & d) == d);
+
+        b = CodeList.init.add(40, 60).add(80, 100).add(140, 200);
+        c = a & b;
+        d = b & a;
+        assert(c == CodeList(150, 200), text(c));
+        assert(c == d, text(c, " vs ",d));
+        assert((c & a) == c);
+        assert((d & b) == d);
+        assert((c & d) == d);
+
+        assert((a & a) == a);
+        assert((b & b) == b);
+
+        a = CodeList.init.add(20, 40).add(60, 80).add(100, 140).add(150, 200);
+        b = CodeList.init.add(30, 60).add(75, 120).add(190, 300);
+        c = a - b;// [30, 40) [60, 75) [120, 140) [150, 190)
+        d = b - a;// [40, 60) [80, 100) [200, 300)
+        assert(c == CodeList(20, 30, 60, 75, 120, 140, 150, 190), text(c));
+        assert(d == CodeList(40, 60, 80, 100, 200, 300), text(d));
+        assert(c - d == c, text(c-d, " vs ", c));
+        assert(d - c == d, text(d-c, " vs ", d));
+        assert(c - c == CodeList.init);
+        assert(d - d == CodeList.init);
+
+        a = CodeList.init.add(20, 40).add( 60, 80).add(100, 140).add(150,            200);
+        b = CodeList.init.add(10,  50).add(60,                           160).add(190, 300);
+        c = a - b;// [160, 190)
+        d = b - a;// [10, 20) [40, 50) [80, 100) [140, 150) [200, 300)
+        assert(c == CodeList(160, 190), text(c));
+        assert(d == CodeList(10, 20, 40, 50, 80, 100, 140, 150, 200, 300), text(d));
+        assert(c - d == c, text(c-d, " vs ", c));
+        assert(d - c == d, text(d-c, " vs ", d));
+        assert(c - c == CodeList.init);
+        assert(d - d == CodeList.init);
+
+        a = CodeList.init.add(20,    40).add(60, 80).add(100,      140).add(150,  200);
+        b = CodeList.init.add(10, 30).add(45,         100).add(130,             190);
+        c = a ~ b; // [10, 20) [30, 40) [45, 60) [80, 130) [140, 150) [190, 200)
+        d = b ~ a;
+        assert(c == CodeList(10, 20, 30, 40, 45, 60, 80, 130, 140, 150, 190, 200),
+               text(c));
+        assert(c == d, text(c, " vs ", d));
+    }
+}
+
+private alias RleBitSet!ubyte uList;
+private alias RleBitSet!ushort mList;
+private alias RleBitSet!uint cList;
+
+unittest// set operations and integer overflow ;)
+{
+	uList a, b, c, d;
+	a = uList(20, 40, 100,      300, 400,     1200);
+	b = uList(0,           260, 300,      600);
+	assert(a.repr == [20, 20, 60, 200, 100, 255, 0, 255, 0, 255, 0, 35]);
+	assert(b.repr == [0, 255, 0, 5, 40, 255, 0, 45]);
+	c = a & b; //[20,40) [100, 260) [400, 600)
+	d = b & a;
+	auto e = uList(20, 40, 100, 260, 400, 600);
+	assert(c == e, text(c, " vs ", e));
+	assert(c == d, text(c, " vs ", d));
+}
+
+unittest// ditto
+{
+	foreach(i, List; TypeTuple!(mList, cList))
+    {
+        List a, b, c, d;
+        a = List(    150,       450,    550,    750,    1000,  75_000);
+        b = List(80,    220,       460,      700,   900,             150_000);
+        c = a & b;
+        d = a | b;
+        assert(c == uList(150, 220, 550, 700, 1000, 75_000), text(c));
+        assert(d == uList(80, 450,  460, 750, 900, 150_000), text(d));
+
+        c = a - b;
+        d = b - a;
+        assert(c == mList(220, 450, 700, 750), text(c));
+        assert(d == mList(80, 150,   460, 550, 900, 1000, 75_000, 150_000), text(d));
+    }
+}
+
+unittest//even more set operations with BIG intervals
+{
+    foreach(List; TypeTuple!(mList, cList))
+    {
+        List a, b, c, d, e, f;
+        a = List(10_000,         100_000,
+                  1_000_000,                                           10_000_000);
+        b = List(       50_000            ,150_000, 250_000 ,350_000,
+                  900_000       ,2_300_000,  4_600_000 ,6_400_000, 8_000_000 ,12_000_000);
+        c = a | b;
+        d = a & b;
+        assert(c == mList(10_000, 150_000, 250_000, 350_000, 900_000, 12_000_000));
+        assert(d == cList(50_000, 100_000, 1_000_000, 2_300_000, 4_600_000, 6_400_000, 8_000_000, 10_000_000));
+
+        c = a ~ b;
+        d = b ~ a;
+        assert(c == d);
+        assert(c == uList(10_000, 50_000, 100_000, 150_000, 250_000, 350_000, 900_000, 1_000_000,
+                       2_300_000, 4_600_000, 6_400_000, 8_000_000, 10_000_000, 12_000_000));
+
+        c = a - b;
+        d = b - a;
+
+        assert(c == uList(10_000, 50_000, 2_300_000, 4_600_000, 6_400_000, 8_000_000));
+        assert(d == mList(100_000, 150_000, 250_000, 350_000, 900_000, 1_000_000,
+                       10_000_000, 12_000_000));
+    }
+}
+
+unittest// vs single dchar
+{
+    mList a = mList(10, 100, 120, 200);
+    assert(a - 'A' == uList(10, 65, 66, 100, 120, 200), text(a - 'A'));
+    assert((a & 'B') == uList(66, 67));
+}
+
+unittest//iteration
+{
+    import std.typecons;
+    auto arr = "ABCDEFGHIJKLMabcdefghijklm"d;
+    auto a = mList('A','N','a', 'n');
+    assert(equal(a.byInterval, [ tuple(cast(uint)'A', cast(uint)'N'), tuple(cast(uint)'a', cast(uint)'n')]), text(a.byInterval));
+
+    assert(equal(a.byChar, arr), text(a.byChar));
+
+    auto x = uList(100, 500, 600, 900, 1200, 1500);
+    assert(equal(x.byInterval, [ tuple(100, 500), tuple(600, 900), tuple(1200, 1500)]), text(x.byInterval));
+}
+
+template WrapBinary(alias filter, alias bFn)
+{
+    auto WrapBinary(A)(A a, A b)
+    {
+        return bFn(filter(a), filter(b));
+    }
+}
+
+template MapWrap(alias Fn, Ts...)
+{
+    static if(Ts.length > 0)
+        alias TypeTuple!(WrapBinary!(Fn, Ts[0]), MapWrap!(Fn, Ts[1..$])) MapPipe;
+    else
+        alias TypeTuple!() MapPipe;
+}
+
+struct Trie(Value, Key, Prefix...)
+    if(Prefix.length >= 1)
+{
+
+    static if(is(Value dummy : SetAsSlot!(U), U))
+    {
+        alias U V;
+        enum type = TrieType.Set;
+        static putValue(ref V cont, Key val)
+        {
+            cont.insert(val);
+        }
+    }
+    else static if(is(Value dummy: MapAsSlot!(C, U, X), C, U, X))
+    {//TODO: built-in AA are somehow sluggish and need GC addRoot (still not implemented)
+        alias C V;
+        alias U Item;
+        static assert(is(X == Key));
+        enum type = TrieType.Map;
+        static putValue(Pair)(ref V cont, Pair val)
+        {
+            cont.insert(val);
+        }
+    }
+    else
+    {
+        alias Value V;
+        enum type = TrieType.Value;
+        static putValue(ref V x, V val)
+        {
+            x = val;
+        }
+    }
+
+    ///Construct Trie from array of keys
+    ///fills all possible keys with zeros in index
+    this(Keys)(Keys keys)
+        if(!is(typeof(Set.init.isSet)))
+    {
+        enum last = Prefix.length-1;
+        enum pageBits=Prefix[$-1].bitSize, pageSize = 1<<pageBits;
+        size_t maxIdx = 1;
+        //maximum index is sizes of each level multiplied
+        foreach(v; Prefix)
+            maxIdx *= 2^^v.bitSize;
+
+        size_t[Prefix.length] idxs;
+        table = table(idxs);
+        //one page per level is bootstrap minimum
+        foreach(i; Sequence!(0, Prefix.length))
+            table.length!i = (1<<Prefix[i].bitSize);
+
+        {//don't pollute the ctor scope
+            auto ptr = table.slice!(last);
+            size_t j = 0;
+            size_t prevKeyIdx = size_t.max;
+            static if(isDynamicArray!Keys)
+            {
+                alias GetComparators!(Prefix.length, cmpK) Comps;
+                multiSort!(Comps, SwapStrategy.unstable)
+                    (keys);
+                auto r = keys;
+            }
+            else static if(type == TrieType.Map)
+            {
+                static assert(isAssociativeArray!Keys
+                              , "MapAsSlot Tries can only be constructed out of AAs");
+                alias GetComparators!(Prefix.length, cmpK0) Comps;
+                auto r = array(zip(keys.byValue, keys.byKey));
+                multiSort!Comps(r);
+            }
+            else
+                static assert(false, "unsupported constructor for "~Keys.stringof);
+
+            for(int i=0;i<r.length; i++)
+            {
+                static if(type == TrieType.Map)
+                    size_t keyIdx = getIndex(r[i][1]);
+                else
+                    size_t keyIdx = getIndex(r[i]);
+                if(keyIdx != prevKeyIdx)
+                {
+                    static if(type == TrieType.Set
+                              || type == TrieType.Map)
+                    {
+                        addValue!last(idxs, r.front.init, keyIdx - j);
+                        addValue!last(idxs, r[i]);
+                    }
+                    else
+                    {
+                        addValue!last(idxs, false, keyIdx - j);
+                        addValue!last(idxs, true);
+                    }
+                    prevKeyIdx = keyIdx;
+                    j = keyIdx+1;
+                }
+                else
+                {//Set or map version can have "duplicate" slot keys
+                     static if(type == TrieType.Set
+                               || type == TrieType.Map)
+                     {
+                        idxs[last]--;
+                        addValue!last(idxs, r[i]);
+                     }
+                }
+
+            }
+            static if(type == TrieType.Set)
+                addValue!last(idxs, Key.init, maxIdx-j);
+            else static if(type == TrieType.Map)
+                addValue!last(idxs, r.front.init, maxIdx-j);
+            else
+                addValue!last(idxs, false, maxIdx-j);
+        }
+    }
+
+    ///Construct boolean Trie from set.
+    this(Set)(Set set, Key maxKey=Key.max)
+        if(is(typeof(Set.init.isSet)))
+    {
+        enum last = Prefix.length-1;
+        enum pageBits=Prefix[$-1].bitSize, pageSize = 1<<pageBits;
+        maxKey =((maxKey + pageSize/2)>>pageBits)<<pageBits;
+
+        auto ivals = set.byInterval;
+        size_t[Prefix.length] idxs;
+
+
+        table = table(idxs);
+        //one page per level is bootstrap minimum
+        foreach(i; Sequence!(0, Prefix.length))
+            table.length!i = (1<<Prefix[i].bitSize);
+
+        {//don't pollute the ctor scope
+            auto ptr = table.slice!(last);
+            size_t i = 0;
+            for(;;)
+            {
+                if(ivals.empty)
+                    break;
+                uint a = ivals.front.a, b = ivals.front.b;
+
+                addValue!last(idxs, false, a - i);
+                i = a;
+
+                assert(i < maxKey, "set has keys > maxKey in Trie c-tor");
+                addValue!last(idxs, true, b - i);
+                i = b;
+
+                ivals.popFront();
+            }
+			addValue!last(idxs, false, maxKey - i);
+            /*for(; i<maxKey; i++){
+				writeln("### i:", i);
+				foreach(j, p; Prefix)
+					writef("%1d-LVL: %d; ", j, p.entity(i));
+				writeln();
+				addValue!last(idxs, false);
+				
+			}*/
+        }
+    }
+
+    inout(V) opIndex(Key key) inout
+    {
+        size_t idx;
+        alias Prefix p;
+        idx = p[0].entity(key);
+        foreach(i, v; p[0..$-1])
+            idx = (table.slice!i[idx]<<p[i+1].bitSize) + p[i+1].entity(key);
+        return table.slice!(p.length-1)[idx];
+    }
+
+    @property size_t bytes(size_t n=size_t.max)() const
+    {
+        static if(n == size_t.max)
+            return table.storage.length*size_t.sizeof;
+        else
+            return table.length!n * typeof(table.slice!n[0]).sizeof;
+    }
+
+    @property size_t pages(size_t n=size_t.max)() const
+    {
+        return (bytes!n+2^^(Prefix[$-1].bitSize-1))
+                /2^^Prefix[$-1].bitSize;
+    }
+
+    version(none) static bool cmpKey(Key a, Key b)//untested, possibly bogus
+    {
+        foreach(p; Prefix)
+        {
+            if(p.entity(a) < p.entity(b))
+               return true;
+        }
+        return false;
+    }
+
+    //needed for multisort to work
+    static bool cmpK(size_t i)(Key a, Key b)
+    {
+        return Prefix[i].entity(a) < Prefix[i].entity(b);
+    }
+
+    //ditto
+    static if(type == TrieType.Map)
+    static bool cmpK0(size_t i)
+        (const ref Tuple!(Item,Key) a, const ref Tuple!(Item, Key) b)
+    {
+        return Prefix[i].entity(a[1]) < Prefix[i].entity(b[1]);
+    }
+private:
+    enum TrieType{ Value, Set, Map };
+    //for multi-sort
+    template GetComparators(size_t n, alias cmpFn)
+    {
+        static if(n > 0)
+            alias TypeTuple!(GetComparators!(n-1, cmpFn), cmpFn!(n-1)) GetComparators;
+        else
+            alias TypeTuple!() GetComparators;
+    }
+
+    static size_t getIndex(Key key)//get "mapped" virtual integer index
+    {
+        alias Prefix p;
+        size_t idx;
+        foreach(i, v; p[0..$-1])
+        {
+            idx |= p[i].entity(key);
+            idx <<= p[i+1].bitSize;
+        }
+        idx |= p[$-1].entity(key);
+        return idx;
+    }
+
+    static arrayRepr(T)(T x)
+    {
+        if(x.length > 32)
+        {
+            return text(x[0..16],"~...~", x[x.length-16..x.length]);
+        }
+        else
+            return text(x);
+    }
+
+    //true if page was allocated, false is it was mapped or not an end of page yet
+    void addValue(size_t level, T)(size_t[] indices, T val, size_t numVals=1)
+    body
+    {
+        enum pageSize = 1<<Prefix[level].bitSize;
+        if(numVals == 0)
+            return;
+        do
+        {
+            //need to take pointer again, memory block  may move
+            auto ptr = table.slice!(level);
+            //writeln(ptr[]);
+            //writeln(indices);
+            if(numVals == 1)
+            {
+                static if(level == Prefix.length-1 && type != TrieType.Value)
+                    putValue(ptr[indices[level]], val);
+                else// can incurr narrowing conversion
+                    ptr[indices[level]] = force!(typeof(ptr[indices[level]]))(val);
+                //writeln(indices);
+                indices[level]++;
+                //writeln(table.slice!level);
+                numVals = 0;
+            }
+            else
+            {
+                //writeln("slice assign!");
+                //where is the next page boundary
+                size_t nextPB = (indices[level]+pageSize)/pageSize*pageSize;
+                size_t j = indices[level];
+                size_t n =  nextPB-j;//can fill right in this page
+				
+                if(numVals > n)
+                    numVals -= n;
+                else
+                {
+                    n = numVals;
+                    numVals = 0;
+                }
+                static if(level == Prefix.length-1 && type != TrieType.Value)
+                {
+                    for(int i=0;i<n; i++)
+                        putValue(ptr[j++], val);
+                }
+                else
+                {
+                    //writeln("slice assign!");
+                    ptr[j..j+n]  = val;
+                    j += n;
+                    //writeln(j);
+                }
+                indices[level] = j;
+
+            }
+            static if(level != 0)//last level has 1 "page"
+            {
+                alias typeof(table.slice!(level-1)[0]) NextIdx;
+                NextIdx next_lvl_index;
+                if(indices[level] % pageSize == 0)
+                {
+                    auto last = indices[level]-pageSize;
+                    auto slice = ptr[indices[level] - pageSize..indices[level]];
+                    //writeln(last, "   base: ", base, " ptr:", ptr);
+                    size_t j;
+                    for(j=0; j<last; j+=pageSize)
+                    {
+                        if(equal(ptr[j..j+pageSize], slice[0..pageSize]))
+                        {
+                            //get index to it, reuse ptr space for the next block
+                            next_lvl_index = cast(NextIdx)(j/pageSize);
+                            version(none)
+                            {
+                            writefln("LEVEL(%s) page maped idx: %s: 0..%s  ---> [%s..%s]"
+                                    ,level
+                                    ,indices[level-1], pageSize, j, j+pageSize);
+                            writeln("LEVEL(", level
+                                    , ") mapped page is: ", slice, ": ", arrayRepr(ptr[j..j+pageSize]));
+                            writeln("LEVEL(", level
+                                    , ") src page is :", ptr, ": ", arrayRepr(slice[0..pageSize]));
+                            }
+                            indices[level] -= pageSize; //reuse this page, it is duplicate
+                            break;
+                        }
+                    }
+                    if(j == last)
+                    {
+                        next_lvl_index = cast(NextIdx)(indices[level]/pageSize - 1);
+                        //allocate next page
+                        version(none)
+                        {
+                        writefln("LEVEL(%s) page allocated: %s"
+                                 , level, arrayRepr(slice[0..pageSize]));
+                        writefln("LEVEL(%s) index: %s ; page at this index %s"
+                                 , level
+                                 , next_lvl_index
+                                 , arrayRepr(
+                                     table.slice!(level)
+                                      [pageSize*next_lvl_index..(next_lvl_index+1)*pageSize]
+                                    ));
+                        }
+                        table.length!level = table.length!level + pageSize;
+                    }
+                    addValue!(level-1)(indices, next_lvl_index);
+                }
+            }
+        }
+        while(numVals);
+    }
+
+    //last index is not stored in table, it is used as offset to values in a block.
+    MultiArray!(idxTypes!(Key, size_t.max, true, Prefix[0..$-1]), V) table;
+	pragma(msg, typeof(table));
+}
+
+/**
+    Wrapping T by SetAsSlot indicates that T should be considered
+    as a set of values.
+    When SetAsSlot!T is used as $(D Value) type, Trie will internally
+    translate assignments/test to insert & 'in' operator repspectively.
+*/
+public struct SetAsSlot(T){}
+
+///Ditto for map of Key -> Value.
+public struct MapAsSlot(T, Value, Key){}
+
+/**
+    Wrapper, provided to simplify definition
+    of custom Trie data structures. Use it on a lambda to indicate that
+    returned value always fits within $(D bits) of bits.
+*/
+public template assumeSize(size_t bits, alias Fn)
+{
+    enum bitSize = bits;
+    alias Fn entity;
+}
+
+///indicates MultiArray to apply bit packing to this field
+struct BitPacked(size_t sz, T) if(isIntegral!T || is(T:dchar))
+{
+    enum bitSize = sz;
+    alias T entity;
+}
+
+template sliceBitsImpl(size_t from, size_t to)
+{
+    T sliceBitsImpl(T)(T x)
+	out(result)
+	{
+		assert(result < (1<<to-from));
+	}
+	body
+    {
+        static assert(from < to);
+        return (x >> from) & ((1<<(to-from))-1);
+    }
+}
+
+///todo
+public template sliceBits(size_t from, size_t to)
+{
+    alias assumeSize!(to-from, sliceBitsImpl!(from, to)) sliceBits;
+}
+
+uint low_8(uint x) { return x&0xFF; }
+uint midlow_8(uint x){ return (x&0xFF00)>>8; }
+alias assumeSize!(8, low_8) lo8;
+alias assumeSize!(8, midlow_8) mlo8;
+
+template Sequence(size_t start, size_t end)
+{
+    static if(start < end)
+        alias TypeTuple!(start, Sequence!(start+1, end)) Sequence;
+    else
+        alias TypeTuple!() Sequence;
+}
+
+//---- TRIE TESTS ----
+version(unittest)
+private enum TokenKind : ubyte { //from DCT by Roman Boiko (Boost v1.0 licence)
+		// token kind has not been initialized to a valid value
+		Invalid = 0,
+
+		// protection
+		Package, Private, Protected, Public, // note: extern also specifies protection level
+
+		// storage classes
+		Extern, Abstract, Auto, Const, Deprecated, Enum, Final, Immutable, InOut, NoThrow, Override, Pure, Scope, Shared, Static, Synchronized, _GShared,
+
+		// basic type names
+		Bool, Char, UByte, Byte, WChar, UShort, Short, DChar, UInt, Int, ULong, Long, Float, Double, Real, CFloat, CDouble, CReal, IFloat, IDouble, IReal, Void,
+
+		// other keywords
+		Alias, Align, Asm, Assert, Body, Break, Case, Cast, Catch, Cent, Class, Continue, Debug, Default, Delegate, Delete, Do, Else, Export, False, Finally, ForEach_Reverse, ForEach, For, Function,
+		GoTo, If, Import, Interface, Invariant, In, Is, Lazy, Macro, Mixin, Module, New, Null, Out, Pragma, Ref, Return, Struct, Super, Switch,
+		Template, This, Throw, True, Try, TypeDef, TypeId, TypeOf, UCent, Union, UnitTest, Version, Volatile, While, With, _FILE_, _LINE_, _Thread, _Traits,
+
+		// any identifier which is not a keyword
+		Identifier,
+
+		// literals
+		StringLiteral, CharacterLiteral, IntegerLiteral, FloatLiteral,
+
+		// punctuation
+
+		// brackets
+		LeftParen,			// (
+		RightParen,			// )
+		LeftBracket,		// [
+		RightBracket,		// ]
+		LeftCurly,			// {
+		RightCurly,			// }
+
+		// assignment operators
+		Assign,				// =
+		AmpersandAssign,	// &=
+		TildeAssign,		// ~=
+		SlashAssign,		// /=
+		LeftShiftAssign,	// <<=
+		MinusAssign,		// -=
+		PercentAssign,		// %=
+		StarAssign,			// *=
+		OrAssign,			// |=
+		PlusAssign,			// +=
+		PowerAssign,		// ^^=
+		RightShiftAssign,	// >>=
+		URightShiftAssign,	// >>>=
+		XorAssign,			// ^=
+
+		// relational operators
+		Eq,					// ==
+		NotEq,				// !=
+		GreaterThan,		// >
+		GreaterOrEq,		// >=
+		LessThan,			// <
+		LessEqOrGreater,	// <>=
+		LessOrGreater,		// <>
+		LessOrEq,			// <=
+		UnordCompare,		// !<>=
+		UnordGreaterOrEq,	// !<
+		UnordLessOrEq,		// !>
+		UnordOrEq,			// !<>
+		UnordOrGreater,		// !<=
+		UnordOrLess,		// !>=
+
+		// shift operators
+		LeftShift,			// <<
+		RightShift,			// >>
+		URightShift,		// >>>
+
+		// other binary operators
+		Power,				// ^^
+		BoolAnd,			// &&
+		BoolOr,				// ||
+		BitOr,				// |
+		BitXor,				// ^
+		Percent,			// %
+		Slash,				// /
+
+		// operators which can be either unary or binary
+		Star,				// * (multiply; pointer)
+		Minus,				// -
+		Plus,				// +
+		Ampersand,			// & (address of; bitwise and)
+		Tilde,				// ~ (concat; complement)
+
+		// unary operators
+		Bang,				// ! (not; actual compile time parameter)
+		Decrement,			// --
+		Increment,			// ++
+
+		// other punctuation
+		Dot,				// .
+		Slice,				// ..
+		Ellipsis,			// ...
+		Lambda,				// =>
+		Question,			// ?
+		Comma,				// ,
+		Semicolon,			// ;
+		Colon,				// :
+		Dollar,				// $
+		Hash,				// #
+		At,					// @
+
+		// other tokens
+
+		SpecialToken, EndOfLine,
+		// note: it is important that the following tokens are last, because column calculation depends on whether tab appears in token spelling
+		WhiteSpace, ScriptLine, Comment, SpecialTokenSequence,
+		// end of file is always inserted (at the end)
+		// it corresponds to either of \0 or \1A, but is also inserted immediately after __EOF__ special token
+		// spelling includes everything starting from frontIndex and till the physical end of file, and it may be ""
+		// __EOF__ inside a comment, character or string literal is treated as string (unlike DMD, which treats it as EoF inside token strings and character literals)
+		_EOF_
+};
+
+unittest
+{
+    static trieStats(TRIE)(TRIE t)
+    {
+        writeln("---TRIE FOOTPRINT STATS---");
+        foreach(i; Sequence!(0, t.table.dim) )
+        {
+            writefln("lvl%s = %s bytes;  %s pages"
+                     , i, t.bytes!i, t.pages!i);
+        }
+        writefln("TOTAL: %s bytes", t.bytes);
+        writeln("INDEX (excluding value level):");
+        foreach(i; Sequence!(0, t.table.dim-1) )
+            writeln(t.table.slice!(i)[0..t.table.length!i]);
+        writeln("---------------------------");
+    }
+    //@@@BUG link failure, lambdas not found by linker somehow (in case of trie2)
+    //alias assumeSize!(8, function (uint x) { return x&0xFF; }) lo8;
+    //alias assumeSize!(7, function (uint x) { return (x&0x7F00)>>8; }) next8;
+    alias RleBitSet!ubyte Set;
+    auto set = Set('A','Z','a','z');
+    auto trie = Trie!(bool, uint, lo8)(set, 256);//simple bool array
+    for(int a='a'; a<'z';a++)
+        assert(trie[a]);
+    for(int a='A'; a<'Z';a++)
+        assert(trie[a]);
+    for(int a=0; a<'A'; a++)
+        assert(!trie[a]);
+    for(int a ='Z'; a<'a'; a++)
+        assert(!trie[a]);
+
+    auto redundant2 = Set(1, 18, 256+2, 256+111, 512+1, 512+18,
+                          768+2, 768+111);
+    auto trie2 = Trie!(bool, uint, mlo8, lo8)(redundant2, 1024);
+    trieStats(trie2);
+    foreach(e; redundant2.byChar)
+        assert(trie2[e], text(cast(uint)e, " - ", trie2[e]));
+    foreach(i; 0..1024)
+    {
+        assert(trie2[i] == (i in redundant2));
+    }
+    trieStats(trie2);
+
+    auto redundant3 = Set(
+          2,    4,    6,    8,    16,
+       2+16, 4+16, 16+6, 16+8, 16+16,
+       2+32, 4+32, 32+6, 32+8,
+      );
+
+    enum max3 = 256;
+    //sliceBits
+    auto trie3 = Trie!(bool, uint
+                       , sliceBits!(6,8)
+                       , sliceBits!(4,6)
+                       , sliceBits!(0,4)
+                       )(redundant3, max3);
+    trieStats(trie3);
+    foreach(i; 0..max3)
+        assert(trie3[i] == (i in redundant3), text(cast(uint)i));
+
+    auto redundant4 = Set(
+            10, 64, 64+10, 128, 128+10, 256, 256+10, 512,
+            1000, 2000, 3000, 4000, 5000, 6000
+        );
+    enum max4 = 2^^16;
+    auto trie4 = Trie!(bool, size_t
+                       , sliceBits!(13, 16)
+                       , sliceBits!(9, 13)
+                       , sliceBits!(6, 9) 
+                       , sliceBits!(0, 6)
+                       )(redundant4, max4);
+    foreach(i; 0..max4){		
+        if(i in redundant4)
+            assert(trie4[i], text(cast(uint)i));
+	}
+    trieStats(trie4);
+
+    string[] redundantS = ["tea", "tackle", "teenage", "start", "stray"];
+    auto strie = Trie!(bool, string, useItemAt!(0, char))(redundantS);
+    //using first char only
+    assert(strie["test"], text(strie["test"]));
+    assert(!strie["aea"]);
+    assert(strie["s"]);
+
+    //A realistic example: keyword detector
+    enum keywords = [
+            "abstract",
+			"alias",
+			"align",
+			"asm",
+			"assert",
+			"auto",
+			"body",
+			"bool",
+			"break",
+			"byte",
+			"case",
+			"cast",
+			"catch",
+			"cdouble",
+			"cent",
+			"cfloat",
+			"char",
+			"class",
+			"const",
+			"continue",
+			"creal",
+			"dchar",
+			"debug",
+			"default",
+			"delegate",
+			"delete",
+			"deprecated",
+			"do",
+			"double",
+			"else",
+			"enum",
+			"export",
+			"extern",
+			"false",
+			"final",
+			"finally",
+			"float",
+			"for",
+			"foreach",
+			"foreach_reverse",
+			"function",
+			"goto",
+			"idouble",
+			"if",
+			"ifloat",
+			"immutable",
+			"import",
+			"in",
+			"inout",
+			"int",
+			"interface",
+			"invariant",
+			"ireal",
+			"is",
+			"lazy",
+			"long",
+			"macro",
+			"mixin",
+			"module",
+			"new",
+			"nothrow",
+			"null",
+			"out",
+			"override",
+			"package",
+			"pragma",
+			"private",
+			"protected",
+			"public",
+			"pure",
+			"real",
+			"ref",
+			"return",
+			"scope",
+			"shared",
+			"short",
+			"static",
+			"struct",
+			"super",
+			"switch",
+			"synchronized",
+			"template",
+			"this",
+			"throw",
+			"true",
+			"try",
+			"typedef",
+			"typeid",
+			"typeof",
+			"ubyte",
+			"ucent",
+			"uint",
+			"ulong",
+			"union",
+			"unittest",
+			"ushort",
+			"version",
+			"void",
+			"volatile",
+			"wchar",
+			"while",
+			"with",
+			"__FILE__",
+			"__gshared",
+			"__LINE__",
+			"__thread",
+			"__traits"
+    ];
+
+    //assumes T.init == empty, NG if T.init is a legal key
+    struct SmallSet(size_t N, T)
+    {
+        T[N] items;
+        void insert(T val)
+        {
+            int i;
+            if(val == T.init)
+                return;
+            for(i=0;i<N; i++)
+                if(items[i] == T.init)
+                {
+                    items[i] = val;
+                    return;
+                }
+            throw new Exception(text("out of slots in ", this," on key=", val));
+        }
+
+        bool opBinaryRight(string op, T)(T key)
+            if(op == "in")
+        {
+            return  items[].countUntil(key) != -1;
+        }
+    }
+
+    struct SmallMap(size_t N, V, K)
+    {
+        void insert(Tuple!(V, K) t){ _set.insert(t); }
+
+        V opBinaryRight(string op, T)(T key)
+            if(op == "in")
+        {
+            auto idx = map!"a[1]"(_set.items[]).countUntil(key);
+            return idx < 0 ? V.init : _set.items[idx][0];
+        }
+        private:
+            SmallSet!(N, Tuple!(V, K)) _set;
+    }
+
+    static size_t useLength(T)(T[] arr)
+    {
+        return arr.length > 63 ? 0 : arr.length; //need max length, 64 - 6bits
+    }
+
+	enum k = bitSizeOf!(SmallSet!(2, string));
+
+    auto keyTrie = Trie!(SetAsSlot!(SmallSet!(2,string))
+                         , string
+                         , assumeSize!(6, useLength)
+                         , useItemAt!(0, char)
+                         , useLastItem!(char))(keywords);
+    foreach(key; keywords)
+        assert( key in keyTrie[key], text(key, (cast (size_t[])keyTrie[key].items)));
+    trieStats(keyTrie);
+    auto keywordsMap = [
+			"abstract" : TokenKind.Abstract,
+			"alias" : TokenKind.Alias,
+			"align" : TokenKind.Align,
+			"asm" : TokenKind.Asm,
+			"assert" : TokenKind.Assert,
+			"auto" : TokenKind.Auto,
+			"body" : TokenKind.Body,
+			"bool" : TokenKind.Bool,
+			"break" : TokenKind.Break,
+			"byte" : TokenKind.Byte,
+			"case" : TokenKind.Case,
+			"cast" : TokenKind.Cast,
+			"catch" : TokenKind.Catch,
+			"cdouble" : TokenKind.CDouble,
+			"cent" : TokenKind.Cent,
+			"cfloat" : TokenKind.CFloat,
+			"char" : TokenKind.Char,
+			"class" : TokenKind.Class,
+			"const" : TokenKind.Const,
+			"continue" : TokenKind.Continue,
+			"creal" : TokenKind.CReal,
+			"dchar" : TokenKind.DChar,
+			"debug" : TokenKind.Debug,
+			"default" : TokenKind.Default,
+			"delegate" : TokenKind.Delegate,
+			"delete" : TokenKind.Delete,
+			"deprecated" : TokenKind.Deprecated,
+			"do" : TokenKind.Do,
+			"double" : TokenKind.Double,
+			"else" : TokenKind.Else,
+			"enum" : TokenKind.Enum,
+			"export" : TokenKind.Export,
+			"extern" : TokenKind.Extern,
+			"false" : TokenKind.False,
+			"final" : TokenKind.Final,
+			"finally" : TokenKind.Finally,
+			"float" : TokenKind.Float,
+			"for" : TokenKind.For,
+			"foreach" : TokenKind.ForEach,
+			"foreach_reverse" : TokenKind.ForEach_Reverse,
+			"function" : TokenKind.Function,
+			"goto" : TokenKind.GoTo,
+			"idouble" : TokenKind.IDouble,
+			"if" : TokenKind.If,
+			"ifloat" : TokenKind.IFloat,
+			"immutable" : TokenKind.Immutable,
+			"import" : TokenKind.Import,
+			"in" : TokenKind.In,
+			"inout" : TokenKind.InOut,
+			"int" : TokenKind.Int,
+			"interface" : TokenKind.Interface,
+			"invariant" : TokenKind.Invariant,
+			"invariant" : TokenKind.Invariant,
+			"ireal" : TokenKind.IReal,
+			"is" : TokenKind.Is,
+			"lazy" : TokenKind.Lazy,
+			"long" : TokenKind.Long,
+			"macro" : TokenKind.Macro,
+			"mixin" : TokenKind.Mixin,
+			"module" : TokenKind.Module,
+			"new" : TokenKind.New,
+			"nothrow" : TokenKind.NoThrow,
+			"null" : TokenKind.Null,
+			"out" : TokenKind.Out,
+			"override" : TokenKind.Override,
+			"package" : TokenKind.Package,
+			"pragma" : TokenKind.Pragma,
+			"private" : TokenKind.Private,
+			"protected" : TokenKind.Protected,
+			"public" : TokenKind.Public,
+			"pure" : TokenKind.Pure,
+			"real" : TokenKind.Real,
+			"ref" : TokenKind.Ref,
+			"return" : TokenKind.Return,
+			"scope" : TokenKind.Scope,
+			"shared" : TokenKind.Shared,
+			"short" : TokenKind.Short,
+			"static" : TokenKind.Static,
+			"struct" : TokenKind.Struct,
+			"super" : TokenKind.Super,
+			"switch" : TokenKind.Switch,
+			"synchronized" : TokenKind.Synchronized,
+			"template" : TokenKind.Template,
+			"this" : TokenKind.This,
+			"throw" : TokenKind.Throw,
+			"true" : TokenKind.True,
+			"try" : TokenKind.Try,
+			"typedef" : TokenKind.TypeDef,
+			"typeid" : TokenKind.TypeId,
+			"typeof" : TokenKind.TypeOf,
+			"ubyte" : TokenKind.UByte,
+			"ucent" : TokenKind.UCent,
+			"uint" : TokenKind.UInt,
+			"ulong" : TokenKind.ULong,
+			"union" : TokenKind.Union,
+			"unittest" : TokenKind.UnitTest,
+			"ushort" : TokenKind.UShort,
+			"version" : TokenKind.Version,
+			"void" : TokenKind.Void,
+			"volatile" : TokenKind.Volatile,
+			"wchar" : TokenKind.WChar,
+			"while" : TokenKind.While,
+			"with" : TokenKind.With,
+			"__FILE__" : TokenKind._FILE_,
+			"__gshared" : TokenKind._GShared,
+			"__LINE__" : TokenKind._LINE_,
+			"__thread" : TokenKind._Thread,
+			"__traits" : TokenKind._Traits,
+	];
+    auto keyTrie2 = Trie!(MapAsSlot!(SmallMap!(2, TokenKind, string), TokenKind, string)
+                         , string
+                         , assumeSize!(6, useLength)
+                         , useItemAt!(0, char)
+                         , useLastItem!(char))(keywordsMap);
+    foreach(k,v; keywordsMap)
+        assert((k in keyTrie2[k]) == v);
+    trieStats(keyTrie2);
+}
+
+template useItemAt(size_t idx, T)
+    if(isIntegral!T || is(T: dchar))
+{
+    size_t entity(in T[] arr){ return arr[idx]; }
+    enum bitSize = 8*T.sizeof;
+}
+
+template useLastItem(T)
+{
+    size_t entity(in T[] arr){ return arr[$-1]; }
+    enum bitSize = 8*T.sizeof;
+}
+//TODO: benchmark for Trie vs InversionList vs RleBitSet vs std.bitmanip.BitArray
+
+//
+T msb(T)(T value)
+	if(isUnsigned!T)
+{
+	size_t mask = 1<<(T.sizeof*8-1), i;
+	for(i=T.sizeof*8-1; i<T.sizeof*8; i--, mask >>= 1)//count on overflow
+	{
+		if(mask & value)
+			return i+1;
+	}
+	return 1;
+}
+
+template idxTypes(Key, size_t maxKeyIdx, bool pack, Prefix...)
+{
+    static if(Prefix.length == 0)
+    {
+        alias TypeTuple!() idxTypes;
+    }
+    else
+    {
+		//Important bitpacking note:
+		//- each level has to hold enough of bits to address the next one
+		static if(Prefix.length > 1)
+		{
+			alias TypeTuple!(BitPacked!(Prefix[1].bitSize+1, typeof(Prefix[0].entity(Key.init)))
+							 , idxTypes!(Key, maxKeyIdx, pack, Prefix[1..$])) idxTypes;
+		}
+		else
+		{//and the last one should be able to hold
+			static if(pack)
+				alias TypeTuple!(BitPacked!(msb(maxKeyIdx), typeof(Prefix[0].entity(Key.init)))) idxTypes;
+			else
+				alias TypeTuple!(typeof(Prefix[0].entity(Key.init))) idxTypes;
+		}
+    }
+}
+
+template bitSizeOf(T)
+{
+    static if(is(typeof(T.bitSize)))
+        enum bitSizeOf = T.bitSize;
+    else
+        enum bitSizeOf = T.sizeof*8;
+}
+
+public: //Public API continues
 /++
     Whether or not $(D c) is a Unicode whitespace character.
     (general Unicode category: Part of C0(tab, vertical tab, form feed,

@@ -10,7 +10,7 @@
 //Automatically generated from Unicode Character Database files
 module std.internal.uni_tab;
 
-import std.internal.uni;
+import std.uni;
 
 
 struct CommonCaseEntry
@@ -319,56 +319,56 @@ CommonCaseEntry(0x10428, 0x10450, 1073741864),
 struct UnicodeProperty
 {
     string name;
-    immutable CodepointSet set;
+    immutable RleBitSet!uint set;
 }
-immutable(CodepointSet) unicodeInCombining_Diacritical_Marks_Supplement = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCombining_Diacritical_Marks_Supplement = RleBitSet!uint([
     0x01dc0, 0x01e00,
 ]);
 
-immutable(CodepointSet) unicodeInCJK_Radicals_Supplement = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCJK_Radicals_Supplement = RleBitSet!uint([
     0x02e80, 0x02f00,
 ]);
 
-immutable(CodepointSet) unicodeInEthiopic_Supplement = CodepointSet([
+immutable(RleBitSet!uint) unicodeInEthiopic_Supplement = RleBitSet!uint([
     0x01380, 0x013a0,
 ]);
 
-immutable(CodepointSet) unicodeInPhags_pa = CodepointSet([
+immutable(RleBitSet!uint) unicodeInPhags_pa = RleBitSet!uint([
     0x0a840, 0x0a880,
 ]);
 
-immutable(CodepointSet) unicodeInSyriac = CodepointSet([
+immutable(RleBitSet!uint) unicodeInSyriac = RleBitSet!uint([
     0x00700, 0x00750,
 ]);
 
-immutable(CodepointSet) unicodeInGujarati = CodepointSet([
+immutable(RleBitSet!uint) unicodeInGujarati = RleBitSet!uint([
     0x00a80, 0x00b00,
 ]);
 
-immutable(CodepointSet) unicodeOther_ID_Start = CodepointSet([
+immutable(RleBitSet!uint) unicodeOther_ID_Start = RleBitSet!uint([
     0x02118, 0x02119,
     0x0212e, 0x0212f,
     0x0309b, 0x0309d,
 ]);
 
-immutable(CodepointSet) unicodeInKharoshthi = CodepointSet([
+immutable(RleBitSet!uint) unicodeInKharoshthi = RleBitSet!uint([
     0x10a00, 0x10a60,
 ]);
 
-immutable(CodepointSet) unicodeInHangul_Jamo = CodepointSet([
+immutable(RleBitSet!uint) unicodeInHangul_Jamo = RleBitSet!uint([
     0x01100, 0x01200,
 ]);
 
-immutable(CodepointSet) unicodeRunic = CodepointSet([
+immutable(RleBitSet!uint) unicodeRunic = RleBitSet!uint([
     0x016a0, 0x016eb,
     0x016ee, 0x016f1,
 ]);
 
-immutable(CodepointSet) unicodeInKayah_Li = CodepointSet([
+immutable(RleBitSet!uint) unicodeInKayah_Li = RleBitSet!uint([
     0x0a900, 0x0a930,
 ]);
 
-immutable(CodepointSet) unicodeOther_Default_Ignorable_Code_Point = CodepointSet([
+immutable(RleBitSet!uint) unicodeOther_Default_Ignorable_Code_Point = RleBitSet!uint([
     0x0034f, 0x00350,
     0x0115f, 0x01161,
     0x02065, 0x0206a,
@@ -381,20 +381,20 @@ immutable(CodepointSet) unicodeOther_Default_Ignorable_Code_Point = CodepointSet
     0xe01f0, 0xe1000,
 ]);
 
-immutable(CodepointSet) unicodeOld_Turkic = CodepointSet([
+immutable(RleBitSet!uint) unicodeOld_Turkic = RleBitSet!uint([
     0x10c00, 0x10c49,
 ]);
 
-immutable(CodepointSet) unicodeInLydian = CodepointSet([
+immutable(RleBitSet!uint) unicodeInLydian = RleBitSet!uint([
     0x10920, 0x10940,
 ]);
 
-immutable(CodepointSet) unicodeIDS_Binary_Operator = CodepointSet([
+immutable(RleBitSet!uint) unicodeIDS_Binary_Operator = RleBitSet!uint([
     0x02ff0, 0x02ff2,
     0x02ff4, 0x02ffc,
 ]);
 
-immutable(CodepointSet) unicodeTai_Tham = CodepointSet([
+immutable(RleBitSet!uint) unicodeTai_Tham = RleBitSet!uint([
     0x01a20, 0x01a5f,
     0x01a60, 0x01a7d,
     0x01a7f, 0x01a8a,
@@ -402,7 +402,7 @@ immutable(CodepointSet) unicodeTai_Tham = CodepointSet([
     0x01aa0, 0x01aae,
 ]);
 
-immutable(CodepointSet) unicodeLinear_B = CodepointSet([
+immutable(RleBitSet!uint) unicodeLinear_B = RleBitSet!uint([
     0x10000, 0x1000c,
     0x1000d, 0x10027,
     0x10028, 0x1003b,
@@ -412,15 +412,15 @@ immutable(CodepointSet) unicodeLinear_B = CodepointSet([
     0x10080, 0x100fb,
 ]);
 
-immutable(CodepointSet) unicodeInSupplemental_Arrows_A = CodepointSet([
+immutable(RleBitSet!uint) unicodeInSupplemental_Arrows_A = RleBitSet!uint([
     0x027f0, 0x02800,
 ]);
 
-immutable(CodepointSet) unicodeInMathematical_Alphanumeric_Symbols = CodepointSet([
+immutable(RleBitSet!uint) unicodeInMathematical_Alphanumeric_Symbols = RleBitSet!uint([
     0x1d400, 0x1d800,
 ]);
 
-immutable(CodepointSet) unicodeArmenian = CodepointSet([
+immutable(RleBitSet!uint) unicodeArmenian = RleBitSet!uint([
     0x00531, 0x00557,
     0x00559, 0x00560,
     0x00561, 0x00588,
@@ -428,19 +428,19 @@ immutable(CodepointSet) unicodeArmenian = CodepointSet([
     0x0fb13, 0x0fb18,
 ]);
 
-immutable(CodepointSet) unicodeInBlock_Elements = CodepointSet([
+immutable(RleBitSet!uint) unicodeInBlock_Elements = RleBitSet!uint([
     0x02580, 0x025a0,
 ]);
 
-immutable(CodepointSet) unicodeInSupplemental_Arrows_B = CodepointSet([
+immutable(RleBitSet!uint) unicodeInSupplemental_Arrows_B = RleBitSet!uint([
     0x02900, 0x02980,
 ]);
 
-immutable(CodepointSet) unicodeInBalinese = CodepointSet([
+immutable(RleBitSet!uint) unicodeInBalinese = RleBitSet!uint([
     0x01b00, 0x01b80,
 ]);
 
-immutable(CodepointSet) unicodeCyrillic = CodepointSet([
+immutable(RleBitSet!uint) unicodeCyrillic = RleBitSet!uint([
     0x00400, 0x00485,
     0x00487, 0x00528,
     0x01d2b, 0x01d2c,
@@ -450,11 +450,11 @@ immutable(CodepointSet) unicodeCyrillic = CodepointSet([
     0x0a67c, 0x0a698,
 ]);
 
-immutable(CodepointSet) unicodeInBamum_Supplement = CodepointSet([
+immutable(RleBitSet!uint) unicodeInBamum_Supplement = RleBitSet!uint([
     0x16800, 0x16a40,
 ]);
 
-immutable(CodepointSet) unicodeWhite_Space = CodepointSet([
+immutable(RleBitSet!uint) unicodeWhite_Space = RleBitSet!uint([
     0x00009, 0x0000e,
     0x00020, 0x00021,
     0x00085, 0x00086,
@@ -468,12 +468,12 @@ immutable(CodepointSet) unicodeWhite_Space = CodepointSet([
     0x03000, 0x03001,
 ]);
 
-immutable(CodepointSet) unicodeBatak = CodepointSet([
+immutable(RleBitSet!uint) unicodeBatak = RleBitSet!uint([
     0x01bc0, 0x01bf4,
     0x01bfc, 0x01c00,
 ]);
 
-immutable(CodepointSet) unicodeDeprecated = CodepointSet([
+immutable(RleBitSet!uint) unicodeDeprecated = RleBitSet!uint([
     0x00149, 0x0014a,
     0x00673, 0x00674,
     0x00f77, 0x00f78,
@@ -485,38 +485,38 @@ immutable(CodepointSet) unicodeDeprecated = CodepointSet([
     0xe0020, 0xe0080,
 ]);
 
-immutable(CodepointSet) unicodeInUnified_Canadian_Aboriginal_Syllabics_Extended = CodepointSet([
+immutable(RleBitSet!uint) unicodeInUnified_Canadian_Aboriginal_Syllabics_Extended = RleBitSet!uint([
     0x018b0, 0x01900,
 ]);
 
-immutable(CodepointSet) unicodeCherokee = CodepointSet([
+immutable(RleBitSet!uint) unicodeCherokee = RleBitSet!uint([
     0x013a0, 0x013f5,
 ]);
 
-immutable(CodepointSet) unicodeInInscriptional_Parthian = CodepointSet([
+immutable(RleBitSet!uint) unicodeInInscriptional_Parthian = RleBitSet!uint([
     0x10b40, 0x10b60,
 ]);
 
-immutable(CodepointSet) unicodeHiragana = CodepointSet([
+immutable(RleBitSet!uint) unicodeHiragana = RleBitSet!uint([
     0x03041, 0x03097,
     0x0309d, 0x030a0,
     0x1b001, 0x1b002,
     0x1f200, 0x1f201,
 ]);
 
-immutable(CodepointSet) unicodeInCJK_Compatibility_Ideographs = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCJK_Compatibility_Ideographs = RleBitSet!uint([
     0x0f900, 0x0fb00,
 ]);
 
-immutable(CodepointSet) unicodeInAncient_Symbols = CodepointSet([
+immutable(RleBitSet!uint) unicodeInAncient_Symbols = RleBitSet!uint([
     0x10190, 0x101d0,
 ]);
 
-immutable(CodepointSet) unicodeInOld_South_Arabian = CodepointSet([
+immutable(RleBitSet!uint) unicodeInOld_South_Arabian = RleBitSet!uint([
     0x10a60, 0x10a80,
 ]);
 
-immutable(CodepointSet) unicodePattern_Syntax = CodepointSet([
+immutable(RleBitSet!uint) unicodePattern_Syntax = RleBitSet!uint([
     0x00021, 0x00030,
     0x0003a, 0x00041,
     0x0005b, 0x0005f,
@@ -547,20 +547,20 @@ immutable(CodepointSet) unicodePattern_Syntax = CodepointSet([
     0x0fe45, 0x0fe47,
 ]);
 
-immutable(CodepointSet) unicodeNew_Tai_Lue = CodepointSet([
+immutable(RleBitSet!uint) unicodeNew_Tai_Lue = RleBitSet!uint([
     0x01980, 0x019ac,
     0x019b0, 0x019ca,
     0x019d0, 0x019db,
     0x019de, 0x019e0,
 ]);
 
-immutable(CodepointSet) unicodeASCII_Hex_Digit = CodepointSet([
+immutable(RleBitSet!uint) unicodeASCII_Hex_Digit = RleBitSet!uint([
     0x00030, 0x0003a,
     0x00041, 0x00047,
     0x00061, 0x00067,
 ]);
 
-immutable(CodepointSet) unicodeArabic = CodepointSet([
+immutable(RleBitSet!uint) unicodeArabic = RleBitSet!uint([
     0x00600, 0x00604,
     0x00606, 0x0060c,
     0x0060d, 0x0061b,
@@ -582,55 +582,55 @@ immutable(CodepointSet) unicodeArabic = CodepointSet([
     0x10e60, 0x10e7f,
 ]);
 
-immutable(CodepointSet) unicodeInCuneiform_Numbers_and_Punctuation = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCuneiform_Numbers_and_Punctuation = RleBitSet!uint([
     0x12400, 0x12480,
 ]);
 
-immutable(CodepointSet) unicodeBrahmi = CodepointSet([
+immutable(RleBitSet!uint) unicodeBrahmi = RleBitSet!uint([
     0x11000, 0x1104e,
     0x11052, 0x11070,
 ]);
 
-immutable(CodepointSet) unicodeInControl_Pictures = CodepointSet([
+immutable(RleBitSet!uint) unicodeInControl_Pictures = RleBitSet!uint([
     0x02400, 0x02440,
 ]);
 
-immutable(CodepointSet) unicodeOther_ID_Continue = CodepointSet([
+immutable(RleBitSet!uint) unicodeOther_ID_Continue = RleBitSet!uint([
     0x000b7, 0x000b8,
     0x00387, 0x00388,
     0x01369, 0x01372,
     0x019da, 0x019db,
 ]);
 
-immutable(CodepointSet) unicodeInOl_Chiki = CodepointSet([
+immutable(RleBitSet!uint) unicodeInOl_Chiki = RleBitSet!uint([
     0x01c50, 0x01c80,
 ]);
 
-immutable(CodepointSet) unicodeInArmenian = CodepointSet([
+immutable(RleBitSet!uint) unicodeInArmenian = RleBitSet!uint([
     0x00530, 0x00590,
 ]);
 
-immutable(CodepointSet) unicodeInCyrillic = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCyrillic = RleBitSet!uint([
     0x00400, 0x00500,
 ]);
 
-immutable(CodepointSet) unicodeInNew_Tai_Lue = CodepointSet([
+immutable(RleBitSet!uint) unicodeInNew_Tai_Lue = RleBitSet!uint([
     0x01980, 0x019e0,
 ]);
 
-immutable(CodepointSet) unicodeInHigh_Surrogates = CodepointSet([
+immutable(RleBitSet!uint) unicodeInHigh_Surrogates = RleBitSet!uint([
     0x0d800, 0x0db80,
 ]);
 
-immutable(CodepointSet) unicodeInHigh_Private_Use_Surrogates = CodepointSet([
+immutable(RleBitSet!uint) unicodeInHigh_Private_Use_Surrogates = RleBitSet!uint([
     0x0db80, 0x0dc00,
 ]);
 
-immutable(CodepointSet) unicodeInAncient_Greek_Numbers = CodepointSet([
+immutable(RleBitSet!uint) unicodeInAncient_Greek_Numbers = RleBitSet!uint([
     0x10140, 0x10190,
 ]);
 
-immutable(CodepointSet) unicodeQuotation_Mark = CodepointSet([
+immutable(RleBitSet!uint) unicodeQuotation_Mark = RleBitSet!uint([
     0x00022, 0x00023,
     0x00027, 0x00028,
     0x000ab, 0x000ac,
@@ -645,31 +645,31 @@ immutable(CodepointSet) unicodeQuotation_Mark = CodepointSet([
     0x0ff62, 0x0ff64,
 ]);
 
-immutable(CodepointSet) unicodeTai_Le = CodepointSet([
+immutable(RleBitSet!uint) unicodeTai_Le = RleBitSet!uint([
     0x01950, 0x0196e,
     0x01970, 0x01975,
 ]);
 
-immutable(CodepointSet) unicodeCc = CodepointSet([
+immutable(RleBitSet!uint) unicodeCc = RleBitSet!uint([
     0x00000, 0x00020,
     0x0007f, 0x000a0,
 ]);
 
-immutable(CodepointSet) unicodeInCherokee = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCherokee = RleBitSet!uint([
     0x013a0, 0x01400,
 ]);
 
-immutable(CodepointSet) unicodeCoptic = CodepointSet([
+immutable(RleBitSet!uint) unicodeCoptic = RleBitSet!uint([
     0x003e2, 0x003f0,
     0x02c80, 0x02cf2,
     0x02cf9, 0x02d00,
 ]);
 
-immutable(CodepointSet) unicodeInCyrillic_Supplement = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCyrillic_Supplement = RleBitSet!uint([
     0x00500, 0x00530,
 ]);
 
-immutable(CodepointSet) unicodeCf = CodepointSet([
+immutable(RleBitSet!uint) unicodeCf = RleBitSet!uint([
     0x000ad, 0x000ae,
     0x00600, 0x00604,
     0x006dd, 0x006de,
@@ -687,31 +687,31 @@ immutable(CodepointSet) unicodeCf = CodepointSet([
     0xe0020, 0xe0080,
 ]);
 
-immutable(CodepointSet) unicodeGothic = CodepointSet([
+immutable(RleBitSet!uint) unicodeGothic = RleBitSet!uint([
     0x10330, 0x1034b,
 ]);
 
-immutable(CodepointSet) unicodeInHiragana = CodepointSet([
+immutable(RleBitSet!uint) unicodeInHiragana = RleBitSet!uint([
     0x03040, 0x030a0,
 ]);
 
-immutable(CodepointSet) unicodeInIPA_Extensions = CodepointSet([
+immutable(RleBitSet!uint) unicodeInIPA_Extensions = RleBitSet!uint([
     0x00250, 0x002b0,
 ]);
 
-immutable(CodepointSet) unicodeOgham = CodepointSet([
+immutable(RleBitSet!uint) unicodeOgham = RleBitSet!uint([
     0x01680, 0x0169d,
 ]);
 
-immutable(CodepointSet) unicodeInCJK_Compatibility_Forms = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCJK_Compatibility_Forms = RleBitSet!uint([
     0x0fe30, 0x0fe50,
 ]);
 
-immutable(CodepointSet) unicodeInShavian = CodepointSet([
+immutable(RleBitSet!uint) unicodeInShavian = RleBitSet!uint([
     0x10450, 0x10480,
 ]);
 
-immutable(CodepointSet) unicodeCn = CodepointSet([
+immutable(RleBitSet!uint) unicodeCn = RleBitSet!uint([
     0x00378, 0x0037a,
     0x0037f, 0x00384,
     0x0038b, 0x0038c,
@@ -1215,21 +1215,21 @@ immutable(CodepointSet) unicodeCn = CodepointSet([
     0x10fffe, 0x110000,
 ]);
 
-immutable(CodepointSet) unicodeInPhaistos_Disc = CodepointSet([
+immutable(RleBitSet!uint) unicodeInPhaistos_Disc = RleBitSet!uint([
     0x101d0, 0x10200,
 ]);
 
-immutable(CodepointSet) unicodeCo = CodepointSet([
+immutable(RleBitSet!uint) unicodeCo = RleBitSet!uint([
     0x0e000, 0x0f900,
     0xf0000, 0xffffe,
     0x100000, 0x10fffe,
 ]);
 
-immutable(CodepointSet) unicodeInKana_Supplement = CodepointSet([
+immutable(RleBitSet!uint) unicodeInKana_Supplement = RleBitSet!uint([
     0x1b000, 0x1b100,
 ]);
 
-immutable(CodepointSet) unicodeMath = CodepointSet([
+immutable(RleBitSet!uint) unicodeMath = RleBitSet!uint([
     0x0002b, 0x0002c,
     0x0003c, 0x0003f,
     0x0005e, 0x0005f,
@@ -1338,75 +1338,75 @@ immutable(CodepointSet) unicodeMath = CodepointSet([
     0x1d7ce, 0x1d800,
 ]);
 
-immutable(CodepointSet) unicodeInLinear_B_Ideograms = CodepointSet([
+immutable(RleBitSet!uint) unicodeInLinear_B_Ideograms = RleBitSet!uint([
     0x10080, 0x10100,
 ]);
 
-immutable(CodepointSet) unicodeInYi_Syllables = CodepointSet([
+immutable(RleBitSet!uint) unicodeInYi_Syllables = RleBitSet!uint([
     0x0a000, 0x0a490,
 ]);
 
-immutable(CodepointSet) unicodeInInscriptional_Pahlavi = CodepointSet([
+immutable(RleBitSet!uint) unicodeInInscriptional_Pahlavi = RleBitSet!uint([
     0x10b60, 0x10b80,
 ]);
 
-immutable(CodepointSet) unicodeCs = CodepointSet([
+immutable(RleBitSet!uint) unicodeCs = RleBitSet!uint([
     0x0d800, 0x0e000,
 ]);
 
-immutable(CodepointSet) unicodeInHangul_Jamo_Extended_A = CodepointSet([
+immutable(RleBitSet!uint) unicodeInHangul_Jamo_Extended_A = RleBitSet!uint([
     0x0a960, 0x0a980,
 ]);
 
-immutable(CodepointSet) unicodeInGlagolitic = CodepointSet([
+immutable(RleBitSet!uint) unicodeInGlagolitic = RleBitSet!uint([
     0x02c00, 0x02c60,
 ]);
 
-immutable(CodepointSet) unicodeInHangul_Jamo_Extended_B = CodepointSet([
+immutable(RleBitSet!uint) unicodeInHangul_Jamo_Extended_B = RleBitSet!uint([
     0x0d7b0, 0x0d800,
 ]);
 
-immutable(CodepointSet) unicodeInSpecials = CodepointSet([
+immutable(RleBitSet!uint) unicodeInSpecials = RleBitSet!uint([
     0x0fff0, 0x10000,
 ]);
 
-immutable(CodepointSet) unicodeBopomofo = CodepointSet([
+immutable(RleBitSet!uint) unicodeBopomofo = RleBitSet!uint([
     0x002ea, 0x002ec,
     0x03105, 0x0312e,
     0x031a0, 0x031bb,
 ]);
 
-immutable(CodepointSet) unicodeInBamum = CodepointSet([
+immutable(RleBitSet!uint) unicodeInBamum = RleBitSet!uint([
     0x0a6a0, 0x0a700,
 ]);
 
-immutable(CodepointSet) unicodeInPlaying_Cards = CodepointSet([
+immutable(RleBitSet!uint) unicodeInPlaying_Cards = RleBitSet!uint([
     0x1f0a0, 0x1f100,
 ]);
 
-immutable(CodepointSet) unicodeInArabic = CodepointSet([
+immutable(RleBitSet!uint) unicodeInArabic = RleBitSet!uint([
     0x00600, 0x00700,
 ]);
 
-immutable(CodepointSet) unicodeVariation_Selector = CodepointSet([
+immutable(RleBitSet!uint) unicodeVariation_Selector = RleBitSet!uint([
     0x0180b, 0x0180e,
     0x0fe00, 0x0fe10,
     0xe0100, 0xe01f0,
 ]);
 
-immutable(CodepointSet) unicodeInMathematical_Operators = CodepointSet([
+immutable(RleBitSet!uint) unicodeInMathematical_Operators = RleBitSet!uint([
     0x02200, 0x02300,
 ]);
 
-immutable(CodepointSet) unicodeInPhonetic_Extensions_Supplement = CodepointSet([
+immutable(RleBitSet!uint) unicodeInPhonetic_Extensions_Supplement = RleBitSet!uint([
     0x01d80, 0x01dc0,
 ]);
 
-immutable(CodepointSet) unicodeInBrahmi = CodepointSet([
+immutable(RleBitSet!uint) unicodeInBrahmi = RleBitSet!uint([
     0x11000, 0x11080,
 ]);
 
-immutable(CodepointSet) unicodeMalayalam = CodepointSet([
+immutable(RleBitSet!uint) unicodeMalayalam = RleBitSet!uint([
     0x00d02, 0x00d04,
     0x00d05, 0x00d0d,
     0x00d0e, 0x00d11,
@@ -1420,39 +1420,39 @@ immutable(CodepointSet) unicodeMalayalam = CodepointSet([
     0x00d79, 0x00d80,
 ]);
 
-immutable(CodepointSet) unicodeInCJK_Unified_Ideographs_Extension_A = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCJK_Unified_Ideographs_Extension_A = RleBitSet!uint([
     0x03400, 0x04dc0,
 ]);
 
-immutable(CodepointSet) unicodeInCJK_Unified_Ideographs_Extension_B = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCJK_Unified_Ideographs_Extension_B = RleBitSet!uint([
     0x20000, 0x2a6e0,
 ]);
 
-immutable(CodepointSet) unicodeInYijing_Hexagram_Symbols = CodepointSet([
+immutable(RleBitSet!uint) unicodeInYijing_Hexagram_Symbols = RleBitSet!uint([
     0x04dc0, 0x04e00,
 ]);
 
-immutable(CodepointSet) unicodeInCJK_Unified_Ideographs_Extension_C = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCJK_Unified_Ideographs_Extension_C = RleBitSet!uint([
     0x2a700, 0x2b740,
 ]);
 
-immutable(CodepointSet) unicodeInTibetan = CodepointSet([
+immutable(RleBitSet!uint) unicodeInTibetan = RleBitSet!uint([
     0x00f00, 0x01000,
 ]);
 
-immutable(CodepointSet) unicodeInImperial_Aramaic = CodepointSet([
+immutable(RleBitSet!uint) unicodeInImperial_Aramaic = RleBitSet!uint([
     0x10840, 0x10860,
 ]);
 
-immutable(CodepointSet) unicodeInCJK_Unified_Ideographs_Extension_D = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCJK_Unified_Ideographs_Extension_D = RleBitSet!uint([
     0x2b740, 0x2b820,
 ]);
 
-immutable(CodepointSet) unicodeInAlchemical_Symbols = CodepointSet([
+immutable(RleBitSet!uint) unicodeInAlchemical_Symbols = RleBitSet!uint([
     0x1f700, 0x1f780,
 ]);
 
-immutable(CodepointSet) unicodePattern_White_Space = CodepointSet([
+immutable(RleBitSet!uint) unicodePattern_White_Space = RleBitSet!uint([
     0x00009, 0x0000e,
     0x00020, 0x00021,
     0x00085, 0x00086,
@@ -1460,36 +1460,36 @@ immutable(CodepointSet) unicodePattern_White_Space = CodepointSet([
     0x02028, 0x0202a,
 ]);
 
-immutable(CodepointSet) unicodeInEmoticons = CodepointSet([
+immutable(RleBitSet!uint) unicodeInEmoticons = RleBitSet!uint([
     0x1f600, 0x1f650,
 ]);
 
-immutable(CodepointSet) unicodeInYi_Radicals = CodepointSet([
+immutable(RleBitSet!uint) unicodeInYi_Radicals = RleBitSet!uint([
     0x0a490, 0x0a4d0,
 ]);
 
-immutable(CodepointSet) unicodeInBraille_Patterns = CodepointSet([
+immutable(RleBitSet!uint) unicodeInBraille_Patterns = RleBitSet!uint([
     0x02800, 0x02900,
 ]);
 
-immutable(CodepointSet) unicodeInscriptional_Pahlavi = CodepointSet([
+immutable(RleBitSet!uint) unicodeInscriptional_Pahlavi = RleBitSet!uint([
     0x10b60, 0x10b73,
     0x10b78, 0x10b80,
 ]);
 
-immutable(CodepointSet) unicodeInCoptic = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCoptic = RleBitSet!uint([
     0x02c80, 0x02d00,
 ]);
 
-immutable(CodepointSet) unicodeInGothic = CodepointSet([
+immutable(RleBitSet!uint) unicodeInGothic = RleBitSet!uint([
     0x10330, 0x10350,
 ]);
 
-immutable(CodepointSet) unicodeInDevanagari = CodepointSet([
+immutable(RleBitSet!uint) unicodeInDevanagari = RleBitSet!uint([
     0x00900, 0x00980,
 ]);
 
-immutable(CodepointSet) unicodeSTerm = CodepointSet([
+immutable(RleBitSet!uint) unicodeSTerm = RleBitSet!uint([
     0x00021, 0x00022,
     0x0002e, 0x0002f,
     0x0003f, 0x00040,
@@ -1539,15 +1539,15 @@ immutable(CodepointSet) unicodeSTerm = CodepointSet([
     0x110be, 0x110c2,
 ]);
 
-immutable(CodepointSet) unicodeInTai_Viet = CodepointSet([
+immutable(RleBitSet!uint) unicodeInTai_Viet = RleBitSet!uint([
     0x0aa80, 0x0aae0,
 ]);
 
-immutable(CodepointSet) unicodeInDeseret = CodepointSet([
+immutable(RleBitSet!uint) unicodeInDeseret = RleBitSet!uint([
     0x10400, 0x10450,
 ]);
 
-immutable(CodepointSet) unicodeHebrew = CodepointSet([
+immutable(RleBitSet!uint) unicodeHebrew = RleBitSet!uint([
     0x00591, 0x005c8,
     0x005d0, 0x005eb,
     0x005f0, 0x005f5,
@@ -1559,87 +1559,87 @@ immutable(CodepointSet) unicodeHebrew = CodepointSet([
     0x0fb46, 0x0fb50,
 ]);
 
-immutable(CodepointSet) unicodeLisu = CodepointSet([
+immutable(RleBitSet!uint) unicodeLisu = RleBitSet!uint([
     0x0a4d0, 0x0a500,
 ]);
 
-immutable(CodepointSet) unicodeInSupplementary_Private_Use_Area_A = CodepointSet([
+immutable(RleBitSet!uint) unicodeInSupplementary_Private_Use_Area_A = RleBitSet!uint([
     0xf0000, 0x100000,
 ]);
 
-immutable(CodepointSet) unicodeInSupplementary_Private_Use_Area_B = CodepointSet([
+immutable(RleBitSet!uint) unicodeInSupplementary_Private_Use_Area_B = RleBitSet!uint([
     0x100000, 0x110000,
 ]);
 
-immutable(CodepointSet) unicodeUgaritic = CodepointSet([
+immutable(RleBitSet!uint) unicodeUgaritic = RleBitSet!uint([
     0x10380, 0x1039e,
     0x1039f, 0x103a0,
 ]);
 
-immutable(CodepointSet) unicodeInMongolian = CodepointSet([
+immutable(RleBitSet!uint) unicodeInMongolian = RleBitSet!uint([
     0x01800, 0x018b0,
 ]);
 
-immutable(CodepointSet) unicodeInBopomofo = CodepointSet([
+immutable(RleBitSet!uint) unicodeInBopomofo = RleBitSet!uint([
     0x03100, 0x03130,
 ]);
 
-immutable(CodepointSet) unicodeOld_Persian = CodepointSet([
+immutable(RleBitSet!uint) unicodeOld_Persian = RleBitSet!uint([
     0x103a0, 0x103c4,
     0x103c8, 0x103d6,
 ]);
 
-immutable(CodepointSet) unicodeInCJK_Compatibility_Ideographs_Supplement = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCJK_Compatibility_Ideographs_Supplement = RleBitSet!uint([
     0x2f800, 0x2fa20,
 ]);
 
-immutable(CodepointSet) unicodeInMahjong_Tiles = CodepointSet([
+immutable(RleBitSet!uint) unicodeInMahjong_Tiles = RleBitSet!uint([
     0x1f000, 0x1f030,
 ]);
 
-immutable(CodepointSet) unicodePhoenician = CodepointSet([
+immutable(RleBitSet!uint) unicodePhoenician = RleBitSet!uint([
     0x10900, 0x1091c,
     0x1091f, 0x10920,
 ]);
 
-immutable(CodepointSet) unicodeEgyptian_Hieroglyphs = CodepointSet([
+immutable(RleBitSet!uint) unicodeEgyptian_Hieroglyphs = RleBitSet!uint([
     0x13000, 0x1342f,
 ]);
 
-immutable(CodepointSet) unicodeInVariation_Selectors_Supplement = CodepointSet([
+immutable(RleBitSet!uint) unicodeInVariation_Selectors_Supplement = RleBitSet!uint([
     0xe0100, 0xe01f0,
 ]);
 
-immutable(CodepointSet) unicodeInLisu = CodepointSet([
+immutable(RleBitSet!uint) unicodeInLisu = RleBitSet!uint([
     0x0a4d0, 0x0a500,
 ]);
 
-immutable(CodepointSet) unicodeInLow_Surrogates = CodepointSet([
+immutable(RleBitSet!uint) unicodeInLow_Surrogates = RleBitSet!uint([
     0x0dc00, 0x0e000,
 ]);
 
-immutable(CodepointSet) unicodeInUgaritic = CodepointSet([
+immutable(RleBitSet!uint) unicodeInUgaritic = RleBitSet!uint([
     0x10380, 0x103a0,
 ]);
 
-immutable(CodepointSet) unicodeInAncient_Greek_Musical_Notation = CodepointSet([
+immutable(RleBitSet!uint) unicodeInAncient_Greek_Musical_Notation = RleBitSet!uint([
     0x1d200, 0x1d250,
 ]);
 
-immutable(CodepointSet) unicodeInSupplemental_Punctuation = CodepointSet([
+immutable(RleBitSet!uint) unicodeInSupplemental_Punctuation = RleBitSet!uint([
     0x02e00, 0x02e80,
 ]);
 
-immutable(CodepointSet) unicodeInTamil = CodepointSet([
+immutable(RleBitSet!uint) unicodeInTamil = RleBitSet!uint([
     0x00b80, 0x00c00,
 ]);
 
-immutable(CodepointSet) unicodeBidi_Control = CodepointSet([
+immutable(RleBitSet!uint) unicodeBidi_Control = RleBitSet!uint([
     0x0200e, 0x02010,
     0x0202a, 0x0202f,
 ]);
 
-immutable(CodepointSet) unicodeKatakana = CodepointSet([
+immutable(RleBitSet!uint) unicodeKatakana = RleBitSet!uint([
     0x030a1, 0x030fb,
     0x030fd, 0x03100,
     0x031f0, 0x03200,
@@ -1650,28 +1650,28 @@ immutable(CodepointSet) unicodeKatakana = CodepointSet([
     0x1b000, 0x1b001,
 ]);
 
-immutable(CodepointSet) unicodeInKanbun = CodepointSet([
+immutable(RleBitSet!uint) unicodeInKanbun = RleBitSet!uint([
     0x03190, 0x031a0,
 ]);
 
-immutable(CodepointSet) unicodeInHebrew = CodepointSet([
+immutable(RleBitSet!uint) unicodeInHebrew = RleBitSet!uint([
     0x00590, 0x00600,
 ]);
 
-immutable(CodepointSet) unicodeTai_Viet = CodepointSet([
+immutable(RleBitSet!uint) unicodeTai_Viet = RleBitSet!uint([
     0x0aa80, 0x0aac3,
     0x0aadb, 0x0aae0,
 ]);
 
-immutable(CodepointSet) unicodeShavian = CodepointSet([
+immutable(RleBitSet!uint) unicodeShavian = RleBitSet!uint([
     0x10450, 0x10480,
 ]);
 
-immutable(CodepointSet) unicodeInHanunoo = CodepointSet([
+immutable(RleBitSet!uint) unicodeInHanunoo = RleBitSet!uint([
     0x01720, 0x01740,
 ]);
 
-immutable(CodepointSet) unicodeOther_Lowercase = CodepointSet([
+immutable(RleBitSet!uint) unicodeOther_Lowercase = RleBitSet!uint([
     0x002b0, 0x002b9,
     0x002c0, 0x002c2,
     0x002e0, 0x002e5,
@@ -1687,7 +1687,7 @@ immutable(CodepointSet) unicodeOther_Lowercase = CodepointSet([
     0x0a770, 0x0a771,
 ]);
 
-immutable(CodepointSet) unicodeDash = CodepointSet([
+immutable(RleBitSet!uint) unicodeDash = RleBitSet!uint([
     0x0002d, 0x0002e,
     0x0058a, 0x0058b,
     0x005be, 0x005bf,
@@ -1709,27 +1709,27 @@ immutable(CodepointSet) unicodeDash = CodepointSet([
     0x0ff0d, 0x0ff0e,
 ]);
 
-immutable(CodepointSet) unicodeInSinhala = CodepointSet([
+immutable(RleBitSet!uint) unicodeInSinhala = RleBitSet!uint([
     0x00d80, 0x00e00,
 ]);
 
-immutable(CodepointSet) unicodeKaithi = CodepointSet([
+immutable(RleBitSet!uint) unicodeKaithi = RleBitSet!uint([
     0x11080, 0x110c2,
 ]);
 
-immutable(CodepointSet) unicodeInSundanese = CodepointSet([
+immutable(RleBitSet!uint) unicodeInSundanese = RleBitSet!uint([
     0x01b80, 0x01bc0,
 ]);
 
-immutable(CodepointSet) unicodeInEthiopic_Extended_A = CodepointSet([
+immutable(RleBitSet!uint) unicodeInEthiopic_Extended_A = RleBitSet!uint([
     0x0ab00, 0x0ab30,
 ]);
 
-immutable(CodepointSet) unicodeInAegean_Numbers = CodepointSet([
+immutable(RleBitSet!uint) unicodeInAegean_Numbers = RleBitSet!uint([
     0x10100, 0x10140,
 ]);
 
-immutable(CodepointSet) unicodeTibetan = CodepointSet([
+immutable(RleBitSet!uint) unicodeTibetan = RleBitSet!uint([
     0x00f00, 0x00f48,
     0x00f49, 0x00f6d,
     0x00f71, 0x00f98,
@@ -1739,37 +1739,37 @@ immutable(CodepointSet) unicodeTibetan = CodepointSet([
     0x00fd9, 0x00fdb,
 ]);
 
-immutable(CodepointSet) unicodeSamaritan = CodepointSet([
+immutable(RleBitSet!uint) unicodeSamaritan = RleBitSet!uint([
     0x00800, 0x0082e,
     0x00830, 0x0083f,
 ]);
 
-immutable(CodepointSet) unicodeInOptical_Character_Recognition = CodepointSet([
+immutable(RleBitSet!uint) unicodeInOptical_Character_Recognition = RleBitSet!uint([
     0x02440, 0x02460,
 ]);
 
-immutable(CodepointSet) unicodeInKatakana = CodepointSet([
+immutable(RleBitSet!uint) unicodeInKatakana = RleBitSet!uint([
     0x030a0, 0x03100,
 ]);
 
-immutable(CodepointSet) unicodeInVariation_Selectors = CodepointSet([
+immutable(RleBitSet!uint) unicodeInVariation_Selectors = RleBitSet!uint([
     0x0fe00, 0x0fe10,
 ]);
 
-immutable(CodepointSet) unicodeOld_Italic = CodepointSet([
+immutable(RleBitSet!uint) unicodeOld_Italic = RleBitSet!uint([
     0x10300, 0x1031f,
     0x10320, 0x10324,
 ]);
 
-immutable(CodepointSet) unicodeInEnclosed_CJK_Letters_and_Months = CodepointSet([
+immutable(RleBitSet!uint) unicodeInEnclosed_CJK_Letters_and_Months = RleBitSet!uint([
     0x03200, 0x03300,
 ]);
 
-immutable(CodepointSet) unicodeInLatin_1_Supplement = CodepointSet([
+immutable(RleBitSet!uint) unicodeInLatin_1_Supplement = RleBitSet!uint([
     0x00080, 0x00100,
 ]);
 
-immutable(CodepointSet) unicodeHan = CodepointSet([
+immutable(RleBitSet!uint) unicodeHan = RleBitSet!uint([
     0x02e80, 0x02e9a,
     0x02e9b, 0x02ef4,
     0x02f00, 0x02fd6,
@@ -1788,15 +1788,15 @@ immutable(CodepointSet) unicodeHan = CodepointSet([
     0x2f800, 0x2fa1e,
 ]);
 
-immutable(CodepointSet) unicodeDeseret = CodepointSet([
+immutable(RleBitSet!uint) unicodeDeseret = RleBitSet!uint([
     0x10400, 0x10450,
 ]);
 
-immutable(CodepointSet) unicodeInMyanmar = CodepointSet([
+immutable(RleBitSet!uint) unicodeInMyanmar = RleBitSet!uint([
     0x01000, 0x010a0,
 ]);
 
-immutable(CodepointSet) unicodeLl = CodepointSet([
+immutable(RleBitSet!uint) unicodeLl = RleBitSet!uint([
     0x00061, 0x0007b,
     0x000aa, 0x000ab,
     0x000b5, 0x000b6,
@@ -2408,16 +2408,16 @@ immutable(CodepointSet) unicodeLl = CodepointSet([
     0x1d7cb, 0x1d7cc,
 ]);
 
-immutable(CodepointSet) unicodeSaurashtra = CodepointSet([
+immutable(RleBitSet!uint) unicodeSaurashtra = RleBitSet!uint([
     0x0a880, 0x0a8c5,
     0x0a8ce, 0x0a8da,
 ]);
 
-immutable(CodepointSet) unicodeInLinear_B_Syllabary = CodepointSet([
+immutable(RleBitSet!uint) unicodeInLinear_B_Syllabary = RleBitSet!uint([
     0x10000, 0x10080,
 ]);
 
-immutable(CodepointSet) unicodeLm = CodepointSet([
+immutable(RleBitSet!uint) unicodeLm = RleBitSet!uint([
     0x002b0, 0x002c2,
     0x002c6, 0x002d2,
     0x002e0, 0x002e5,
@@ -2469,19 +2469,19 @@ immutable(CodepointSet) unicodeLm = CodepointSet([
     0x0ff9e, 0x0ffa0,
 ]);
 
-immutable(CodepointSet) unicodeInKannada = CodepointSet([
+immutable(RleBitSet!uint) unicodeInKannada = RleBitSet!uint([
     0x00c80, 0x00d00,
 ]);
 
-immutable(CodepointSet) unicodeInLimbu = CodepointSet([
+immutable(RleBitSet!uint) unicodeInLimbu = RleBitSet!uint([
     0x01900, 0x01950,
 ]);
 
-immutable(CodepointSet) unicodeInByzantine_Musical_Symbols = CodepointSet([
+immutable(RleBitSet!uint) unicodeInByzantine_Musical_Symbols = RleBitSet!uint([
     0x1d000, 0x1d100,
 ]);
 
-immutable(CodepointSet) unicodeMc = CodepointSet([
+immutable(RleBitSet!uint) unicodeMc = RleBitSet!uint([
     0x00903, 0x00904,
     0x0093b, 0x0093c,
     0x0093e, 0x00941,
@@ -2597,7 +2597,7 @@ immutable(CodepointSet) unicodeMc = CodepointSet([
     0x1d16d, 0x1d173,
 ]);
 
-immutable(CodepointSet) unicodeLo = CodepointSet([
+immutable(RleBitSet!uint) unicodeLo = RleBitSet!uint([
     0x001bb, 0x001bc,
     0x001c0, 0x001c4,
     0x00294, 0x00295,
@@ -2923,18 +2923,18 @@ immutable(CodepointSet) unicodeLo = CodepointSet([
     0x2f800, 0x2fa1e,
 ]);
 
-immutable(CodepointSet) unicodeMe = CodepointSet([
+immutable(RleBitSet!uint) unicodeMe = RleBitSet!uint([
     0x00488, 0x0048a,
     0x020dd, 0x020e1,
     0x020e2, 0x020e5,
     0x0a670, 0x0a673,
 ]);
 
-immutable(CodepointSet) unicodeInMeetei_Mayek = CodepointSet([
+immutable(RleBitSet!uint) unicodeInMeetei_Mayek = RleBitSet!uint([
     0x0abc0, 0x0ac00,
 ]);
 
-immutable(CodepointSet) unicodeLt = CodepointSet([
+immutable(RleBitSet!uint) unicodeLt = RleBitSet!uint([
     0x001c5, 0x001c6,
     0x001c8, 0x001c9,
     0x001cb, 0x001cc,
@@ -2947,15 +2947,15 @@ immutable(CodepointSet) unicodeLt = CodepointSet([
     0x01ffc, 0x01ffd,
 ]);
 
-immutable(CodepointSet) unicodeInKhmer = CodepointSet([
+immutable(RleBitSet!uint) unicodeInKhmer = RleBitSet!uint([
     0x01780, 0x01800,
 ]);
 
-immutable(CodepointSet) unicodeInEthiopic_Extended = CodepointSet([
+immutable(RleBitSet!uint) unicodeInEthiopic_Extended = RleBitSet!uint([
     0x02d80, 0x02de0,
 ]);
 
-immutable(CodepointSet) unicodeLu = CodepointSet([
+immutable(RleBitSet!uint) unicodeLu = RleBitSet!uint([
     0x00041, 0x0005b,
     0x000c0, 0x000d7,
     0x000d8, 0x000df,
@@ -3561,19 +3561,19 @@ immutable(CodepointSet) unicodeLu = CodepointSet([
     0x1d7ca, 0x1d7cb,
 ]);
 
-immutable(CodepointSet) unicodeCarian = CodepointSet([
+immutable(RleBitSet!uint) unicodeCarian = RleBitSet!uint([
     0x102a0, 0x102d1,
 ]);
 
-immutable(CodepointSet) unicodeInKaithi = CodepointSet([
+immutable(RleBitSet!uint) unicodeInKaithi = RleBitSet!uint([
     0x11080, 0x110d0,
 ]);
 
-immutable(CodepointSet) unicodeInVedic_Extensions = CodepointSet([
+immutable(RleBitSet!uint) unicodeInVedic_Extensions = RleBitSet!uint([
     0x01cd0, 0x01d00,
 ]);
 
-immutable(CodepointSet) unicodeMn = CodepointSet([
+immutable(RleBitSet!uint) unicodeMn = RleBitSet!uint([
     0x00300, 0x00370,
     0x00483, 0x00488,
     0x00591, 0x005be,
@@ -3779,7 +3779,7 @@ immutable(CodepointSet) unicodeMn = CodepointSet([
     0xe0100, 0xe01f0,
 ]);
 
-immutable(CodepointSet) unicodeNd = CodepointSet([
+immutable(RleBitSet!uint) unicodeNd = RleBitSet!uint([
     0x00030, 0x0003a,
     0x00660, 0x0066a,
     0x006f0, 0x006fa,
@@ -3820,40 +3820,40 @@ immutable(CodepointSet) unicodeNd = CodepointSet([
     0x1d7ce, 0x1d800,
 ]);
 
-immutable(CodepointSet) unicodeBamum = CodepointSet([
+immutable(RleBitSet!uint) unicodeBamum = RleBitSet!uint([
     0x0a6a0, 0x0a6f8,
     0x16800, 0x16a39,
 ]);
 
-immutable(CodepointSet) unicodeJavanese = CodepointSet([
+immutable(RleBitSet!uint) unicodeJavanese = RleBitSet!uint([
     0x0a980, 0x0a9ce,
     0x0a9cf, 0x0a9da,
     0x0a9de, 0x0a9e0,
 ]);
 
-immutable(CodepointSet) unicodeTifinagh = CodepointSet([
+immutable(RleBitSet!uint) unicodeTifinagh = RleBitSet!uint([
     0x02d30, 0x02d66,
     0x02d6f, 0x02d71,
     0x02d7f, 0x02d80,
 ]);
 
-immutable(CodepointSet) unicodeInHalfwidth_and_Fullwidth_Forms = CodepointSet([
+immutable(RleBitSet!uint) unicodeInHalfwidth_and_Fullwidth_Forms = RleBitSet!uint([
     0x0ff00, 0x0fff0,
 ]);
 
-immutable(CodepointSet) unicodeInDevanagari_Extended = CodepointSet([
+immutable(RleBitSet!uint) unicodeInDevanagari_Extended = RleBitSet!uint([
     0x0a8e0, 0x0a900,
 ]);
 
-immutable(CodepointSet) unicodeInIdeographic_Description_Characters = CodepointSet([
+immutable(RleBitSet!uint) unicodeInIdeographic_Description_Characters = RleBitSet!uint([
     0x02ff0, 0x03000,
 ]);
 
-immutable(CodepointSet) unicodeInCuneiform = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCuneiform = RleBitSet!uint([
     0x12000, 0x12400,
 ]);
 
-immutable(CodepointSet) unicodeNl = CodepointSet([
+immutable(RleBitSet!uint) unicodeNl = RleBitSet!uint([
     0x016ee, 0x016f1,
     0x02160, 0x02183,
     0x02185, 0x02189,
@@ -3868,11 +3868,11 @@ immutable(CodepointSet) unicodeNl = CodepointSet([
     0x12400, 0x12463,
 ]);
 
-immutable(CodepointSet) unicodeInHangul_Compatibility_Jamo = CodepointSet([
+immutable(RleBitSet!uint) unicodeInHangul_Compatibility_Jamo = RleBitSet!uint([
     0x03130, 0x03190,
 ]);
 
-immutable(CodepointSet) unicodeNo = CodepointSet([
+immutable(RleBitSet!uint) unicodeNo = RleBitSet!uint([
     0x000b2, 0x000b4,
     0x000b9, 0x000ba,
     0x000bc, 0x000bf,
@@ -3916,11 +3916,11 @@ immutable(CodepointSet) unicodeNo = CodepointSet([
     0x1f100, 0x1f10b,
 ]);
 
-immutable(CodepointSet) unicodeInOriya = CodepointSet([
+immutable(RleBitSet!uint) unicodeInOriya = RleBitSet!uint([
     0x00b00, 0x00b80,
 ]);
 
-immutable(CodepointSet) unicodeLogical_Order_Exception = CodepointSet([
+immutable(RleBitSet!uint) unicodeLogical_Order_Exception = RleBitSet!uint([
     0x00e40, 0x00e45,
     0x00ec0, 0x00ec5,
     0x0aab5, 0x0aab7,
@@ -3928,32 +3928,32 @@ immutable(CodepointSet) unicodeLogical_Order_Exception = CodepointSet([
     0x0aabb, 0x0aabd,
 ]);
 
-immutable(CodepointSet) unicodeInscriptional_Parthian = CodepointSet([
+immutable(RleBitSet!uint) unicodeInscriptional_Parthian = RleBitSet!uint([
     0x10b40, 0x10b56,
     0x10b58, 0x10b60,
 ]);
 
-immutable(CodepointSet) unicodeSyloti_Nagri = CodepointSet([
+immutable(RleBitSet!uint) unicodeSyloti_Nagri = RleBitSet!uint([
     0x0a800, 0x0a82c,
 ]);
 
-immutable(CodepointSet) unicodeInBengali = CodepointSet([
+immutable(RleBitSet!uint) unicodeInBengali = RleBitSet!uint([
     0x00980, 0x00a00,
 ]);
 
-immutable(CodepointSet) unicodeInTagalog = CodepointSet([
+immutable(RleBitSet!uint) unicodeInTagalog = RleBitSet!uint([
     0x01700, 0x01720,
 ]);
 
-immutable(CodepointSet) unicodeInMyanmar_Extended_A = CodepointSet([
+immutable(RleBitSet!uint) unicodeInMyanmar_Extended_A = RleBitSet!uint([
     0x0aa60, 0x0aa80,
 ]);
 
-immutable(CodepointSet) unicodeInAvestan = CodepointSet([
+immutable(RleBitSet!uint) unicodeInAvestan = RleBitSet!uint([
     0x10b00, 0x10b40,
 ]);
 
-immutable(CodepointSet) unicodePc = CodepointSet([
+immutable(RleBitSet!uint) unicodePc = RleBitSet!uint([
     0x0005f, 0x00060,
     0x0203f, 0x02041,
     0x02054, 0x02055,
@@ -3962,11 +3962,11 @@ immutable(CodepointSet) unicodePc = CodepointSet([
     0x0ff3f, 0x0ff40,
 ]);
 
-immutable(CodepointSet) unicodeInCyrillic_Extended_A = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCyrillic_Extended_A = RleBitSet!uint([
     0x02de0, 0x02e00,
 ]);
 
-immutable(CodepointSet) unicodePd = CodepointSet([
+immutable(RleBitSet!uint) unicodePd = RleBitSet!uint([
     0x0002d, 0x0002e,
     0x0058a, 0x0058b,
     0x005be, 0x005bf,
@@ -3984,15 +3984,15 @@ immutable(CodepointSet) unicodePd = CodepointSet([
     0x0ff0d, 0x0ff0e,
 ]);
 
-immutable(CodepointSet) unicodeInCyrillic_Extended_B = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCyrillic_Extended_B = RleBitSet!uint([
     0x0a640, 0x0a6a0,
 ]);
 
-immutable(CodepointSet) unicodeInBasic_Latin = CodepointSet([
+immutable(RleBitSet!uint) unicodeInBasic_Latin = RleBitSet!uint([
     0x00000, 0x00080,
 ]);
 
-immutable(CodepointSet) unicodePe = CodepointSet([
+immutable(RleBitSet!uint) unicodePe = RleBitSet!uint([
     0x00029, 0x0002a,
     0x0005d, 0x0005e,
     0x0007d, 0x0007e,
@@ -4065,11 +4065,11 @@ immutable(CodepointSet) unicodePe = CodepointSet([
     0x0ff63, 0x0ff64,
 ]);
 
-immutable(CodepointSet) unicodeHanunoo = CodepointSet([
+immutable(RleBitSet!uint) unicodeHanunoo = RleBitSet!uint([
     0x01720, 0x01735,
 ]);
 
-immutable(CodepointSet) unicodePf = CodepointSet([
+immutable(RleBitSet!uint) unicodePf = RleBitSet!uint([
     0x000bb, 0x000bc,
     0x02019, 0x0201a,
     0x0201d, 0x0201e,
@@ -4082,7 +4082,7 @@ immutable(CodepointSet) unicodePf = CodepointSet([
     0x02e21, 0x02e22,
 ]);
 
-immutable(CodepointSet) unicodePi = CodepointSet([
+immutable(RleBitSet!uint) unicodePi = RleBitSet!uint([
     0x000ab, 0x000ac,
     0x02018, 0x02019,
     0x0201b, 0x0201d,
@@ -4096,7 +4096,7 @@ immutable(CodepointSet) unicodePi = CodepointSet([
     0x02e20, 0x02e21,
 ]);
 
-immutable(CodepointSet) unicodeSinhala = CodepointSet([
+immutable(RleBitSet!uint) unicodeSinhala = RleBitSet!uint([
     0x00d82, 0x00d84,
     0x00d85, 0x00d97,
     0x00d9a, 0x00db2,
@@ -4110,39 +4110,39 @@ immutable(CodepointSet) unicodeSinhala = CodepointSet([
     0x00df2, 0x00df5,
 ]);
 
-immutable(CodepointSet) unicodeInJavanese = CodepointSet([
+immutable(RleBitSet!uint) unicodeInJavanese = RleBitSet!uint([
     0x0a980, 0x0a9e0,
 ]);
 
-immutable(CodepointSet) unicodeInCarian = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCarian = RleBitSet!uint([
     0x102a0, 0x102e0,
 ]);
 
-immutable(CodepointSet) unicodeInDomino_Tiles = CodepointSet([
+immutable(RleBitSet!uint) unicodeInDomino_Tiles = RleBitSet!uint([
     0x1f030, 0x1f0a0,
 ]);
 
-immutable(CodepointSet) unicodeInTifinagh = CodepointSet([
+immutable(RleBitSet!uint) unicodeInTifinagh = RleBitSet!uint([
     0x02d30, 0x02d80,
 ]);
 
-immutable(CodepointSet) unicodeLycian = CodepointSet([
+immutable(RleBitSet!uint) unicodeLycian = RleBitSet!uint([
     0x10280, 0x1029d,
 ]);
 
-immutable(CodepointSet) unicodeInGeometric_Shapes = CodepointSet([
+immutable(RleBitSet!uint) unicodeInGeometric_Shapes = RleBitSet!uint([
     0x025a0, 0x02600,
 ]);
 
-immutable(CodepointSet) unicodeInArabic_Presentation_Forms_A = CodepointSet([
+immutable(RleBitSet!uint) unicodeInArabic_Presentation_Forms_A = RleBitSet!uint([
     0x0fb50, 0x0fe00,
 ]);
 
-immutable(CodepointSet) unicodeInArabic_Presentation_Forms_B = CodepointSet([
+immutable(RleBitSet!uint) unicodeInArabic_Presentation_Forms_B = RleBitSet!uint([
     0x0fe70, 0x0ff00,
 ]);
 
-immutable(CodepointSet) unicodePo = CodepointSet([
+immutable(RleBitSet!uint) unicodePo = RleBitSet!uint([
     0x00021, 0x00024,
     0x00025, 0x00028,
     0x0002a, 0x0002b,
@@ -4273,7 +4273,7 @@ immutable(CodepointSet) unicodePo = CodepointSet([
     0x12470, 0x12474,
 ]);
 
-immutable(CodepointSet) unicodeTerminal_Punctuation = CodepointSet([
+immutable(RleBitSet!uint) unicodeTerminal_Punctuation = RleBitSet!uint([
     0x00021, 0x00022,
     0x0002c, 0x0002d,
     0x0002e, 0x0002f,
@@ -4343,7 +4343,7 @@ immutable(CodepointSet) unicodeTerminal_Punctuation = CodepointSet([
     0x12470, 0x12474,
 ]);
 
-immutable(CodepointSet) unicodePs = CodepointSet([
+immutable(RleBitSet!uint) unicodePs = RleBitSet!uint([
     0x00028, 0x00029,
     0x0005b, 0x0005c,
     0x0007b, 0x0007c,
@@ -4418,11 +4418,11 @@ immutable(CodepointSet) unicodePs = CodepointSet([
     0x0ff62, 0x0ff63,
 ]);
 
-immutable(CodepointSet) unicodeInSpacing_Modifier_Letters = CodepointSet([
+immutable(RleBitSet!uint) unicodeInSpacing_Modifier_Letters = RleBitSet!uint([
     0x002b0, 0x00300,
 ]);
 
-immutable(CodepointSet) unicodeOther_Alphabetic = CodepointSet([
+immutable(RleBitSet!uint) unicodeOther_Alphabetic = RleBitSet!uint([
     0x00345, 0x00346,
     0x005b0, 0x005be,
     0x005bf, 0x005c0,
@@ -4570,49 +4570,49 @@ immutable(CodepointSet) unicodeOther_Alphabetic = CodepointSet([
     0x110b0, 0x110b9,
 ]);
 
-immutable(CodepointSet) unicodeLepcha = CodepointSet([
+immutable(RleBitSet!uint) unicodeLepcha = RleBitSet!uint([
     0x01c00, 0x01c38,
     0x01c3b, 0x01c4a,
     0x01c4d, 0x01c50,
 ]);
 
-immutable(CodepointSet) unicodeKayah_Li = CodepointSet([
+immutable(RleBitSet!uint) unicodeKayah_Li = RleBitSet!uint([
     0x0a900, 0x0a930,
 ]);
 
-immutable(CodepointSet) unicodeInCounting_Rod_Numerals = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCounting_Rod_Numerals = RleBitSet!uint([
     0x1d360, 0x1d380,
 ]);
 
-immutable(CodepointSet) unicodeNko = CodepointSet([
+immutable(RleBitSet!uint) unicodeNko = RleBitSet!uint([
     0x007c0, 0x007fb,
 ]);
 
-immutable(CodepointSet) unicodeInOld_Turkic = CodepointSet([
+immutable(RleBitSet!uint) unicodeInOld_Turkic = RleBitSet!uint([
     0x10c00, 0x10c50,
 ]);
 
-immutable(CodepointSet) unicodeInMiscellaneous_Symbols_And_Pictographs = CodepointSet([
+immutable(RleBitSet!uint) unicodeInMiscellaneous_Symbols_And_Pictographs = RleBitSet!uint([
     0x1f300, 0x1f600,
 ]);
 
-immutable(CodepointSet) unicodeInLao = CodepointSet([
+immutable(RleBitSet!uint) unicodeInLao = RleBitSet!uint([
     0x00e80, 0x00f00,
 ]);
 
-immutable(CodepointSet) unicodeInNKo = CodepointSet([
+immutable(RleBitSet!uint) unicodeInNKo = RleBitSet!uint([
     0x007c0, 0x00800,
 ]);
 
-immutable(CodepointSet) unicodeInGreek_and_Coptic = CodepointSet([
+immutable(RleBitSet!uint) unicodeInGreek_and_Coptic = RleBitSet!uint([
     0x00370, 0x00400,
 ]);
 
-immutable(CodepointSet) unicodePhags_Pa = CodepointSet([
+immutable(RleBitSet!uint) unicodePhags_Pa = RleBitSet!uint([
     0x0a840, 0x0a878,
 ]);
 
-immutable(CodepointSet) unicodeCypriot = CodepointSet([
+immutable(RleBitSet!uint) unicodeCypriot = RleBitSet!uint([
     0x10800, 0x10806,
     0x10808, 0x10809,
     0x1080a, 0x10836,
@@ -4621,11 +4621,11 @@ immutable(CodepointSet) unicodeCypriot = CodepointSet([
     0x1083f, 0x10840,
 ]);
 
-immutable(CodepointSet) unicodeInModifier_Tone_Letters = CodepointSet([
+immutable(RleBitSet!uint) unicodeInModifier_Tone_Letters = RleBitSet!uint([
     0x0a700, 0x0a720,
 ]);
 
-immutable(CodepointSet) unicodeTamil = CodepointSet([
+immutable(RleBitSet!uint) unicodeTamil = RleBitSet!uint([
     0x00b82, 0x00b84,
     0x00b85, 0x00b8b,
     0x00b8e, 0x00b91,
@@ -4644,12 +4644,12 @@ immutable(CodepointSet) unicodeTamil = CodepointSet([
     0x00be6, 0x00bfb,
 ]);
 
-immutable(CodepointSet) unicodeMyanmar = CodepointSet([
+immutable(RleBitSet!uint) unicodeMyanmar = RleBitSet!uint([
     0x01000, 0x010a0,
     0x0aa60, 0x0aa7c,
 ]);
 
-immutable(CodepointSet) unicodeSc = CodepointSet([
+immutable(RleBitSet!uint) unicodeSc = RleBitSet!uint([
     0x00024, 0x00025,
     0x000a2, 0x000a6,
     0x0060b, 0x0060c,
@@ -4668,11 +4668,11 @@ immutable(CodepointSet) unicodeSc = CodepointSet([
     0x0ffe5, 0x0ffe7,
 ]);
 
-immutable(CodepointSet) unicodeInPrivate_Use_Area = CodepointSet([
+immutable(RleBitSet!uint) unicodeInPrivate_Use_Area = RleBitSet!uint([
     0x0e000, 0x0f900,
 ]);
 
-immutable(CodepointSet) unicodeKannada = CodepointSet([
+immutable(RleBitSet!uint) unicodeKannada = RleBitSet!uint([
     0x00c82, 0x00c84,
     0x00c85, 0x00c8d,
     0x00c8e, 0x00c91,
@@ -4689,15 +4689,15 @@ immutable(CodepointSet) unicodeKannada = CodepointSet([
     0x00cf1, 0x00cf3,
 ]);
 
-immutable(CodepointSet) unicodeInPhonetic_Extensions = CodepointSet([
+immutable(RleBitSet!uint) unicodeInPhonetic_Extensions = RleBitSet!uint([
     0x01d00, 0x01d80,
 ]);
 
-immutable(CodepointSet) unicodeInEgyptian_Hieroglyphs = CodepointSet([
+immutable(RleBitSet!uint) unicodeInEgyptian_Hieroglyphs = RleBitSet!uint([
     0x13000, 0x13430,
 ]);
 
-immutable(CodepointSet) unicodeTelugu = CodepointSet([
+immutable(RleBitSet!uint) unicodeTelugu = RleBitSet!uint([
     0x00c01, 0x00c04,
     0x00c05, 0x00c0d,
     0x00c0e, 0x00c11,
@@ -4714,22 +4714,22 @@ immutable(CodepointSet) unicodeTelugu = CodepointSet([
     0x00c78, 0x00c80,
 ]);
 
-immutable(CodepointSet) unicodeInCombining_Diacritical_Marks = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCombining_Diacritical_Marks = RleBitSet!uint([
     0x00300, 0x00370,
 ]);
 
-immutable(CodepointSet) unicodeCham = CodepointSet([
+immutable(RleBitSet!uint) unicodeCham = RleBitSet!uint([
     0x0aa00, 0x0aa37,
     0x0aa40, 0x0aa4e,
     0x0aa50, 0x0aa5a,
     0x0aa5c, 0x0aa60,
 ]);
 
-immutable(CodepointSet) unicodeInArabic_Supplement = CodepointSet([
+immutable(RleBitSet!uint) unicodeInArabic_Supplement = RleBitSet!uint([
     0x00750, 0x00780,
 ]);
 
-immutable(CodepointSet) unicodeSk = CodepointSet([
+immutable(RleBitSet!uint) unicodeSk = RleBitSet!uint([
     0x0005e, 0x0005f,
     0x00060, 0x00061,
     0x000a8, 0x000a9,
@@ -4759,12 +4759,12 @@ immutable(CodepointSet) unicodeSk = CodepointSet([
     0x0ffe3, 0x0ffe4,
 ]);
 
-immutable(CodepointSet) unicodeImperial_Aramaic = CodepointSet([
+immutable(RleBitSet!uint) unicodeImperial_Aramaic = RleBitSet!uint([
     0x10840, 0x10856,
     0x10857, 0x10860,
 ]);
 
-immutable(CodepointSet) unicodeSm = CodepointSet([
+immutable(RleBitSet!uint) unicodeSm = RleBitSet!uint([
     0x0002b, 0x0002c,
     0x0003c, 0x0003f,
     0x0007c, 0x0007d,
@@ -4833,7 +4833,7 @@ immutable(CodepointSet) unicodeSm = CodepointSet([
     0x1d7c3, 0x1d7c4,
 ]);
 
-immutable(CodepointSet) unicodeKharoshthi = CodepointSet([
+immutable(RleBitSet!uint) unicodeKharoshthi = RleBitSet!uint([
     0x10a00, 0x10a04,
     0x10a05, 0x10a07,
     0x10a0c, 0x10a14,
@@ -4844,15 +4844,15 @@ immutable(CodepointSet) unicodeKharoshthi = CodepointSet([
     0x10a50, 0x10a59,
 ]);
 
-immutable(CodepointSet) unicodeInLycian = CodepointSet([
+immutable(RleBitSet!uint) unicodeInLycian = RleBitSet!uint([
     0x10280, 0x102a0,
 ]);
 
-immutable(CodepointSet) unicodeInCombining_Half_Marks = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCombining_Half_Marks = RleBitSet!uint([
     0x0fe20, 0x0fe30,
 ]);
 
-immutable(CodepointSet) unicodeSo = CodepointSet([
+immutable(RleBitSet!uint) unicodeSo = RleBitSet!uint([
     0x000a6, 0x000a8,
     0x000a9, 0x000aa,
     0x000ae, 0x000af,
@@ -5019,44 +5019,44 @@ immutable(CodepointSet) unicodeSo = CodepointSet([
     0x1f700, 0x1f774,
 ]);
 
-immutable(CodepointSet) unicodeInEnclosed_Alphanumeric_Supplement = CodepointSet([
+immutable(RleBitSet!uint) unicodeInEnclosed_Alphanumeric_Supplement = RleBitSet!uint([
     0x1f100, 0x1f200,
 ]);
 
-immutable(CodepointSet) unicodeInTai_Le = CodepointSet([
+immutable(RleBitSet!uint) unicodeInTai_Le = RleBitSet!uint([
     0x01950, 0x01980,
 ]);
 
-immutable(CodepointSet) unicodeInMandaic = CodepointSet([
+immutable(RleBitSet!uint) unicodeInMandaic = RleBitSet!uint([
     0x00840, 0x00860,
 ]);
 
-immutable(CodepointSet) unicodeInLepcha = CodepointSet([
+immutable(RleBitSet!uint) unicodeInLepcha = RleBitSet!uint([
     0x01c00, 0x01c50,
 ]);
 
-immutable(CodepointSet) unicodeCanadian_Aboriginal = CodepointSet([
+immutable(RleBitSet!uint) unicodeCanadian_Aboriginal = RleBitSet!uint([
     0x01400, 0x01680,
     0x018b0, 0x018f6,
 ]);
 
-immutable(CodepointSet) unicodeInGreek_Extended = CodepointSet([
+immutable(RleBitSet!uint) unicodeInGreek_Extended = RleBitSet!uint([
     0x01f00, 0x02000,
 ]);
 
-immutable(CodepointSet) unicodeInCJK_Unified_Ideographs = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCJK_Unified_Ideographs = RleBitSet!uint([
     0x04e00, 0x0a000,
 ]);
 
-immutable(CodepointSet) unicodeIDS_Trinary_Operator = CodepointSet([
+immutable(RleBitSet!uint) unicodeIDS_Trinary_Operator = RleBitSet!uint([
     0x02ff2, 0x02ff4,
 ]);
 
-immutable(CodepointSet) unicodeInMiscellaneous_Symbols = CodepointSet([
+immutable(RleBitSet!uint) unicodeInMiscellaneous_Symbols = RleBitSet!uint([
     0x02600, 0x02700,
 ]);
 
-immutable(CodepointSet) unicodeLao = CodepointSet([
+immutable(RleBitSet!uint) unicodeLao = RleBitSet!uint([
     0x00e81, 0x00e83,
     0x00e84, 0x00e85,
     0x00e87, 0x00e89,
@@ -5077,17 +5077,17 @@ immutable(CodepointSet) unicodeLao = CodepointSet([
     0x00edc, 0x00ede,
 ]);
 
-immutable(CodepointSet) unicodeInLatin_Extended_Additional = CodepointSet([
+immutable(RleBitSet!uint) unicodeInLatin_Extended_Additional = RleBitSet!uint([
     0x01e00, 0x01f00,
 ]);
 
-immutable(CodepointSet) unicodeRadical = CodepointSet([
+immutable(RleBitSet!uint) unicodeRadical = RleBitSet!uint([
     0x02e80, 0x02e9a,
     0x02e9b, 0x02ef4,
     0x02f00, 0x02fd6,
 ]);
 
-immutable(CodepointSet) unicodeMongolian = CodepointSet([
+immutable(RleBitSet!uint) unicodeMongolian = RleBitSet!uint([
     0x01800, 0x01802,
     0x01804, 0x01805,
     0x01806, 0x0180f,
@@ -5096,11 +5096,11 @@ immutable(CodepointSet) unicodeMongolian = CodepointSet([
     0x01880, 0x018ab,
 ]);
 
-immutable(CodepointSet) unicodeInVai = CodepointSet([
+immutable(RleBitSet!uint) unicodeInVai = RleBitSet!uint([
     0x0a500, 0x0a640,
 ]);
 
-immutable(CodepointSet) unicodeBengali = CodepointSet([
+immutable(RleBitSet!uint) unicodeBengali = RleBitSet!uint([
     0x00981, 0x00984,
     0x00985, 0x0098d,
     0x0098f, 0x00991,
@@ -5117,7 +5117,7 @@ immutable(CodepointSet) unicodeBengali = CodepointSet([
     0x009e6, 0x009fc,
 ]);
 
-immutable(CodepointSet) unicodeLatin = CodepointSet([
+immutable(RleBitSet!uint) unicodeLatin = RleBitSet!uint([
     0x00041, 0x0005b,
     0x00061, 0x0007b,
     0x000aa, 0x000ab,
@@ -5150,46 +5150,46 @@ immutable(CodepointSet) unicodeLatin = CodepointSet([
     0x0ff41, 0x0ff5b,
 ]);
 
-immutable(CodepointSet) unicodeTagalog = CodepointSet([
+immutable(RleBitSet!uint) unicodeTagalog = RleBitSet!uint([
     0x01700, 0x0170d,
     0x0170e, 0x01715,
 ]);
 
-immutable(CodepointSet) unicodeRejang = CodepointSet([
+immutable(RleBitSet!uint) unicodeRejang = RleBitSet!uint([
     0x0a930, 0x0a954,
     0x0a95f, 0x0a960,
 ]);
 
-immutable(CodepointSet) unicodeInCombining_Diacritical_Marks_for_Symbols = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCombining_Diacritical_Marks_for_Symbols = RleBitSet!uint([
     0x020d0, 0x02100,
 ]);
 
-immutable(CodepointSet) unicodeInSupplemental_Mathematical_Operators = CodepointSet([
+immutable(RleBitSet!uint) unicodeInSupplemental_Mathematical_Operators = RleBitSet!uint([
     0x02a00, 0x02b00,
 ]);
 
-immutable(CodepointSet) unicodeInCham = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCham = RleBitSet!uint([
     0x0aa00, 0x0aa60,
 ]);
 
-immutable(CodepointSet) unicodeAvestan = CodepointSet([
+immutable(RleBitSet!uint) unicodeAvestan = RleBitSet!uint([
     0x10b00, 0x10b36,
     0x10b39, 0x10b40,
 ]);
 
-immutable(CodepointSet) unicodeInMiscellaneous_Mathematical_Symbols_A = CodepointSet([
+immutable(RleBitSet!uint) unicodeInMiscellaneous_Mathematical_Symbols_A = RleBitSet!uint([
     0x027c0, 0x027f0,
 ]);
 
-immutable(CodepointSet) unicodeInMiscellaneous_Mathematical_Symbols_B = CodepointSet([
+immutable(RleBitSet!uint) unicodeInMiscellaneous_Mathematical_Symbols_B = RleBitSet!uint([
     0x02980, 0x02a00,
 ]);
 
-immutable(CodepointSet) unicodeInTelugu = CodepointSet([
+immutable(RleBitSet!uint) unicodeInTelugu = RleBitSet!uint([
     0x00c00, 0x00c80,
 ]);
 
-immutable(CodepointSet) unicodeLimbu = CodepointSet([
+immutable(RleBitSet!uint) unicodeLimbu = RleBitSet!uint([
     0x01900, 0x0191d,
     0x01920, 0x0192c,
     0x01930, 0x0193c,
@@ -5197,11 +5197,11 @@ immutable(CodepointSet) unicodeLimbu = CodepointSet([
     0x01944, 0x01950,
 ]);
 
-immutable(CodepointSet) unicodeInGeneral_Punctuation = CodepointSet([
+immutable(RleBitSet!uint) unicodeInGeneral_Punctuation = RleBitSet!uint([
     0x02000, 0x02070,
 ]);
 
-immutable(CodepointSet) unicodeUnified_Ideograph = CodepointSet([
+immutable(RleBitSet!uint) unicodeUnified_Ideograph = RleBitSet!uint([
     0x03400, 0x04db6,
     0x04e00, 0x09fcc,
     0x0fa0e, 0x0fa10,
@@ -5216,42 +5216,42 @@ immutable(CodepointSet) unicodeUnified_Ideograph = CodepointSet([
     0x2b740, 0x2b81e,
 ]);
 
-immutable(CodepointSet) unicodeInPhoenician = CodepointSet([
+immutable(RleBitSet!uint) unicodeInPhoenician = RleBitSet!uint([
     0x10900, 0x10920,
 ]);
 
-immutable(CodepointSet) unicodeOld_South_Arabian = CodepointSet([
+immutable(RleBitSet!uint) unicodeOld_South_Arabian = RleBitSet!uint([
     0x10a60, 0x10a80,
 ]);
 
-immutable(CodepointSet) unicodeInBuhid = CodepointSet([
+immutable(RleBitSet!uint) unicodeInBuhid = RleBitSet!uint([
     0x01740, 0x01760,
 ]);
 
-immutable(CodepointSet) unicodeKhmer = CodepointSet([
+immutable(RleBitSet!uint) unicodeKhmer = RleBitSet!uint([
     0x01780, 0x017de,
     0x017e0, 0x017ea,
     0x017f0, 0x017fa,
     0x019e0, 0x01a00,
 ]);
 
-immutable(CodepointSet) unicodeInLatin_Extended_A = CodepointSet([
+immutable(RleBitSet!uint) unicodeInLatin_Extended_A = RleBitSet!uint([
     0x00100, 0x00180,
 ]);
 
-immutable(CodepointSet) unicodeInLatin_Extended_B = CodepointSet([
+immutable(RleBitSet!uint) unicodeInLatin_Extended_B = RleBitSet!uint([
     0x00180, 0x00250,
 ]);
 
-immutable(CodepointSet) unicodeInLatin_Extended_C = CodepointSet([
+immutable(RleBitSet!uint) unicodeInLatin_Extended_C = RleBitSet!uint([
     0x02c60, 0x02c80,
 ]);
 
-immutable(CodepointSet) unicodeInLatin_Extended_D = CodepointSet([
+immutable(RleBitSet!uint) unicodeInLatin_Extended_D = RleBitSet!uint([
     0x0a720, 0x0a800,
 ]);
 
-immutable(CodepointSet) unicodeGurmukhi = CodepointSet([
+immutable(RleBitSet!uint) unicodeGurmukhi = RleBitSet!uint([
     0x00a01, 0x00a04,
     0x00a05, 0x00a0b,
     0x00a0f, 0x00a11,
@@ -5270,15 +5270,15 @@ immutable(CodepointSet) unicodeGurmukhi = CodepointSet([
     0x00a66, 0x00a76,
 ]);
 
-immutable(CodepointSet) unicodeInOsmanya = CodepointSet([
+immutable(RleBitSet!uint) unicodeInOsmanya = RleBitSet!uint([
     0x10480, 0x104b0,
 ]);
 
-immutable(CodepointSet) unicodeInCJK_Compatibility = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCJK_Compatibility = RleBitSet!uint([
     0x03300, 0x03400,
 ]);
 
-immutable(CodepointSet) unicodeOriya = CodepointSet([
+immutable(RleBitSet!uint) unicodeOriya = RleBitSet!uint([
     0x00b01, 0x00b04,
     0x00b05, 0x00b0d,
     0x00b0f, 0x00b11,
@@ -5295,24 +5295,24 @@ immutable(CodepointSet) unicodeOriya = CodepointSet([
     0x00b66, 0x00b78,
 ]);
 
-immutable(CodepointSet) unicodeBuginese = CodepointSet([
+immutable(RleBitSet!uint) unicodeBuginese = RleBitSet!uint([
     0x01a00, 0x01a1c,
     0x01a1e, 0x01a20,
 ]);
 
-immutable(CodepointSet) unicodeInGeorgian_Supplement = CodepointSet([
+immutable(RleBitSet!uint) unicodeInGeorgian_Supplement = RleBitSet!uint([
     0x02d00, 0x02d30,
 ]);
 
-immutable(CodepointSet) unicodeInCJK_Strokes = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCJK_Strokes = RleBitSet!uint([
     0x031c0, 0x031f0,
 ]);
 
-immutable(CodepointSet) unicodeVai = CodepointSet([
+immutable(RleBitSet!uint) unicodeVai = RleBitSet!uint([
     0x0a500, 0x0a62c,
 ]);
 
-immutable(CodepointSet) unicodeHangul = CodepointSet([
+immutable(RleBitSet!uint) unicodeHangul = RleBitSet!uint([
     0x01100, 0x01200,
     0x0302e, 0x03030,
     0x03131, 0x0318f,
@@ -5329,19 +5329,19 @@ immutable(CodepointSet) unicodeHangul = CodepointSet([
     0x0ffda, 0x0ffdd,
 ]);
 
-immutable(CodepointSet) unicodeInRejang = CodepointSet([
+immutable(RleBitSet!uint) unicodeInRejang = RleBitSet!uint([
     0x0a930, 0x0a960,
 ]);
 
-immutable(CodepointSet) unicodeInMiscellaneous_Technical = CodepointSet([
+immutable(RleBitSet!uint) unicodeInMiscellaneous_Technical = RleBitSet!uint([
     0x02300, 0x02400,
 ]);
 
-immutable(CodepointSet) unicodeInTransport_And_Map_Symbols = CodepointSet([
+immutable(RleBitSet!uint) unicodeInTransport_And_Map_Symbols = RleBitSet!uint([
     0x1f680, 0x1f700,
 ]);
 
-immutable(CodepointSet) unicodeHyphen = CodepointSet([
+immutable(RleBitSet!uint) unicodeHyphen = RleBitSet!uint([
     0x0002d, 0x0002e,
     0x000ad, 0x000ae,
     0x0058a, 0x0058b,
@@ -5354,21 +5354,21 @@ immutable(CodepointSet) unicodeHyphen = CodepointSet([
     0x0ff65, 0x0ff66,
 ]);
 
-immutable(CodepointSet) unicodeThai = CodepointSet([
+immutable(RleBitSet!uint) unicodeThai = RleBitSet!uint([
     0x00e01, 0x00e3b,
     0x00e40, 0x00e5c,
 ]);
 
-immutable(CodepointSet) unicodeSundanese = CodepointSet([
+immutable(RleBitSet!uint) unicodeSundanese = RleBitSet!uint([
     0x01b80, 0x01bab,
     0x01bae, 0x01bba,
 ]);
 
-immutable(CodepointSet) unicodeInRunic = CodepointSet([
+immutable(RleBitSet!uint) unicodeInRunic = RleBitSet!uint([
     0x016a0, 0x01700,
 ]);
 
-immutable(CodepointSet) unicodeDiacritic = CodepointSet([
+immutable(RleBitSet!uint) unicodeDiacritic = RleBitSet!uint([
     0x0005e, 0x0005f,
     0x00060, 0x00061,
     0x000a8, 0x000a9,
@@ -5488,16 +5488,16 @@ immutable(CodepointSet) unicodeDiacritic = CodepointSet([
     0x1d1aa, 0x1d1ae,
 ]);
 
-immutable(CodepointSet) unicodeYi = CodepointSet([
+immutable(RleBitSet!uint) unicodeYi = RleBitSet!uint([
     0x0a000, 0x0a48d,
     0x0a490, 0x0a4c7,
 ]);
 
-immutable(CodepointSet) unicodeInAlphabetic_Presentation_Forms = CodepointSet([
+immutable(RleBitSet!uint) unicodeInAlphabetic_Presentation_Forms = RleBitSet!uint([
     0x0fb00, 0x0fb50,
 ]);
 
-immutable(CodepointSet) unicodeExtender = CodepointSet([
+immutable(RleBitSet!uint) unicodeExtender = RleBitSet!uint([
     0x000b7, 0x000b8,
     0x002d0, 0x002d2,
     0x00640, 0x00641,
@@ -5520,32 +5520,32 @@ immutable(CodepointSet) unicodeExtender = CodepointSet([
     0x0ff70, 0x0ff71,
 ]);
 
-immutable(CodepointSet) unicodeGlagolitic = CodepointSet([
+immutable(RleBitSet!uint) unicodeGlagolitic = RleBitSet!uint([
     0x02c00, 0x02c2f,
     0x02c30, 0x02c5f,
 ]);
 
-immutable(CodepointSet) unicodeInSuperscripts_and_Subscripts = CodepointSet([
+immutable(RleBitSet!uint) unicodeInSuperscripts_and_Subscripts = RleBitSet!uint([
     0x02070, 0x020a0,
 ]);
 
-immutable(CodepointSet) unicodeInMalayalam = CodepointSet([
+immutable(RleBitSet!uint) unicodeInMalayalam = RleBitSet!uint([
     0x00d00, 0x00d80,
 ]);
 
-immutable(CodepointSet) unicodeJoin_Control = CodepointSet([
+immutable(RleBitSet!uint) unicodeJoin_Control = RleBitSet!uint([
     0x0200c, 0x0200e,
 ]);
 
-immutable(CodepointSet) unicodeInBatak = CodepointSet([
+immutable(RleBitSet!uint) unicodeInBatak = RleBitSet!uint([
     0x01bc0, 0x01c00,
 ]);
 
-immutable(CodepointSet) unicodeThaana = CodepointSet([
+immutable(RleBitSet!uint) unicodeThaana = RleBitSet!uint([
     0x00780, 0x007b2,
 ]);
 
-immutable(CodepointSet) unicodeSoft_Dotted = CodepointSet([
+immutable(RleBitSet!uint) unicodeSoft_Dotted = RleBitSet!uint([
     0x00069, 0x0006b,
     0x0012f, 0x00130,
     0x00249, 0x0024a,
@@ -5579,56 +5579,56 @@ immutable(CodepointSet) unicodeSoft_Dotted = CodepointSet([
     0x1d692, 0x1d694,
 ]);
 
-immutable(CodepointSet) unicodeBraille = CodepointSet([
+immutable(RleBitSet!uint) unicodeBraille = RleBitSet!uint([
     0x02800, 0x02900,
 ]);
 
-immutable(CodepointSet) unicodeInGurmukhi = CodepointSet([
+immutable(RleBitSet!uint) unicodeInGurmukhi = RleBitSet!uint([
     0x00a00, 0x00a80,
 ]);
 
-immutable(CodepointSet) unicodeMandaic = CodepointSet([
+immutable(RleBitSet!uint) unicodeMandaic = RleBitSet!uint([
     0x00840, 0x0085c,
     0x0085e, 0x0085f,
 ]);
 
-immutable(CodepointSet) unicodeInUnified_Canadian_Aboriginal_Syllabics = CodepointSet([
+immutable(RleBitSet!uint) unicodeInUnified_Canadian_Aboriginal_Syllabics = RleBitSet!uint([
     0x01400, 0x01680,
 ]);
 
-immutable(CodepointSet) unicodeInDingbats = CodepointSet([
+immutable(RleBitSet!uint) unicodeInDingbats = RleBitSet!uint([
     0x02700, 0x027c0,
 ]);
 
-immutable(CodepointSet) unicodeZl = CodepointSet([
+immutable(RleBitSet!uint) unicodeZl = RleBitSet!uint([
     0x02028, 0x02029,
 ]);
 
-immutable(CodepointSet) unicodeInMusical_Symbols = CodepointSet([
+immutable(RleBitSet!uint) unicodeInMusical_Symbols = RleBitSet!uint([
     0x1d100, 0x1d200,
 ]);
 
-immutable(CodepointSet) unicodeInBuginese = CodepointSet([
+immutable(RleBitSet!uint) unicodeInBuginese = RleBitSet!uint([
     0x01a00, 0x01a20,
 ]);
 
-immutable(CodepointSet) unicodeInSaurashtra = CodepointSet([
+immutable(RleBitSet!uint) unicodeInSaurashtra = RleBitSet!uint([
     0x0a880, 0x0a8e0,
 ]);
 
-immutable(CodepointSet) unicodeInCJK_Symbols_and_Punctuation = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCJK_Symbols_and_Punctuation = RleBitSet!uint([
     0x03000, 0x03040,
 ]);
 
-immutable(CodepointSet) unicodeInKangxi_Radicals = CodepointSet([
+immutable(RleBitSet!uint) unicodeInKangxi_Radicals = RleBitSet!uint([
     0x02f00, 0x02fe0,
 ]);
 
-immutable(CodepointSet) unicodeZp = CodepointSet([
+immutable(RleBitSet!uint) unicodeZp = RleBitSet!uint([
     0x02029, 0x0202a,
 ]);
 
-immutable(CodepointSet) unicodeHex_Digit = CodepointSet([
+immutable(RleBitSet!uint) unicodeHex_Digit = RleBitSet!uint([
     0x00030, 0x0003a,
     0x00041, 0x00047,
     0x00061, 0x00067,
@@ -5637,7 +5637,7 @@ immutable(CodepointSet) unicodeHex_Digit = CodepointSet([
     0x0ff41, 0x0ff47,
 ]);
 
-immutable(CodepointSet) unicodeZs = CodepointSet([
+immutable(RleBitSet!uint) unicodeZs = RleBitSet!uint([
     0x00020, 0x00021,
     0x000a0, 0x000a1,
     0x01680, 0x01681,
@@ -5648,11 +5648,11 @@ immutable(CodepointSet) unicodeZs = CodepointSet([
     0x03000, 0x03001,
 ]);
 
-immutable(CodepointSet) unicodeInThai = CodepointSet([
+immutable(RleBitSet!uint) unicodeInThai = RleBitSet!uint([
     0x00e00, 0x00e80,
 ]);
 
-immutable(CodepointSet) unicodeDevanagari = CodepointSet([
+immutable(RleBitSet!uint) unicodeDevanagari = RleBitSet!uint([
     0x00900, 0x00951,
     0x00953, 0x00964,
     0x00966, 0x00970,
@@ -5661,11 +5661,11 @@ immutable(CodepointSet) unicodeDevanagari = CodepointSet([
     0x0a8e0, 0x0a8fc,
 ]);
 
-immutable(CodepointSet) unicodeInArrows = CodepointSet([
+immutable(RleBitSet!uint) unicodeInArrows = RleBitSet!uint([
     0x02190, 0x02200,
 ]);
 
-immutable(CodepointSet) unicodeEthiopic = CodepointSet([
+immutable(RleBitSet!uint) unicodeEthiopic = RleBitSet!uint([
     0x01200, 0x01249,
     0x0124a, 0x0124e,
     0x01250, 0x01257,
@@ -5700,23 +5700,23 @@ immutable(CodepointSet) unicodeEthiopic = CodepointSet([
     0x0ab28, 0x0ab2f,
 ]);
 
-immutable(CodepointSet) unicodeInCurrency_Symbols = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCurrency_Symbols = RleBitSet!uint([
     0x020a0, 0x020d0,
 ]);
 
-immutable(CodepointSet) unicodeInOld_Persian = CodepointSet([
+immutable(RleBitSet!uint) unicodeInOld_Persian = RleBitSet!uint([
     0x103a0, 0x103e0,
 ]);
 
-immutable(CodepointSet) unicodeInRumi_Numeral_Symbols = CodepointSet([
+immutable(RleBitSet!uint) unicodeInRumi_Numeral_Symbols = RleBitSet!uint([
     0x10e60, 0x10e80,
 ]);
 
-immutable(CodepointSet) unicodeInTags = CodepointSet([
+immutable(RleBitSet!uint) unicodeInTags = RleBitSet!uint([
     0xe0000, 0xe0080,
 ]);
 
-immutable(CodepointSet) unicodeGreek = CodepointSet([
+immutable(RleBitSet!uint) unicodeGreek = RleBitSet!uint([
     0x00370, 0x00374,
     0x00375, 0x00378,
     0x0037a, 0x0037e,
@@ -5752,38 +5752,38 @@ immutable(CodepointSet) unicodeGreek = CodepointSet([
     0x1d200, 0x1d246,
 ]);
 
-immutable(CodepointSet) unicodeOl_Chiki = CodepointSet([
+immutable(RleBitSet!uint) unicodeOl_Chiki = RleBitSet!uint([
     0x01c50, 0x01c80,
 ]);
 
-immutable(CodepointSet) unicodeTagbanwa = CodepointSet([
+immutable(RleBitSet!uint) unicodeTagbanwa = RleBitSet!uint([
     0x01760, 0x0176d,
     0x0176e, 0x01771,
     0x01772, 0x01774,
 ]);
 
-immutable(CodepointSet) unicodeOther_Uppercase = CodepointSet([
+immutable(RleBitSet!uint) unicodeOther_Uppercase = RleBitSet!uint([
     0x02160, 0x02170,
     0x024b6, 0x024d0,
 ]);
 
-immutable(CodepointSet) unicodeInOgham = CodepointSet([
+immutable(RleBitSet!uint) unicodeInOgham = RleBitSet!uint([
     0x01680, 0x016a0,
 ]);
 
-immutable(CodepointSet) unicodeInThaana = CodepointSet([
+immutable(RleBitSet!uint) unicodeInThaana = RleBitSet!uint([
     0x00780, 0x007c0,
 ]);
 
-immutable(CodepointSet) unicodeInEnclosed_Ideographic_Supplement = CodepointSet([
+immutable(RleBitSet!uint) unicodeInEnclosed_Ideographic_Supplement = RleBitSet!uint([
     0x1f200, 0x1f300,
 ]);
 
-immutable(CodepointSet) unicodeInKhmer_Symbols = CodepointSet([
+immutable(RleBitSet!uint) unicodeInKhmer_Symbols = RleBitSet!uint([
     0x019e0, 0x01a00,
 ]);
 
-immutable(CodepointSet) unicodeCommon = CodepointSet([
+immutable(RleBitSet!uint) unicodeCommon = RleBitSet!uint([
     0x00000, 0x00041,
     0x0005b, 0x00061,
     0x0007b, 0x000aa,
@@ -5955,15 +5955,15 @@ immutable(CodepointSet) unicodeCommon = CodepointSet([
     0xe0020, 0xe0080,
 ]);
 
-immutable(CodepointSet) unicodeInCommon_Indic_Number_Forms = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCommon_Indic_Number_Forms = RleBitSet!uint([
     0x0a830, 0x0a840,
 ]);
 
-immutable(CodepointSet) unicodeInSmall_Form_Variants = CodepointSet([
+immutable(RleBitSet!uint) unicodeInSmall_Form_Variants = RleBitSet!uint([
     0x0fe50, 0x0fe70,
 ]);
 
-immutable(CodepointSet) unicodeIdeographic = CodepointSet([
+immutable(RleBitSet!uint) unicodeIdeographic = RleBitSet!uint([
     0x03006, 0x03008,
     0x03021, 0x0302a,
     0x03038, 0x0303b,
@@ -5978,47 +5978,47 @@ immutable(CodepointSet) unicodeIdeographic = CodepointSet([
     0x2f800, 0x2fa1e,
 ]);
 
-immutable(CodepointSet) unicodeGeorgian = CodepointSet([
+immutable(RleBitSet!uint) unicodeGeorgian = RleBitSet!uint([
     0x010a0, 0x010c6,
     0x010d0, 0x010fb,
     0x010fc, 0x010fd,
     0x02d00, 0x02d26,
 ]);
 
-immutable(CodepointSet) unicodeOsmanya = CodepointSet([
+immutable(RleBitSet!uint) unicodeOsmanya = RleBitSet!uint([
     0x10480, 0x1049e,
     0x104a0, 0x104aa,
 ]);
 
-immutable(CodepointSet) unicodeInEthiopic = CodepointSet([
+immutable(RleBitSet!uint) unicodeInEthiopic = RleBitSet!uint([
     0x01200, 0x01380,
 ]);
 
-immutable(CodepointSet) unicodeInEnclosed_Alphanumerics = CodepointSet([
+immutable(RleBitSet!uint) unicodeInEnclosed_Alphanumerics = RleBitSet!uint([
     0x02460, 0x02500,
 ]);
 
-immutable(CodepointSet) unicodeCuneiform = CodepointSet([
+immutable(RleBitSet!uint) unicodeCuneiform = RleBitSet!uint([
     0x12000, 0x1236f,
     0x12400, 0x12463,
     0x12470, 0x12474,
 ]);
 
-immutable(CodepointSet) unicodeSyriac = CodepointSet([
+immutable(RleBitSet!uint) unicodeSyriac = RleBitSet!uint([
     0x00700, 0x0070e,
     0x0070f, 0x0074b,
     0x0074d, 0x00750,
 ]);
 
-immutable(CodepointSet) unicodeInVertical_Forms = CodepointSet([
+immutable(RleBitSet!uint) unicodeInVertical_Forms = RleBitSet!uint([
     0x0fe10, 0x0fe20,
 ]);
 
-immutable(CodepointSet) unicodeInTai_Xuan_Jing_Symbols = CodepointSet([
+immutable(RleBitSet!uint) unicodeInTai_Xuan_Jing_Symbols = RleBitSet!uint([
     0x1d300, 0x1d360,
 ]);
 
-immutable(CodepointSet) unicodeNoncharacter_Code_Point = CodepointSet([
+immutable(RleBitSet!uint) unicodeNoncharacter_Code_Point = RleBitSet!uint([
     0x0fdd0, 0x0fdf0,
     0x0fffe, 0x10000,
     0x1fffe, 0x20000,
@@ -6039,20 +6039,20 @@ immutable(CodepointSet) unicodeNoncharacter_Code_Point = CodepointSet([
     0x10fffe, 0x110000,
 ]);
 
-immutable(CodepointSet) unicodeInMiscellaneous_Symbols_and_Arrows = CodepointSet([
+immutable(RleBitSet!uint) unicodeInMiscellaneous_Symbols_and_Arrows = RleBitSet!uint([
     0x02b00, 0x02c00,
 ]);
 
-immutable(CodepointSet) unicodeInOld_Italic = CodepointSet([
+immutable(RleBitSet!uint) unicodeInOld_Italic = RleBitSet!uint([
     0x10300, 0x10330,
 ]);
 
-immutable(CodepointSet) unicodeMeetei_Mayek = CodepointSet([
+immutable(RleBitSet!uint) unicodeMeetei_Mayek = RleBitSet!uint([
     0x0abc0, 0x0abee,
     0x0abf0, 0x0abfa,
 ]);
 
-immutable(CodepointSet) unicodeOther_Grapheme_Extend = CodepointSet([
+immutable(RleBitSet!uint) unicodeOther_Grapheme_Extend = RleBitSet!uint([
     0x009be, 0x009bf,
     0x009d7, 0x009d8,
     0x00b3e, 0x00b3f,
@@ -6071,7 +6071,7 @@ immutable(CodepointSet) unicodeOther_Grapheme_Extend = CodepointSet([
     0x1d16e, 0x1d173,
 ]);
 
-immutable(CodepointSet) unicodeOther_Math = CodepointSet([
+immutable(RleBitSet!uint) unicodeOther_Math = RleBitSet!uint([
     0x0005e, 0x0005f,
     0x003d0, 0x003d3,
     0x003d5, 0x003d6,
@@ -6174,7 +6174,7 @@ immutable(CodepointSet) unicodeOther_Math = CodepointSet([
     0x1d7ce, 0x1d800,
 ]);
 
-immutable(CodepointSet) unicodeGujarati = CodepointSet([
+immutable(RleBitSet!uint) unicodeGujarati = RleBitSet!uint([
     0x00a81, 0x00a84,
     0x00a85, 0x00a8e,
     0x00a8f, 0x00a92,
@@ -6191,40 +6191,40 @@ immutable(CodepointSet) unicodeGujarati = CodepointSet([
     0x00af1, 0x00af2,
 ]);
 
-immutable(CodepointSet) unicodeInBox_Drawing = CodepointSet([
+immutable(RleBitSet!uint) unicodeInBox_Drawing = RleBitSet!uint([
     0x02500, 0x02580,
 ]);
 
-immutable(CodepointSet) unicodeInTagbanwa = CodepointSet([
+immutable(RleBitSet!uint) unicodeInTagbanwa = RleBitSet!uint([
     0x01760, 0x01780,
 ]);
 
-immutable(CodepointSet) unicodeInHangul_Syllables = CodepointSet([
+immutable(RleBitSet!uint) unicodeInHangul_Syllables = RleBitSet!uint([
     0x0ac00, 0x0d7b0,
 ]);
 
-immutable(CodepointSet) unicodeLydian = CodepointSet([
+immutable(RleBitSet!uint) unicodeLydian = RleBitSet!uint([
     0x10920, 0x1093a,
     0x1093f, 0x10940,
 ]);
 
-immutable(CodepointSet) unicodeInKatakana_Phonetic_Extensions = CodepointSet([
+immutable(RleBitSet!uint) unicodeInKatakana_Phonetic_Extensions = RleBitSet!uint([
     0x031f0, 0x03200,
 ]);
 
-immutable(CodepointSet) unicodeInTai_Tham = CodepointSet([
+immutable(RleBitSet!uint) unicodeInTai_Tham = RleBitSet!uint([
     0x01a20, 0x01ab0,
 ]);
 
-immutable(CodepointSet) unicodeInNumber_Forms = CodepointSet([
+immutable(RleBitSet!uint) unicodeInNumber_Forms = RleBitSet!uint([
     0x02150, 0x02190,
 ]);
 
-immutable(CodepointSet) unicodeInBopomofo_Extended = CodepointSet([
+immutable(RleBitSet!uint) unicodeInBopomofo_Extended = RleBitSet!uint([
     0x031a0, 0x031c0,
 ]);
 
-immutable(CodepointSet) unicodeInherited = CodepointSet([
+immutable(RleBitSet!uint) unicodeInherited = RleBitSet!uint([
     0x00300, 0x00370,
     0x00485, 0x00487,
     0x0064b, 0x00656,
@@ -6251,31 +6251,31 @@ immutable(CodepointSet) unicodeInherited = CodepointSet([
     0xe0100, 0xe01f0,
 ]);
 
-immutable(CodepointSet) unicodeInLetterlike_Symbols = CodepointSet([
+immutable(RleBitSet!uint) unicodeInLetterlike_Symbols = RleBitSet!uint([
     0x02100, 0x02150,
 ]);
 
-immutable(CodepointSet) unicodeBuhid = CodepointSet([
+immutable(RleBitSet!uint) unicodeBuhid = RleBitSet!uint([
     0x01740, 0x01754,
 ]);
 
-immutable(CodepointSet) unicodeInCypriot_Syllabary = CodepointSet([
+immutable(RleBitSet!uint) unicodeInCypriot_Syllabary = RleBitSet!uint([
     0x10800, 0x10840,
 ]);
 
-immutable(CodepointSet) unicodeInSyloti_Nagri = CodepointSet([
+immutable(RleBitSet!uint) unicodeInSyloti_Nagri = RleBitSet!uint([
     0x0a800, 0x0a830,
 ]);
 
-immutable(CodepointSet) unicodeInSamaritan = CodepointSet([
+immutable(RleBitSet!uint) unicodeInSamaritan = RleBitSet!uint([
     0x00800, 0x00840,
 ]);
 
-immutable(CodepointSet) unicodeInGeorgian = CodepointSet([
+immutable(RleBitSet!uint) unicodeInGeorgian = RleBitSet!uint([
     0x010a0, 0x01100,
 ]);
 
-immutable(CodepointSet) unicodeAlphabetic = CodepointSet([
+immutable(RleBitSet!uint) unicodeAlphabetic = RleBitSet!uint([
     0x00041, 0x0005b,
     0x00061, 0x0007b,
     0x000aa, 0x000ab,
@@ -6764,7 +6764,7 @@ immutable(CodepointSet) unicodeAlphabetic = CodepointSet([
     0x2f800, 0x2fa1e,
 ]);
 
-immutable(CodepointSet) unicodeBalinese = CodepointSet([
+immutable(RleBitSet!uint) unicodeBalinese = RleBitSet!uint([
     0x01b00, 0x01b4c,
     0x01b50, 0x01b7d,
 ]);
@@ -7169,7 +7169,7 @@ UnicodeProperty("Zl", unicodeZl),
 UnicodeProperty("Zp", unicodeZp),
 UnicodeProperty("Zs", unicodeZs),
 ];
-immutable NFC_QCN = CodepointSet([
+immutable NFC_QCN = RleBitSet!uint([
     0x00340, 0x00342,
     0x00343, 0x00345,
     0x00374, 0x00375,
@@ -7246,7 +7246,7 @@ immutable NFC_QCN = CodepointSet([
     0x2f800, 0x2fa1e,
 ]);
 
-immutable NFC_QCM = CodepointSet([
+immutable NFC_QCM = RleBitSet!uint([
     0x00300, 0x00305,
     0x00306, 0x0030d,
     0x0030f, 0x00310,
