@@ -3049,7 +3049,7 @@ template useLastItem(T)
 T msb(T)(T value)
 	if(isUnsigned!T)
 {
-	size_t mask = 1<<(T.sizeof*8-1), i;
+	size_t mask = cast(size_t)1UL<<(T.sizeof*8-1), i;
 	for(i=T.sizeof*8-1; i<T.sizeof*8; i--, mask >>= 1)//count on overflow
 	{
 		if(mask & value)
