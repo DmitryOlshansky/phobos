@@ -1,4 +1,4 @@
-// Written in the D programming language.
+﻿// Written in the D programming language.
 
 /++
     Functions which operate on Unicode characters.
@@ -83,6 +83,8 @@ enum dchar paraSep = '\u2029'; /// UTF paragraph separator
 import std.stdio;
 
 private:
+
+enum lastDchar = 0x10FFFF;
 
 auto force(T, F)(F from)
 	if(isIntegral!T && !is(T == F))
@@ -177,17 +179,19 @@ struct MultiArray(Types...)
         if(new_size > sz[n])
         {//extend
             size_t delta = (new_size - sz[n]);
-            writeln("Before scaling:", delta);
+//            writeln("Before scaling:", delta);
             delta = spaceFor!(bitSizeOf!(Types[n]))(delta);
             sz[n] += delta;
-            writeln("After scaling:", delta);
+//            writeln("After scaling:", delta);
             storage.length +=  delta;//extend space at end
             //raw_slice!x must follow resize as it could be moved!
             //next 3 stmts move all data past this array, last-one-goes-first
             static if(n != dim-1)
             {
                 auto start = raw_ptr!(n+1);
-                size_t len = storage.length;
+				//len includes delta
+                size_t len = (storage.ptr+storage.length-start);
+
                 copy(retro(start[0..len-delta])
                     , retro(start[delta..len]));
 
@@ -241,16 +245,16 @@ private:
             yes = yes || v;
         return yes;
     }
-	template Unpack(T)
-	{
-		 //TODO: hackish! do proper pattern matching with BitPacked!(sz, T)
-		static if(is(typeof(T.bitSize)) && is(T.entity) )
-		{
-			alias T.entity Unpack;
-		}
-		else
-			alias T Unpack;
-	}
+    template Unpack(T)
+    {
+         //TODO: hackish! do proper pattern matching with BitPacked!(sz, T)
+        static if(is(typeof(T.bitSize)) && is(T.entity) )
+        {
+            alias T.entity Unpack;
+        }
+        else
+            alias T Unpack;
+    }
     alias staticMap!(bitSizeOf, Types) bitWidth;
     enum indirections = needNotifyGc();
     size_t[] storage;
@@ -316,75 +320,75 @@ unittest
     checkB!2(m, 33);
     check!0(m, 220);
 
-	auto marr = MultiArray!(BitPacked!(4, uint), BitPacked!(6, uint))(20, 10);
-	marr.length!0 = 15;
-	marr.length!1 = 30;
-	fill!1(marr, 30);
-	fill!0(marr, 15);
-	check!1(marr, 30);
-	check!0(marr, 15);
+    auto marr = MultiArray!(BitPacked!(4, uint), BitPacked!(6, uint))(20, 10);
+    marr.length!0 = 15;
+    marr.length!1 = 30;
+    fill!1(marr, 30);
+    fill!0(marr, 15);
+    check!1(marr, 30);
+    check!0(marr, 15);
 }
 
 unittest
 {//more bitpacking tests
-	alias MultiArray!(BitPacked!(3, size_t)
-				, BitPacked!(4, size_t)
-				, BitPacked!(3, size_t)
-				, BitPacked!(6, size_t)
-				, bool) Bitty;
-	alias sliceBits!(13, 16).entity fn1;
-	alias sliceBits!( 9, 13).entity fn2;
-	alias sliceBits!( 6,  9).entity fn3;
-	alias sliceBits!( 0,  6).entity fn4;
-	static void check(size_t lvl, MA)(ref MA arr){
-		for(size_t i = 0; i< arr.length!lvl; i++)
-			assert(arr.slice!(lvl)[i] == i, text("Mismatch on lvl ", lvl, " idx ", i, " value: ", arr.slice!(lvl)[i]));
-	}
+    alias MultiArray!(BitPacked!(3, size_t)
+                , BitPacked!(4, size_t)
+                , BitPacked!(3, size_t)
+                , BitPacked!(6, size_t)
+                , bool) Bitty;
+    alias sliceBits!(13, 16).entity fn1;
+    alias sliceBits!( 9, 13).entity fn2;
+    alias sliceBits!( 6,  9).entity fn3;
+    alias sliceBits!( 0,  6).entity fn4;
+    static void check(size_t lvl, MA)(ref MA arr){
+        for(size_t i = 0; i< arr.length!lvl; i++)
+            assert(arr.slice!(lvl)[i] == i, text("Mismatch on lvl ", lvl, " idx ", i, " value: ", arr.slice!(lvl)[i]));
+    }
 
-	static void fillIdx(size_t lvl, MA)(ref MA arr){
-		for(size_t i = 0; i< arr.length!lvl; i++)
-			arr.slice!(lvl)[i] = i;
-	}
-	Bitty m1;
-	
-	m1.length!4 = 10;
-	m1.length!3 = 2^^6;
-	m1.length!2 = 2^^3;
-	m1.length!1 = 2^^4;
-	m1.length!0 = 2^^3;
+    static void fillIdx(size_t lvl, MA)(ref MA arr){
+        for(size_t i = 0; i< arr.length!lvl; i++)
+            arr.slice!(lvl)[i] = i;
+    }
+    Bitty m1;
+    
+    m1.length!4 = 10;
+    m1.length!3 = 2^^6;
+    m1.length!2 = 2^^3;
+    m1.length!1 = 2^^4;
+    m1.length!0 = 2^^3;
 
-	m1.length!4 = 2^^16;
+    m1.length!4 = 2^^16;
 
-	for(size_t i = 0; i< m1.length!4; i++)
-		m1.slice!(4)[i] = i % 2;
+    for(size_t i = 0; i< m1.length!4; i++)
+        m1.slice!(4)[i] = i % 2;
 
-	fillIdx!1(m1);
-	check!1(m1);
-	fillIdx!2(m1);
-	check!2(m1);
-	fillIdx!3(m1);
-	check!3(m1);
-	fillIdx!0(m1);
-	check!0(m1);
-	check!3(m1);
-	check!2(m1);
-	check!1(m1);
-	for(size_t i=0; i < 2^^16; i++)
-	{
-		m1.slice!(4)[i] = i % 2;
-		m1.slice!(0)[fn1(i)] = fn1(i);
-		m1.slice!(1)[fn2(i)] = fn2(i);
-		m1.slice!(2)[fn3(i)] = fn3(i);
-		m1.slice!(3)[fn4(i)] = fn4(i);
-	}
-	for(size_t i=0; i < 2^^16; i++)
-	{
-		assert(m1.slice!(4)[i] == i % 2);
-		assert(m1.slice!(0)[fn1(i)] == fn1(i));
-		assert(m1.slice!(1)[fn2(i)] == fn2(i));
-		assert(m1.slice!(2)[fn3(i)] == fn3(i));
-		assert(m1.slice!(3)[fn4(i)] == fn4(i));
-	}
+    fillIdx!1(m1);
+    check!1(m1);
+    fillIdx!2(m1);
+    check!2(m1);
+    fillIdx!3(m1);
+    check!3(m1);
+    fillIdx!0(m1);
+    check!0(m1);
+    check!3(m1);
+    check!2(m1);
+    check!1(m1);
+    for(size_t i=0; i < 2^^16; i++)
+    {
+        m1.slice!(4)[i] = i % 2;
+        m1.slice!(0)[fn1(i)] = fn1(i);
+        m1.slice!(1)[fn2(i)] = fn2(i);
+        m1.slice!(2)[fn3(i)] = fn3(i);
+        m1.slice!(3)[fn4(i)] = fn4(i);
+    }
+    for(size_t i=0; i < 2^^16; i++)
+    {
+        assert(m1.slice!(4)[i] == i % 2);
+        assert(m1.slice!(0)[fn1(i)] == fn1(i));
+        assert(m1.slice!(1)[fn2(i)] == fn2(i));
+        assert(m1.slice!(2)[fn3(i)] == fn3(i));
+        assert(m1.slice!(3)[fn4(i)] == fn4(i));
+    }
 }
 
 //test bit packing with MultiArrays
@@ -412,35 +416,35 @@ struct PackedArrayView(T, size_t bits)
         original = arr;
     }
 
-	static if(bits % 8)
-	{
-		T opIndex(size_t idx)inout
-		{        
-				return cast(T)
-				((original[idx/factor] >> bits*(idx%factor))
-					 & mask);		
-		}
+    static if(bits % 8)
+    {
+        T opIndex(size_t idx)inout
+        {        
+                return cast(T)
+                ((original[idx/factor] >> bits*(idx%factor))
+                     & mask);       
+        }
 
-		void opIndexAssign(T val, size_t idx)
-		in
-		{
-			static if(isIntegral!T)
-				assert(val <= mask, text("mask: ",mask, " bits: ", bits, "value:", val, " > ", mask));
-		}
-		body
-		{
-				size_t tgt_shift = bits*(idx%(factor));
-				original[idx/factor] &= ~(mask<<tgt_shift);
-				original[idx/factor] |= cast(size_t)val << tgt_shift;
-		}
-	}
-	else
-	{//by byte granular type itself
-		ref inout(T) opIndex(size_t idx)inout
-		{
-			return (cast(inout(T)*)original.ptr)[idx];
-		}
-	}
+        void opIndexAssign(T val, size_t idx)
+        in
+        {
+            static if(isIntegral!T)
+                assert(val <= mask, text("mask: ",mask, " bits: ", bits, "value:", val, " > ", mask));
+        }
+        body
+        {
+                size_t tgt_shift = bits*(idx%(factor));
+                original[idx/factor] &= ~(mask<<tgt_shift);
+                original[idx/factor] |= cast(size_t)val << tgt_shift;
+        }
+    }
+    else
+    {//by byte granular type itself
+        ref inout(T) opIndex(size_t idx)inout
+        {
+            return (cast(inout(T)*)original.ptr)[idx];
+        }
+    }
 
     void opSliceAssign(T val, size_t start, size_t end)
     {
@@ -494,11 +498,11 @@ private:
 private struct SliceOverIndexed(T)
 {
     auto opIndex(size_t idx)const
-    in
-    {
-        assert(idx < to - from);
-    }
-    body
+    //in
+    //{
+    //    assert(idx < to - from);
+    //}
+    //body
     {
         return arr.opIndex(from+idx);
     }
@@ -561,7 +565,7 @@ private:
      T* arr;
 }
 
-private auto packedArrayView(T, size_t bits)(inout(size_t)[] arr)
+private auto packedArrayView(T, size_t bits)(inout(size_t)[] arr)inout
 {
     return inout(PackedArrayView!(T, bits))(arr);
 }
@@ -586,10 +590,11 @@ unittest
 }
 
 */
-
+@safe:
 //hope to see simillar stuff in public interface... once Allocators are out
 //@@@BUG moveFront and friends? dunno, for now it's POD-only
-size_t genericReplace(Policy=void, T, Range)
+
+@trusted size_t genericReplace(Policy=void, T, Range)
     (ref T dest, size_t from, size_t to, Range stuff)
 {
     size_t delta = to - from;
@@ -627,98 +632,98 @@ size_t genericReplace(Policy=void, T, Range)
 
 //Simple storage manipulation policy
 //TODO: stop working around the bugs rorts them!
-public struct GcPolicy
+@trusted public struct GcPolicy
 {
-	static T[] dup(T)(const T[] arr)
-	{
-		return arr.dup;
-	}
+    static T[] dup(T)(const T[] arr)
+    {
+        return arr.dup;
+    }
 
-	static T[] realloc(T)(T[] arr, size_t sz)
-	{
-	    arr.length = sz;
-	    return arr;
-	}
+    static T[] realloc(T)(T[] arr, size_t sz)
+    {
+        arr.length = sz;
+        return arr;
+    }
 
-	static void replaceImpl(T, Range)(ref T[] dest, size_t from, size_t to, Range stuff)
-	{
-		replaceInPlace(dest, from, to, stuff);
-	}
+    static void replaceImpl(T, Range)(ref T[] dest, size_t from, size_t to, Range stuff)
+    {
+        replaceInPlace(dest, from, to, stuff);
+    }
 
-	static void append(T, V)(ref T[] arr, V value)
-		if(!isInputRange!V)
-	{
-		arr ~= force!T(value);
-	}
+    static void append(T, V)(ref T[] arr, V value)
+        if(!isInputRange!V)
+    {
+        arr ~= force!T(value);
+    }
 
-	static void append(T, V)(ref T[] arr, V value)
-		if(isInputRange!V)
-	{
-		insertInPlace(arr, arr.length, value);
-	}
+    static void append(T, V)(ref T[] arr, V value)
+        if(isInputRange!V)
+    {
+        insertInPlace(arr, arr.length, value);
+    }
 
-	static void destroy(T)(ref T arr)
-		if(isDynamicArray!T && is(Unqual!T == T))
-	{
-		arr[] = cast(typeof(T.init[0]))(0xdead_beef); 
-	}
+    static void destroy(T)(ref T arr)
+        if(isDynamicArray!T && is(Unqual!T == T))
+    {
+        arr[] = cast(typeof(T.init[0]))(0xdead_beef); 
+    }
 
-	static void destroy(T)(ref T arr)
-		if(isDynamicArray!T && !is(Unqual!T == T))
-	{ /*NOP*/ }
+    static void destroy(T)(ref T arr)
+        if(isDynamicArray!T && !is(Unqual!T == T))
+    { /*NOP*/ }
 }
 
 //ditto
-struct ReallocPolicy
+@trusted struct ReallocPolicy
 {
     import std.exception, core.stdc.stdlib;
-	static T[] dup(T)(const T[] arr)
-	{
-	    auto result = alloc!T(arr.length);
-	    result[] = arr[];
-		return result;
-	}
+    static T[] dup(T)(const T[] arr)
+    {
+        auto result = alloc!T(arr.length);
+        result[] = arr[];
+        return result;
+    }
 
-	static T[] alloc(T)(size_t size)
-	{
-	    auto ptr = cast(T*)enforce(malloc(T.sizeof*size), "out of memory on C heap");
+    static T[] alloc(T)(size_t size)
+    {
+        auto ptr = cast(T*)enforce(malloc(T.sizeof*size), "out of memory on C heap");
         return ptr[0..size];
-	}
+    }
 
-	static T[] realloc(T)(T[] arr, size_t size)
-	{
-	    if(!size)
-	    {
-	        destroy(arr);
+    static T[] realloc(T)(T[] arr, size_t size)
+    {
+        if(!size)
+        {
+            destroy(arr);
             return null;
-	    }
-	    auto ptr = cast(T*)enforce(core.stdc.stdlib.realloc(
+        }
+        auto ptr = cast(T*)enforce(core.stdc.stdlib.realloc(
                              arr.ptr, T.sizeof*size), "out of memory on C heap");
         return ptr[0..size];
-	}
+    }
 
-	static void replaceImpl(T, Range)(ref T[] dest, size_t from, size_t to, Range stuff)
-	{
-	    genericReplace!(ReallocPolicy)(dest, from, to, stuff);
-	}
+    static void replaceImpl(T, Range)(ref T[] dest, size_t from, size_t to, Range stuff)
+    {
+        genericReplace!(ReallocPolicy)(dest, from, to, stuff);
+    }
 
-	static void append(T, V)(ref T[] arr, V value)
-		if(!isInputRange!V)
-	{
-		arr = realloc(arr, arr.length+1);
-		arr[$-1] = force!T(value);
-	}
+    static void append(T, V)(ref T[] arr, V value)
+        if(!isInputRange!V)
+    {
+        arr = realloc(arr, arr.length+1);
+        arr[$-1] = force!T(value);
+    }
 
-	static void append(T, V)(ref T[] arr, V value)
-		if(isInputRange!V && hasLength!V)
-	{
-	    arr = realloc(arr, arr.length+value.length);
-		copy(value, arr[$-value.length..$]);
-	}
+    static void append(T, V)(ref T[] arr, V value)
+        if(isInputRange!V && hasLength!V)
+    {
+        arr = realloc(arr, arr.length+value.length);
+        copy(value, arr[$-value.length..$]);
+    }
 
-	static void destroy(T)(ref T[] arr)
-	{
-	    free(arr.ptr);
+    static void destroy(T)(ref T[] arr)
+    {
+        free(arr.ptr);
         arr = null;
     }
 }
@@ -755,6 +760,7 @@ unittest
 //addInterval, skipUpTo, dropUpTo & byInterval iteration
 mixin template BasicSetOps()
 {
+@trusted:
     alias typeof(this) This;
     /**
         $(P $(D RleBitSet)s support natural syntax for set algebra, namely:)
@@ -779,18 +785,18 @@ mixin template BasicSetOps()
             }
             else
             {
-				static if(is(Unqual!U == U))
-				{
-					//try hard to reuse r-value			
-		            mixin("rhs "~op~"= this;");
-			        return rhs;
-				}
-				else
-				{
-					auto tmp = this.dup;
-					mixin("tmp "~op~"= rhs;");
-					return tmp;
-				}
+                static if(is(Unqual!U == U))
+                {
+                    //try hard to reuse r-value         
+                    mixin("rhs "~op~"= this;");
+                    return rhs;
+                }
+                else
+                {
+                    auto tmp = this.dup;
+                    mixin("tmp "~op~"= rhs;");
+                    return tmp;
+                }
             }
         }
         else static if(op == "-")
@@ -816,7 +822,10 @@ mixin template BasicSetOps()
         static if(op == "|")    //union
         {
             static if(is(U:dchar))
-                return this.addInterval(rhs, rhs+1);
+			{
+                this.addInterval(rhs, rhs+1);
+				return this;
+			}
             else
                 return this.add(rhs);
         }
@@ -836,11 +845,11 @@ mixin template BasicSetOps()
     }
 
     ///Range that spans each codepoint in this set.
-    @property auto byChar()
+    @property auto byChar() const
     {
         static struct CharRange
         {
-            this(This set)
+            this(in This set)
             {
                 this.r = set.byInterval;
                 cur = r.front.a;
@@ -889,12 +898,13 @@ mixin template BasicSetOps()
                 formattedWrite(sink, "[%d..%d) ", i.a, i.b);
     }
 
-private:
-    ref add(uint a, uint b)
+	ref add(uint a, uint b)
     {
         addInterval(a, b);
         return this;
     }
+	enum isSet = true;
+private:
 
     ref intersect(in This rhs)
     {
@@ -946,20 +956,15 @@ private:
         return this;
     }
 
-    enum isSet = true;
 };
 
-public struct RleBitSet(T, SP=GcPolicy)
+///RleBitSet is ...
+@trusted public struct RleBitSet(T, SP=GcPolicy)
     if(isUnsigned!T)
 {
+
 public:
-    /*this(C)(in C[] regexSet)
-        if(is(C : dchar))
-    {
-        assert(0);
-    }
-*/
-    this()(uint[] intervals...)
+     this()(uint[] intervals...) //@@@BUG text is not safe yet?!
     in
     {
         assert(intervals.length % 2 == 0, "Odd number of interval bounds [a, b)!");
@@ -987,13 +992,13 @@ public:
         SP.destroy(data);
     }
 
-	///Make a mutable copy of this set.
-	@property auto dup()const
-	{
-		RleBitSet s;
-		s.data = SP.dup(data);
-		return s;
-	}
+    ///Make a mutable copy of this set.
+    @property auto dup()const
+    {
+        RleBitSet s;
+        s.data = SP.dup(data);
+        return s;
+    }
 
     @property auto byInterval() const
     {
@@ -1127,13 +1132,32 @@ public:
         }
     }
 
-    bool opIndex(uint val)
+    bool opIndex(uint val)const
     {
         foreach(i; byInterval)
             if(val < i.b)
                 return val >= i.a;
         return false;
     }
+
+	@property size_t size()const
+	{
+		size_t sum = 0 ;
+		for(size_t i=0; i<data.length; i+=2)
+			sum += data[i+1];//sum up positive intervals
+		return sum;
+	}
+
+	ref invert()
+	{
+		//TODO: implement inversion
+		return this;
+	}
+
+	@property bool empty()const
+	{
+		return data.length == 0;
+	}
 
     mixin BasicSetOps;
 private:
@@ -1163,7 +1187,7 @@ private:
     {
         static if(T.sizeof == 4)//short-circuit to optimal version
         {
-	        SP.replaceImpl(dest, from, to, to_insert);
+            SP.replaceImpl(dest, from, to, to_insert);
             return from+to_insert.length-1;
         }
         else
@@ -1435,14 +1459,8 @@ private:
     $(D CodepointSet) is a packed data structure for sets of codepoints.
     Memory usage is 6 bytes per each contigous interval in a set.
 */
-public struct InversionList(SP=GcPolicy)
+@trusted public struct InversionList(SP=GcPolicy)
 {
-    this(C)(in C[] regexSet)
-        if(is(C : dchar))
-    {
-        assert(0);
-    }
-
     this()(uint[] intervals...)
     in
     {
@@ -1460,13 +1478,13 @@ public struct InversionList(SP=GcPolicy)
         data = data.dup;
     }
 
-	///Make a mutable copy of this set.
-	@property auto dup()const
-	{
-		InversionList s;
-		s.data = data.dup;
-		return s;
-	}
+    ///Make a mutable copy of this set.
+    @property auto dup()const
+    {
+        InversionList s;
+        s.data = data.dup;
+        return s;
+    }
 
     @property auto byInterval()const 
     {
@@ -1514,6 +1532,38 @@ public struct InversionList(SP=GcPolicy)
     {
         return assumeSorted(data[]).lowerBound(val).length & 1;
     }
+
+	///Number of characters in this set
+	@property size_t size()
+	{
+		size_t sum = 0;
+		foreach(iv; byInterval)
+		{
+			sum += iv.b - iv.a;
+		}
+		return sum;
+	}
+
+	///Do an in-place inversion of set.  See also '!' unary operator.
+	ref invert()
+	{
+		if(data.length == 0)
+		{
+			addInterval(0, lastDchar+1);
+			return this;
+		}
+		if(data[0] != 0)
+			genericReplace(data, 0, 0, [0]);
+		if(data[data.length-1] != lastDchar+1)
+			genericReplace(data, data.length, data.length, [lastDchar+1]);
+
+		return this;
+	}
+
+	@property bool empty() const
+	{
+		return data.length == 0;
+	}
 
     mixin BasicSetOps;
 private:
@@ -1703,7 +1753,7 @@ private:
 };
 
 ///Packed array of 24-bit integers.
-struct Uint24Array(SP=GcPolicy)
+@trusted struct Uint24Array(SP=GcPolicy)
 {
     this(Range)(Range range)
         if(isInputRange!Range && hasLength!Range)
@@ -1799,7 +1849,7 @@ private:
     ushort[] data;
 }
 
-unittest//Uint24 tests
+@trusted unittest//Uint24 tests //@@@BUG@@ iota is system ?!
 {
     InversionList!GcPolicy val;
     foreach(Policy; TypeTuple!(GcPolicy, ReallocPolicy))
@@ -1838,7 +1888,7 @@ private alias TypeTuple!(AbsTypes, RleTypes) AllSets;
 
 }
 
-unittest//core set primitives test
+@trusted unittest//core set primitives test
 {
     foreach(CodeList; AllSets)
     {
@@ -1919,7 +1969,7 @@ unittest//constructors
     assert(a.repr == [10, 15, 5, 15]);
 }
 
-unittest
+@trusted unittest
 {   //full set operations
     foreach(CodeList; AllSets)
     {
@@ -2025,23 +2075,23 @@ private alias RleBitSet!ubyte uList;
 private alias RleBitSet!ushort mList;
 private alias RleBitSet!uint cList;
 
-unittest// set operations and integer overflow ;)
+@system unittest// set operations and integer overflow ;)
 {
-	uList a, b, c, d;
-	a = uList(20, 40, 100,      300, 400,     1200);
-	b = uList(0,           260, 300,      600);
-	assert(a.repr == [20, 20, 60, 200, 100, 255, 0, 255, 0, 255, 0, 35]);
-	assert(b.repr == [0, 255, 0, 5, 40, 255, 0, 45]);
-	c = a & b; //[20,40) [100, 260) [400, 600)
-	d = b & a;
-	auto e = uList(20, 40, 100, 260, 400, 600);
-	assert(c == e, text(c, " vs ", e));
-	assert(c == d, text(c, " vs ", d));
+    uList a, b, c, d;
+    a = uList(20, 40, 100,      300, 400,     1200);
+    b = uList(0,           260, 300,      600);
+    assert(a.repr == [20, 20, 60, 200, 100, 255, 0, 255, 0, 255, 0, 35]);
+    assert(b.repr == [0, 255, 0, 5, 40, 255, 0, 45]);
+    c = a & b; //[20,40) [100, 260) [400, 600)
+    d = b & a;
+    auto e = uList(20, 40, 100, 260, 400, 600);
+    assert(c == e, text(c, " vs ", e));
+    assert(c == d, text(c, " vs ", d));
 }
 
-unittest// ditto
+@system unittest// ditto
 {
-	foreach(i, List; TypeTuple!(mList, cList))
+    foreach(i, List; TypeTuple!(mList, cList))
     {
         List a, b, c, d;
         a = List(    150,       450,    550,    750,    1000,  75_000);
@@ -2058,7 +2108,8 @@ unittest// ditto
     }
 }
 
-unittest//even more set operations with BIG intervals
+//@@@BUG Error: safe function '__unittest13' cannot call system function 'opAssign' WTF?
+@system unittest//even more set operations with BIG intervals
 {
     foreach(List; TypeTuple!(mList, cList))
     {
@@ -2086,7 +2137,7 @@ unittest//even more set operations with BIG intervals
                        10_000_000, 12_000_000));
     }
 }
-
+@system:
 unittest// vs single dchar
 {
     mList a = mList(10, 100, 120, 200);
@@ -2107,23 +2158,8 @@ unittest//iteration
     assert(equal(x.byInterval, [ tuple(100, 500), tuple(600, 900), tuple(1200, 1500)]), text(x.byInterval));
 }
 
-template WrapBinary(alias filter, alias bFn)
-{
-    auto WrapBinary(A)(A a, A b)
-    {
-        return bFn(filter(a), filter(b));
-    }
-}
 
-template MapWrap(alias Fn, Ts...)
-{
-    static if(Ts.length > 0)
-        alias TypeTuple!(WrapBinary!(Fn, Ts[0]), MapWrap!(Fn, Ts[1..$])) MapPipe;
-    else
-        alias TypeTuple!() MapPipe;
-}
-
-struct Trie(Value, Key, Prefix...)
+@trusted struct Trie(Value, Key, Prefix...)
     if(Prefix.length >= 1)
 {
 
@@ -2160,7 +2196,7 @@ struct Trie(Value, Key, Prefix...)
     ///Construct Trie from array of keys
     ///fills all possible keys with zeros in index
     this(Keys)(Keys keys)
-        if(!is(typeof(Set.init.isSet)))
+        if(!is(typeof(Keys.init.isSet)))
     {
         enum last = Prefix.length-1;
         enum pageBits=Prefix[$-1].bitSize, pageSize = 1<<pageBits;
@@ -2182,8 +2218,19 @@ struct Trie(Value, Key, Prefix...)
             static if(isDynamicArray!Keys)
             {
                 alias GetComparators!(Prefix.length, cmpK) Comps;
-                multiSort!(Comps, SwapStrategy.unstable)
-                    (keys);
+				static if(type == TrieType.Set || (type == TrieType.Value && is(V == bool)))
+				{
+	                multiSort!(Comps, SwapStrategy.unstable)
+		                (keys);
+				}
+				else static if(is(Unqual!Keys  == V[]))
+				{
+					/* NOP */
+					//we consider indexes to be presorted as need as index in array is treated as key
+					//and value of elements is value
+				}
+				else
+					static assert(0, "Unsupported type of array "~Keys.stringof~" for Trie of "~V.stringof);
                 auto r = keys;
             }
             else static if(type == TrieType.Map)
@@ -2197,24 +2244,29 @@ struct Trie(Value, Key, Prefix...)
             else
                 static assert(false, "unsupported constructor for "~Keys.stringof);
 
-            for(int i=0;i<r.length; i++)
+            for(size_t i=0;i<r.length; i++)
             {
                 static if(type == TrieType.Map)
                     size_t keyIdx = getIndex(r[i][1]);
+				else static if(type == TrieType.Value && !is(V == bool) && is(Key : size_t))
+				//value and not bool  and key is implictly convertible to size_t  == simple map,
+				//key is index i
+				{
+					size_t keyIdx = i;
+				}
                 else
                     size_t keyIdx = getIndex(r[i]);
                 if(keyIdx != prevKeyIdx)
                 {
-                    static if(type == TrieType.Set
-                              || type == TrieType.Map)
-                    {
-                        addValue!last(idxs, r.front.init, keyIdx - j);
-                        addValue!last(idxs, r[i]);
-                    }
-                    else
+                    static if(type == TrieType.Value && is(V == bool))
                     {
                         addValue!last(idxs, false, keyIdx - j);
                         addValue!last(idxs, true);
+                    }
+					else
+					{
+                        addValue!last(idxs, r.front.init, keyIdx - j);
+                        addValue!last(idxs, r[i]);
                     }
                     prevKeyIdx = keyIdx;
                     j = keyIdx+1;
@@ -2240,7 +2292,7 @@ struct Trie(Value, Key, Prefix...)
     }
 
     ///Construct boolean Trie from set.
-    this(Set)(Set set, Key maxKey=Key.max)
+    this(Set)(in Set set, Key maxKey=Key.max)
         if(is(typeof(Set.init.isSet)))
     {
         enum last = Prefix.length-1;
@@ -2274,15 +2326,15 @@ struct Trie(Value, Key, Prefix...)
 
                 ivals.popFront();
             }
-			addValue!last(idxs, false, maxKey - i);
+            addValue!last(idxs, false, maxKey - i);
             /*for(; i<maxKey; i++){
-				writeln("### i:", i);
-				foreach(j, p; Prefix)
-					writef("%1d-LVL: %d; ", j, p.entity(i));
-				writeln();
-				addValue!last(idxs, false);
-				
-			}*/
+                writeln("### i:", i);
+                foreach(j, p; Prefix)
+                    writef("%1d-LVL: %d; ", j, p.entity(i));
+                writeln();
+                addValue!last(idxs, false);
+                
+            }*/
         }
     }
 
@@ -2478,7 +2530,7 @@ private:
 
     //last index is not stored in table, it is used as offset to values in a block.
     MultiArray!(idxTypes!(Key, size_t.max, true, Prefix[0..$-1]), V) table;
-	pragma(msg, typeof(table));
+    pragma(msg, typeof(table));
 }
 
 /**
@@ -2513,11 +2565,11 @@ struct BitPacked(size_t sz, T) if(isIntegral!T || is(T:dchar))
 template sliceBitsImpl(size_t from, size_t to)
 {
     T sliceBitsImpl(T)(T x)
-	out(result)
-	{
-		assert(result < (1<<to-from));
-	}
-	body
+    out(result)
+    {
+        assert(result < (1<<to-from));
+    }
+    body
     {
         static assert(from < to);
         return (x >> from) & ((1<<(to-from))-1);
@@ -2546,120 +2598,120 @@ template Sequence(size_t start, size_t end)
 //---- TRIE TESTS ----
 version(unittest)
 private enum TokenKind : ubyte { //from DCT by Roman Boiko (Boost v1.0 licence)
-		// token kind has not been initialized to a valid value
-		Invalid = 0,
+        // token kind has not been initialized to a valid value
+        Invalid = 0,
 
-		// protection
-		Package, Private, Protected, Public, // note: extern also specifies protection level
+        // protection
+        Package, Private, Protected, Public, // note: extern also specifies protection level
 
-		// storage classes
-		Extern, Abstract, Auto, Const, Deprecated, Enum, Final, Immutable, InOut, NoThrow, Override, Pure, Scope, Shared, Static, Synchronized, _GShared,
+        // storage classes
+        Extern, Abstract, Auto, Const, Deprecated, Enum, Final, Immutable, InOut, NoThrow, Override, Pure, Scope, Shared, Static, Synchronized, _GShared,
 
-		// basic type names
-		Bool, Char, UByte, Byte, WChar, UShort, Short, DChar, UInt, Int, ULong, Long, Float, Double, Real, CFloat, CDouble, CReal, IFloat, IDouble, IReal, Void,
+        // basic type names
+        Bool, Char, UByte, Byte, WChar, UShort, Short, DChar, UInt, Int, ULong, Long, Float, Double, Real, CFloat, CDouble, CReal, IFloat, IDouble, IReal, Void,
 
-		// other keywords
-		Alias, Align, Asm, Assert, Body, Break, Case, Cast, Catch, Cent, Class, Continue, Debug, Default, Delegate, Delete, Do, Else, Export, False, Finally, ForEach_Reverse, ForEach, For, Function,
-		GoTo, If, Import, Interface, Invariant, In, Is, Lazy, Macro, Mixin, Module, New, Null, Out, Pragma, Ref, Return, Struct, Super, Switch,
-		Template, This, Throw, True, Try, TypeDef, TypeId, TypeOf, UCent, Union, UnitTest, Version, Volatile, While, With, _FILE_, _LINE_, _Thread, _Traits,
+        // other keywords
+        Alias, Align, Asm, Assert, Body, Break, Case, Cast, Catch, Cent, Class, Continue, Debug, Default, Delegate, Delete, Do, Else, Export, False, Finally, ForEach_Reverse, ForEach, For, Function,
+        GoTo, If, Import, Interface, Invariant, In, Is, Lazy, Macro, Mixin, Module, New, Null, Out, Pragma, Ref, Return, Struct, Super, Switch,
+        Template, This, Throw, True, Try, TypeDef, TypeId, TypeOf, UCent, Union, UnitTest, Version, Volatile, While, With, _FILE_, _LINE_, _Thread, _Traits,
 
-		// any identifier which is not a keyword
-		Identifier,
+        // any identifier which is not a keyword
+        Identifier,
 
-		// literals
-		StringLiteral, CharacterLiteral, IntegerLiteral, FloatLiteral,
+        // literals
+        StringLiteral, CharacterLiteral, IntegerLiteral, FloatLiteral,
 
-		// punctuation
+        // punctuation
 
-		// brackets
-		LeftParen,			// (
-		RightParen,			// )
-		LeftBracket,		// [
-		RightBracket,		// ]
-		LeftCurly,			// {
-		RightCurly,			// }
+        // brackets
+        LeftParen,          // (
+        RightParen,         // )
+        LeftBracket,        // [
+        RightBracket,       // ]
+        LeftCurly,          // {
+        RightCurly,         // }
 
-		// assignment operators
-		Assign,				// =
-		AmpersandAssign,	// &=
-		TildeAssign,		// ~=
-		SlashAssign,		// /=
-		LeftShiftAssign,	// <<=
-		MinusAssign,		// -=
-		PercentAssign,		// %=
-		StarAssign,			// *=
-		OrAssign,			// |=
-		PlusAssign,			// +=
-		PowerAssign,		// ^^=
-		RightShiftAssign,	// >>=
-		URightShiftAssign,	// >>>=
-		XorAssign,			// ^=
+        // assignment operators
+        Assign,             // =
+        AmpersandAssign,    // &=
+        TildeAssign,        // ~=
+        SlashAssign,        // /=
+        LeftShiftAssign,    // <<=
+        MinusAssign,        // -=
+        PercentAssign,      // %=
+        StarAssign,         // *=
+        OrAssign,           // |=
+        PlusAssign,         // +=
+        PowerAssign,        // ^^=
+        RightShiftAssign,   // >>=
+        URightShiftAssign,  // >>>=
+        XorAssign,          // ^=
 
-		// relational operators
-		Eq,					// ==
-		NotEq,				// !=
-		GreaterThan,		// >
-		GreaterOrEq,		// >=
-		LessThan,			// <
-		LessEqOrGreater,	// <>=
-		LessOrGreater,		// <>
-		LessOrEq,			// <=
-		UnordCompare,		// !<>=
-		UnordGreaterOrEq,	// !<
-		UnordLessOrEq,		// !>
-		UnordOrEq,			// !<>
-		UnordOrGreater,		// !<=
-		UnordOrLess,		// !>=
+        // relational operators
+        Eq,                 // ==
+        NotEq,              // !=
+        GreaterThan,        // >
+        GreaterOrEq,        // >=
+        LessThan,           // <
+        LessEqOrGreater,    // <>=
+        LessOrGreater,      // <>
+        LessOrEq,           // <=
+        UnordCompare,       // !<>=
+        UnordGreaterOrEq,   // !<
+        UnordLessOrEq,      // !>
+        UnordOrEq,          // !<>
+        UnordOrGreater,     // !<=
+        UnordOrLess,        // !>=
 
-		// shift operators
-		LeftShift,			// <<
-		RightShift,			// >>
-		URightShift,		// >>>
+        // shift operators
+        LeftShift,          // <<
+        RightShift,         // >>
+        URightShift,        // >>>
 
-		// other binary operators
-		Power,				// ^^
-		BoolAnd,			// &&
-		BoolOr,				// ||
-		BitOr,				// |
-		BitXor,				// ^
-		Percent,			// %
-		Slash,				// /
+        // other binary operators
+        Power,              // ^^
+        BoolAnd,            // &&
+        BoolOr,             // ||
+        BitOr,              // |
+        BitXor,             // ^
+        Percent,            // %
+        Slash,              // /
 
-		// operators which can be either unary or binary
-		Star,				// * (multiply; pointer)
-		Minus,				// -
-		Plus,				// +
-		Ampersand,			// & (address of; bitwise and)
-		Tilde,				// ~ (concat; complement)
+        // operators which can be either unary or binary
+        Star,               // * (multiply; pointer)
+        Minus,              // -
+        Plus,               // +
+        Ampersand,          // & (address of; bitwise and)
+        Tilde,              // ~ (concat; complement)
 
-		// unary operators
-		Bang,				// ! (not; actual compile time parameter)
-		Decrement,			// --
-		Increment,			// ++
+        // unary operators
+        Bang,               // ! (not; actual compile time parameter)
+        Decrement,          // --
+        Increment,          // ++
 
-		// other punctuation
-		Dot,				// .
-		Slice,				// ..
-		Ellipsis,			// ...
-		Lambda,				// =>
-		Question,			// ?
-		Comma,				// ,
-		Semicolon,			// ;
-		Colon,				// :
-		Dollar,				// $
-		Hash,				// #
-		At,					// @
+        // other punctuation
+        Dot,                // .
+        Slice,              // ..
+        Ellipsis,           // ...
+        Lambda,             // =>
+        Question,           // ?
+        Comma,              // ,
+        Semicolon,          // ;
+        Colon,              // :
+        Dollar,             // $
+        Hash,               // #
+        At,                 // @
 
-		// other tokens
+        // other tokens
 
-		SpecialToken, EndOfLine,
-		// note: it is important that the following tokens are last, because column calculation depends on whether tab appears in token spelling
-		WhiteSpace, ScriptLine, Comment, SpecialTokenSequence,
-		// end of file is always inserted (at the end)
-		// it corresponds to either of \0 or \1A, but is also inserted immediately after __EOF__ special token
-		// spelling includes everything starting from frontIndex and till the physical end of file, and it may be ""
-		// __EOF__ inside a comment, character or string literal is treated as string (unlike DMD, which treats it as EoF inside token strings and character literals)
-		_EOF_
+        SpecialToken, EndOfLine,
+        // note: it is important that the following tokens are last, because column calculation depends on whether tab appears in token spelling
+        WhiteSpace, ScriptLine, Comment, SpecialTokenSequence,
+        // end of file is always inserted (at the end)
+        // it corresponds to either of \0 or \1A, but is also inserted immediately after __EOF__ special token
+        // spelling includes everything starting from frontIndex and till the physical end of file, and it may be ""
+        // __EOF__ inside a comment, character or string literal is treated as string (unlike DMD, which treats it as EoF inside token strings and character literals)
+        _EOF_
 };
 
 unittest
@@ -2749,112 +2801,112 @@ unittest
     //A realistic example: keyword detector
     enum keywords = [
             "abstract",
-			"alias",
-			"align",
-			"asm",
-			"assert",
-			"auto",
-			"body",
-			"bool",
-			"break",
-			"byte",
-			"case",
-			"cast",
-			"catch",
-			"cdouble",
-			"cent",
-			"cfloat",
-			"char",
-			"class",
-			"const",
-			"continue",
-			"creal",
-			"dchar",
-			"debug",
-			"default",
-			"delegate",
-			"delete",
-			"deprecated",
-			"do",
-			"double",
-			"else",
-			"enum",
-			"export",
-			"extern",
-			"false",
-			"final",
-			"finally",
-			"float",
-			"for",
-			"foreach",
-			"foreach_reverse",
-			"function",
-			"goto",
-			"idouble",
-			"if",
-			"ifloat",
-			"immutable",
-			"import",
-			"in",
-			"inout",
-			"int",
-			"interface",
-			"invariant",
-			"ireal",
-			"is",
-			"lazy",
-			"long",
-			"macro",
-			"mixin",
-			"module",
-			"new",
-			"nothrow",
-			"null",
-			"out",
-			"override",
-			"package",
-			"pragma",
-			"private",
-			"protected",
-			"public",
-			"pure",
-			"real",
-			"ref",
-			"return",
-			"scope",
-			"shared",
-			"short",
-			"static",
-			"struct",
-			"super",
-			"switch",
-			"synchronized",
-			"template",
-			"this",
-			"throw",
-			"true",
-			"try",
-			"typedef",
-			"typeid",
-			"typeof",
-			"ubyte",
-			"ucent",
-			"uint",
-			"ulong",
-			"union",
-			"unittest",
-			"ushort",
-			"version",
-			"void",
-			"volatile",
-			"wchar",
-			"while",
-			"with",
-			"__FILE__",
-			"__gshared",
-			"__LINE__",
-			"__thread",
-			"__traits"
+            "alias",
+            "align",
+            "asm",
+            "assert",
+            "auto",
+            "body",
+            "bool",
+            "break",
+            "byte",
+            "case",
+            "cast",
+            "catch",
+            "cdouble",
+            "cent",
+            "cfloat",
+            "char",
+            "class",
+            "const",
+            "continue",
+            "creal",
+            "dchar",
+            "debug",
+            "default",
+            "delegate",
+            "delete",
+            "deprecated",
+            "do",
+            "double",
+            "else",
+            "enum",
+            "export",
+            "extern",
+            "false",
+            "final",
+            "finally",
+            "float",
+            "for",
+            "foreach",
+            "foreach_reverse",
+            "function",
+            "goto",
+            "idouble",
+            "if",
+            "ifloat",
+            "immutable",
+            "import",
+            "in",
+            "inout",
+            "int",
+            "interface",
+            "invariant",
+            "ireal",
+            "is",
+            "lazy",
+            "long",
+            "macro",
+            "mixin",
+            "module",
+            "new",
+            "nothrow",
+            "null",
+            "out",
+            "override",
+            "package",
+            "pragma",
+            "private",
+            "protected",
+            "public",
+            "pure",
+            "real",
+            "ref",
+            "return",
+            "scope",
+            "shared",
+            "short",
+            "static",
+            "struct",
+            "super",
+            "switch",
+            "synchronized",
+            "template",
+            "this",
+            "throw",
+            "true",
+            "try",
+            "typedef",
+            "typeid",
+            "typeof",
+            "ubyte",
+            "ucent",
+            "uint",
+            "ulong",
+            "union",
+            "unittest",
+            "ushort",
+            "version",
+            "void",
+            "volatile",
+            "wchar",
+            "while",
+            "with",
+            "__FILE__",
+            "__gshared",
+            "__LINE__",
+            "__thread",
+            "__traits"
     ];
 
     //assumes T.init == empty, NG if T.init is a legal key
@@ -2901,7 +2953,7 @@ unittest
         return arr.length > 63 ? 0 : arr.length; //need max length, 64 - 6bits
     }
 
-	enum k = bitSizeOf!(SmallSet!(2, string));
+    enum k = bitSizeOf!(SmallSet!(2, string));
 
     auto keyTrie = Trie!(SetAsSlot!(SmallSet!(2,string))
                          , string
@@ -2912,115 +2964,115 @@ unittest
         assert( key in keyTrie[key], text(key, (cast (size_t[])keyTrie[key].items)));
     trieStats(keyTrie);
     auto keywordsMap = [
-			"abstract" : TokenKind.Abstract,
-			"alias" : TokenKind.Alias,
-			"align" : TokenKind.Align,
-			"asm" : TokenKind.Asm,
-			"assert" : TokenKind.Assert,
-			"auto" : TokenKind.Auto,
-			"body" : TokenKind.Body,
-			"bool" : TokenKind.Bool,
-			"break" : TokenKind.Break,
-			"byte" : TokenKind.Byte,
-			"case" : TokenKind.Case,
-			"cast" : TokenKind.Cast,
-			"catch" : TokenKind.Catch,
-			"cdouble" : TokenKind.CDouble,
-			"cent" : TokenKind.Cent,
-			"cfloat" : TokenKind.CFloat,
-			"char" : TokenKind.Char,
-			"class" : TokenKind.Class,
-			"const" : TokenKind.Const,
-			"continue" : TokenKind.Continue,
-			"creal" : TokenKind.CReal,
-			"dchar" : TokenKind.DChar,
-			"debug" : TokenKind.Debug,
-			"default" : TokenKind.Default,
-			"delegate" : TokenKind.Delegate,
-			"delete" : TokenKind.Delete,
-			"deprecated" : TokenKind.Deprecated,
-			"do" : TokenKind.Do,
-			"double" : TokenKind.Double,
-			"else" : TokenKind.Else,
-			"enum" : TokenKind.Enum,
-			"export" : TokenKind.Export,
-			"extern" : TokenKind.Extern,
-			"false" : TokenKind.False,
-			"final" : TokenKind.Final,
-			"finally" : TokenKind.Finally,
-			"float" : TokenKind.Float,
-			"for" : TokenKind.For,
-			"foreach" : TokenKind.ForEach,
-			"foreach_reverse" : TokenKind.ForEach_Reverse,
-			"function" : TokenKind.Function,
-			"goto" : TokenKind.GoTo,
-			"idouble" : TokenKind.IDouble,
-			"if" : TokenKind.If,
-			"ifloat" : TokenKind.IFloat,
-			"immutable" : TokenKind.Immutable,
-			"import" : TokenKind.Import,
-			"in" : TokenKind.In,
-			"inout" : TokenKind.InOut,
-			"int" : TokenKind.Int,
-			"interface" : TokenKind.Interface,
-			"invariant" : TokenKind.Invariant,
-			"invariant" : TokenKind.Invariant,
-			"ireal" : TokenKind.IReal,
-			"is" : TokenKind.Is,
-			"lazy" : TokenKind.Lazy,
-			"long" : TokenKind.Long,
-			"macro" : TokenKind.Macro,
-			"mixin" : TokenKind.Mixin,
-			"module" : TokenKind.Module,
-			"new" : TokenKind.New,
-			"nothrow" : TokenKind.NoThrow,
-			"null" : TokenKind.Null,
-			"out" : TokenKind.Out,
-			"override" : TokenKind.Override,
-			"package" : TokenKind.Package,
-			"pragma" : TokenKind.Pragma,
-			"private" : TokenKind.Private,
-			"protected" : TokenKind.Protected,
-			"public" : TokenKind.Public,
-			"pure" : TokenKind.Pure,
-			"real" : TokenKind.Real,
-			"ref" : TokenKind.Ref,
-			"return" : TokenKind.Return,
-			"scope" : TokenKind.Scope,
-			"shared" : TokenKind.Shared,
-			"short" : TokenKind.Short,
-			"static" : TokenKind.Static,
-			"struct" : TokenKind.Struct,
-			"super" : TokenKind.Super,
-			"switch" : TokenKind.Switch,
-			"synchronized" : TokenKind.Synchronized,
-			"template" : TokenKind.Template,
-			"this" : TokenKind.This,
-			"throw" : TokenKind.Throw,
-			"true" : TokenKind.True,
-			"try" : TokenKind.Try,
-			"typedef" : TokenKind.TypeDef,
-			"typeid" : TokenKind.TypeId,
-			"typeof" : TokenKind.TypeOf,
-			"ubyte" : TokenKind.UByte,
-			"ucent" : TokenKind.UCent,
-			"uint" : TokenKind.UInt,
-			"ulong" : TokenKind.ULong,
-			"union" : TokenKind.Union,
-			"unittest" : TokenKind.UnitTest,
-			"ushort" : TokenKind.UShort,
-			"version" : TokenKind.Version,
-			"void" : TokenKind.Void,
-			"volatile" : TokenKind.Volatile,
-			"wchar" : TokenKind.WChar,
-			"while" : TokenKind.While,
-			"with" : TokenKind.With,
-			"__FILE__" : TokenKind._FILE_,
-			"__gshared" : TokenKind._GShared,
-			"__LINE__" : TokenKind._LINE_,
-			"__thread" : TokenKind._Thread,
-			"__traits" : TokenKind._Traits,
-	];
+            "abstract" : TokenKind.Abstract,
+            "alias" : TokenKind.Alias,
+            "align" : TokenKind.Align,
+            "asm" : TokenKind.Asm,
+            "assert" : TokenKind.Assert,
+            "auto" : TokenKind.Auto,
+            "body" : TokenKind.Body,
+            "bool" : TokenKind.Bool,
+            "break" : TokenKind.Break,
+            "byte" : TokenKind.Byte,
+            "case" : TokenKind.Case,
+            "cast" : TokenKind.Cast,
+            "catch" : TokenKind.Catch,
+            "cdouble" : TokenKind.CDouble,
+            "cent" : TokenKind.Cent,
+            "cfloat" : TokenKind.CFloat,
+            "char" : TokenKind.Char,
+            "class" : TokenKind.Class,
+            "const" : TokenKind.Const,
+            "continue" : TokenKind.Continue,
+            "creal" : TokenKind.CReal,
+            "dchar" : TokenKind.DChar,
+            "debug" : TokenKind.Debug,
+            "default" : TokenKind.Default,
+            "delegate" : TokenKind.Delegate,
+            "delete" : TokenKind.Delete,
+            "deprecated" : TokenKind.Deprecated,
+            "do" : TokenKind.Do,
+            "double" : TokenKind.Double,
+            "else" : TokenKind.Else,
+            "enum" : TokenKind.Enum,
+            "export" : TokenKind.Export,
+            "extern" : TokenKind.Extern,
+            "false" : TokenKind.False,
+            "final" : TokenKind.Final,
+            "finally" : TokenKind.Finally,
+            "float" : TokenKind.Float,
+            "for" : TokenKind.For,
+            "foreach" : TokenKind.ForEach,
+            "foreach_reverse" : TokenKind.ForEach_Reverse,
+            "function" : TokenKind.Function,
+            "goto" : TokenKind.GoTo,
+            "idouble" : TokenKind.IDouble,
+            "if" : TokenKind.If,
+            "ifloat" : TokenKind.IFloat,
+            "immutable" : TokenKind.Immutable,
+            "import" : TokenKind.Import,
+            "in" : TokenKind.In,
+            "inout" : TokenKind.InOut,
+            "int" : TokenKind.Int,
+            "interface" : TokenKind.Interface,
+            "invariant" : TokenKind.Invariant,
+            "invariant" : TokenKind.Invariant,
+            "ireal" : TokenKind.IReal,
+            "is" : TokenKind.Is,
+            "lazy" : TokenKind.Lazy,
+            "long" : TokenKind.Long,
+            "macro" : TokenKind.Macro,
+            "mixin" : TokenKind.Mixin,
+            "module" : TokenKind.Module,
+            "new" : TokenKind.New,
+            "nothrow" : TokenKind.NoThrow,
+            "null" : TokenKind.Null,
+            "out" : TokenKind.Out,
+            "override" : TokenKind.Override,
+            "package" : TokenKind.Package,
+            "pragma" : TokenKind.Pragma,
+            "private" : TokenKind.Private,
+            "protected" : TokenKind.Protected,
+            "public" : TokenKind.Public,
+            "pure" : TokenKind.Pure,
+            "real" : TokenKind.Real,
+            "ref" : TokenKind.Ref,
+            "return" : TokenKind.Return,
+            "scope" : TokenKind.Scope,
+            "shared" : TokenKind.Shared,
+            "short" : TokenKind.Short,
+            "static" : TokenKind.Static,
+            "struct" : TokenKind.Struct,
+            "super" : TokenKind.Super,
+            "switch" : TokenKind.Switch,
+            "synchronized" : TokenKind.Synchronized,
+            "template" : TokenKind.Template,
+            "this" : TokenKind.This,
+            "throw" : TokenKind.Throw,
+            "true" : TokenKind.True,
+            "try" : TokenKind.Try,
+            "typedef" : TokenKind.TypeDef,
+            "typeid" : TokenKind.TypeId,
+            "typeof" : TokenKind.TypeOf,
+            "ubyte" : TokenKind.UByte,
+            "ucent" : TokenKind.UCent,
+            "uint" : TokenKind.UInt,
+            "ulong" : TokenKind.ULong,
+            "union" : TokenKind.Union,
+            "unittest" : TokenKind.UnitTest,
+            "ushort" : TokenKind.UShort,
+            "version" : TokenKind.Version,
+            "void" : TokenKind.Void,
+            "volatile" : TokenKind.Volatile,
+            "wchar" : TokenKind.WChar,
+            "while" : TokenKind.While,
+            "with" : TokenKind.With,
+            "__FILE__" : TokenKind._FILE_,
+            "__gshared" : TokenKind._GShared,
+            "__LINE__" : TokenKind._LINE_,
+            "__thread" : TokenKind._Thread,
+            "__traits" : TokenKind._Traits,
+    ];
     auto keyTrie2 = Trie!(MapAsSlot!(SmallMap!(2, TokenKind, string), TokenKind, string)
                          , string
                          , assumeSize!(6, useLength)
@@ -3047,15 +3099,15 @@ template useLastItem(T)
 
 //
 T msb(T)(T value)
-	if(isUnsigned!T)
+    if(isUnsigned!T)
 {
-	size_t mask = cast(size_t)1UL<<(T.sizeof*8-1), i;
-	for(i=T.sizeof*8-1; i<T.sizeof*8; i--, mask >>= 1)//count on overflow
-	{
-		if(mask & value)
-			return i+1;
-	}
-	return 1;
+    size_t mask = cast(size_t)(1UL<<(T.sizeof*8-1)), i;
+    for(i=T.sizeof*8-1; i<T.sizeof*8; i--, mask >>= 1)//count on overflow
+    {
+        if(mask & value)
+            return i+1;
+    }
+    return 1;
 }
 
 template idxTypes(Key, size_t maxKeyIdx, bool pack, Prefix...)
@@ -3066,20 +3118,20 @@ template idxTypes(Key, size_t maxKeyIdx, bool pack, Prefix...)
     }
     else
     {
-		//Important bitpacking note:
-		//- each level has to hold enough of bits to address the next one
-		static if(Prefix.length > 1)
-		{
-			alias TypeTuple!(BitPacked!(Prefix[1].bitSize+1, typeof(Prefix[0].entity(Key.init)))
-							 , idxTypes!(Key, maxKeyIdx, pack, Prefix[1..$])) idxTypes;
-		}
-		else
-		{//and the last one should be able to hold
-			static if(pack)
-				alias TypeTuple!(BitPacked!(msb(maxKeyIdx), typeof(Prefix[0].entity(Key.init)))) idxTypes;
-			else
-				alias TypeTuple!(typeof(Prefix[0].entity(Key.init))) idxTypes;
-		}
+        //Important bitpacking note:
+        //- each level has to hold enough of bits to address the next one
+        static if(Prefix.length > 1)
+        {
+            alias TypeTuple!(BitPacked!(Prefix[1].bitSize+1, typeof(Prefix[0].entity(Key.init)))
+                             , idxTypes!(Key, maxKeyIdx, pack, Prefix[1..$])) idxTypes;
+        }
+        else
+        {//and the last one should be able to hold
+            static if(pack)
+                alias TypeTuple!(BitPacked!(msb(maxKeyIdx), typeof(Prefix[0].entity(Key.init)))) idxTypes;
+            else
+                alias TypeTuple!(typeof(Prefix[0].entity(Key.init))) idxTypes;
+        }
     }
 }
 
@@ -3091,6 +3143,7 @@ template bitSizeOf(T)
         enum bitSizeOf = T.sizeof*8;
 }
 
+@safe:
 public: //Public API continues
 /++
     Whether or not $(D c) is a Unicode whitespace character.

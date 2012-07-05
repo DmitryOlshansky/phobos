@@ -321,6 +321,7 @@ struct UnicodeProperty
     string name;
     immutable RleBitSet!uint set;
 }
+
 immutable(RleBitSet!uint) unicodeInCombining_Diacritical_Marks_Supplement = RleBitSet!uint([
     0x01dc0, 0x01e00,
 ]);
