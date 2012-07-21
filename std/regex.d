@@ -219,6 +219,7 @@ Macros:
  +/
 
 module std.regex;
+version(none){
 
 import std.internal.uni_tab;//unicode property tables
 import std.array, std.algorithm, std.range,
@@ -845,8 +846,6 @@ enum maxCharsetUsed = 6;
 
 enum maxCachedTries = 8;
 alias Trie!(bool, size_t, sliceBits!(8, 24), sliceBits!(0, 8))	CodeTrie;
-
-
 
 CodeTrie[const(RleBitSet!uint)] trieCache;
 
@@ -7635,7 +7634,7 @@ else
             assert(!m);
             debug(fred_test) writeln("!!! FReD REGRESSION test done "~matchFn.stringof~" !!!");
             auto rprealloc = regex(`((.){5}.{1,10}){5}`);
-            auto arr = array(replicate('0',100));
+            auto arr = array(repeat('0',100));
             auto m2 = matchFn(arr, rprealloc);
             assert(m2);
             assert(collectException(
@@ -7772,3 +7771,4 @@ else
 }
 
 }//version(unittest)
+}

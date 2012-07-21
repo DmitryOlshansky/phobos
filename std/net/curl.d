@@ -2439,6 +2439,8 @@ struct HTTP
         // Wrap incoming callback in order to separate http status line from
         // http headers.  On redirected requests there may be several such
         // status lines. The last one is the one recorded.
+        version(none)
+        {
         auto dg = (in char[] header)
         {
             if (header.empty)
@@ -2485,6 +2487,7 @@ struct HTTP
             p.headersIn[fieldName] = m.captures[2].idup;
         };
         p.curl.onReceiveHeader(dg);
+      }
     }
 
     /**

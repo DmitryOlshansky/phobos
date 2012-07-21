@@ -1415,7 +1415,7 @@ private:
                 // for negative stuff, idx can be equal data.length-1
                 if(idx + 1 == data.length)
                 {
-                    replacePad(data, start_idx, data.length, cast(T[])[]);
+                    replacePad(data, start_idx, data.length, []);
                     return Marker(cast(uint)data.length, top);
                 }
                 replacePad(data, start_idx, idx+2, [top + data[idx+1] - top_before]);
@@ -2377,23 +2377,13 @@ unittest//iteration
         static if(n == size_t.max)
             return table.storage.length*size_t.sizeof;
         else
-            return table.length!n * typeof(table.slice!n[0]).sizeof;
+            return table.length!n * typeof(table.slice!(n)[0]).sizeof;
     }
 
     @property size_t pages(size_t n=size_t.max)() const
     {
         return (bytes!n+2^^(Prefix[$-1].bitSize-1))
                 /2^^Prefix[$-1].bitSize;
-    }
-
-    version(none) static bool cmpKey(Key a, Key b)//untested, possibly bogus
-    {
-        foreach(p; Prefix)
-        {
-            if(p.entity(a) < p.entity(b))
-               return true;
-        }
-        return false;
     }
 
     //needed for multisort to work
@@ -2474,7 +2464,6 @@ private:
                 size_t nextPB = (indices[level]+pageSize)/pageSize*pageSize;
                 size_t j = indices[level];
                 size_t n =  nextPB-j;//can fill right in this page
-				
                 if(numVals > n)
                     numVals -= n;
                 else
@@ -2482,6 +2471,9 @@ private:
                     n = numVals;
                     numVals = 0;
                 }
+				static if(level < Prefix.length-1)
+					assert(indices[level] <= 2^^Prefix[level+1].bitSize);
+
                 static if(level == Prefix.length-1 && type != TrieType.Value)
                 {
                     for(int i=0;i<n; i++)
@@ -2497,7 +2489,9 @@ private:
                 indices[level] = j;
 
             }
-            static if(level != 0)//last level has 1 "page"
+			//last level (i.e. topmost) has 1 "page" 
+			//thus it need not to add a new page on upper level
+            static if(level != 0)
             {
                 alias typeof(table.slice!(level-1)[0]) NextIdx;
                 NextIdx next_lvl_index;
@@ -2527,8 +2521,10 @@ private:
                             break;
                         }
                     }
+
+					//level-1 needs at most 2^^bitSize(level) bits, so we can ignore creating new pages
                     if(j == last)
-                    {
+                    {							
                         next_lvl_index = cast(NextIdx)(indices[level]/pageSize - 1);
                         //allocate next page
                         version(none)
@@ -2553,7 +2549,7 @@ private:
     }
 
     //last index is not stored in table, it is used as offset to values in a block.
-    MultiArray!(idxTypes!(Key, size_t.max, true, Prefix[0..$-1]), V) table;
+    MultiArray!(idxTypes!(Key, fullBitSize!(Prefix), Prefix[0..$]), V) table;
     pragma(msg, typeof(table));
 }
 
@@ -2561,7 +2557,7 @@ private:
     Wrapping T by SetAsSlot indicates that T should be considered
     as a set of values.
     When SetAsSlot!T is used as $(D Value) type, Trie will internally
-    translate assignments/test to insert & 'in' operator repspectively.
+    translate assignments/tests to insert & 'in' operator repspectively.
 */
 public struct SetAsSlot(T){}
 
@@ -3107,6 +3103,12 @@ unittest
     trieStats(keyTrie2);
 }
 
+unittest//bit size test
+{
+	auto a = array(map!(x => to!ubyte(x))(iota(0, 255)));
+	auto bt = Trie!(bool, ubyte, sliceBits!(7, 8), sliceBits!(5, 7), sliceBits!(0, 5))(a);
+}
+
 template useItemAt(size_t idx, T)
     if(isIntegral!T || is(T: dchar))
 {
@@ -3119,43 +3121,32 @@ template useLastItem(T)
     size_t entity(in T[] arr){ return arr[$-1]; }
     enum bitSize = 8*T.sizeof;
 }
-//TODO: benchmark for Trie vs InversionList vs RleBitSet vs std.bitmanip.BitArray
 
-//
-T msb(T)(T value)
-    if(isUnsigned!T)
+template fullBitSize(Prefix...)
 {
-    size_t mask = cast(size_t)(1UL<<(T.sizeof*8-1)), i;
-    for(i=T.sizeof*8-1; i<T.sizeof*8; i--, mask >>= 1)//count on overflow
-    {
-        if(mask & value)
-            return i+1;
-    }
-    return 1;
+	static if(Prefix.length > 0)
+		enum fullBitSize = Prefix[0].bitSize+fullBitSize!(Prefix[1..$]);
+	else
+		enum fullBitSize = 0;
 }
 
-template idxTypes(Key, size_t maxKeyIdx, bool pack, Prefix...)
+template idxTypes(Key, size_t fullBits, Prefix...)
 {
-    static if(Prefix.length == 0)
-    {
+    static if(Prefix.length == 1)
+    {//the last level is value level, so no index once reduced to 1-level
         alias TypeTuple!() idxTypes;
     }
     else
     {
         //Important bitpacking note:
-        //- each level has to hold enough of bits to address the next one
-        static if(Prefix.length > 1)
-        {
-            alias TypeTuple!(BitPacked!(Prefix[1].bitSize+1, typeof(Prefix[0].entity(Key.init)))
-                             , idxTypes!(Key, maxKeyIdx, pack, Prefix[1..$])) idxTypes;
-        }
-        else
-        {//and the last one should be able to hold
-            static if(pack)
-                alias TypeTuple!(BitPacked!(msb(maxKeyIdx), typeof(Prefix[0].entity(Key.init)))) idxTypes;
-            else
-                alias TypeTuple!(typeof(Prefix[0].entity(Key.init))) idxTypes;
-        }
+        //- each level has to hold enough of bits to address the next one    
+		//the bottom level is known to hold full bit width
+		//thus it's size in pages is fill_bit_width - size_of_last_prefix
+		//recourse on this notion
+        alias TypeTuple!(
+			idxTypes!(Key, fullBits - Prefix[$-1].bitSize, Prefix[0..$-1]),
+			BitPacked!(fullBits - Prefix[$-1].bitSize, typeof(Prefix[$-2].entity(Key.init)))
+		) idxTypes;
     }
 }
 
