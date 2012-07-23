@@ -235,10 +235,10 @@ private:
     @property auto raw_ptr(size_t n)()inout
     {
         static if(n == 0)
-            return storage.ptr;//[0..sz[0]];
+            return storage.ptr;
         else
         {
-            return storage.ptr+offsets[n];//..offsets[n]+sz[n]];
+            return storage.ptr+offsets[n];
         }
     }
     size_t[Types.length] offsets;//offset for level x
@@ -288,14 +288,12 @@ unittest
     {
         foreach(i; 0..n)
             m.slice!(k)[i] = force!ubyte(i+1);
-        writefln("A: %(%x %)", m.slice!(k)[]);
     }
 
     static void fillB(size_t k, T)(ref T m, int n)
     {
         foreach(i; 0..n)
             m.slice!(k)[i] = force!ubyte(n-i);
-        writefln("B: %(%x %)", m.slice!(k)[]);
     }
 
     m.length!1 = 100;
