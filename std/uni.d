@@ -179,13 +179,11 @@ struct MultiArray(Types...)
         if(new_size > sz[n])
         {//extend
             size_t delta = (new_size - sz[n]);
-//            writeln("Before scaling:", delta);
-            delta = spaceFor!(bitSizeOf!(Types[n]))(delta);
             sz[n] += delta;
-//            writeln("After scaling:", delta);
+			delta = spaceFor!(bitSizeOf!(Types[n]))(delta);
             storage.length +=  delta;//extend space at end
             //raw_slice!x must follow resize as it could be moved!
-            //next 3 stmts move all data past this array, last-one-goes-first
+            //next stmts move all data past this array, last-one-goes-first
             static if(n != dim-1)
             {
                 auto start = raw_ptr!(n+1);
@@ -196,19 +194,16 @@ struct MultiArray(Types...)
                     , retro(start[delta..len]));
 
                 start[0..delta] = 0;
-                //writeln("OFFSETS before:", offsets);
                 //offsets are used for raw_slice, ptr etc.
                 foreach(i; n+1..dim)
                     offsets[i] += delta;
-                //writeln("OFFSETS after:", offsets);
             }
         }
         else if(new_size < sz[n])
         {//shrink
             size_t delta = (sz[n] - new_size);
-            delta = spaceFor!(bitSizeOf!(Types[n]))(delta);
-            sz[n] -= delta;
-            writeln("Shrinking");
+			sz[n] -= delta;
+            delta = spaceFor!(bitSizeOf!(Types[n]))(delta);            
             //move all data past this array, forward direction
             static if(n != dim-1)
             {
@@ -225,6 +220,17 @@ struct MultiArray(Types...)
         }
         //else - NOP
     }
+
+	@property size_t bytes(size_t n=size_t.max)() const
+	{
+		static if(n == size_t.max)
+			return storage.length*size_t.sizeof;
+		else static if(n != Types.length-1)
+			return (raw_ptr!(n+1)-raw_ptr!n)*size_t.sizeof;
+		else
+			return (storage.ptr+storage.length - raw_ptr!n)*size_t.sizeof;
+	}
+
 private:
     @property auto raw_ptr(size_t n)()inout
     {
@@ -2351,14 +2357,6 @@ unittest//iteration
                 ivals.popFront();
             }
             addValue!last(idxs, false, maxKey - i);
-            /*for(; i<maxKey; i++){
-                writeln("### i:", i);
-                foreach(j, p; Prefix)
-                    writef("%1d-LVL: %d; ", j, p.entity(i));
-                writeln();
-                addValue!last(idxs, false);
-                
-            }*/
         }
     }
 
@@ -2374,16 +2372,13 @@ unittest//iteration
 
     @property size_t bytes(size_t n=size_t.max)() const
     {
-        static if(n == size_t.max)
-            return table.storage.length*size_t.sizeof;
-        else
-            return table.length!n * typeof(table.slice!(n)[0]).sizeof;
+        return table.bytes!n;
     }
 
-    @property size_t pages(size_t n=size_t.max)() const
+    @property size_t pages(size_t n)() const
     {
-        return (bytes!n+2^^(Prefix[$-1].bitSize-1))
-                /2^^Prefix[$-1].bitSize;
+        return (bytes!n+2^^(Prefix[n].bitSize-1))
+                /2^^Prefix[n].bitSize;
     }
 
     //needed for multisort to work
@@ -2444,22 +2439,17 @@ private:
         {
             //need to take pointer again, memory block  may move
             auto ptr = table.slice!(level);
-            //writeln(ptr[]);
-            //writeln(indices);
             if(numVals == 1)
             {
                 static if(level == Prefix.length-1 && type != TrieType.Value)
                     putValue(ptr[indices[level]], val);
                 else// can incurr narrowing conversion
                     ptr[indices[level]] = force!(typeof(ptr[indices[level]]))(val);
-                //writeln(indices);
                 indices[level]++;
-                //writeln(table.slice!level);
                 numVals = 0;
             }
             else
             {
-                //writeln("slice assign!");
                 //where is the next page boundary
                 size_t nextPB = (indices[level]+pageSize)/pageSize*pageSize;
                 size_t j = indices[level];
@@ -2481,10 +2471,8 @@ private:
                 }
                 else
                 {
-                    //writeln("slice assign!");
                     ptr[j..j+n]  = val;
                     j += n;
-                    //writeln(j);
                 }
                 indices[level] = j;
 
@@ -2499,7 +2487,6 @@ private:
                 {
                     auto last = indices[level]-pageSize;
                     auto slice = ptr[indices[level] - pageSize..indices[level]];
-                    //writeln(last, "   base: ", base, " ptr:", ptr);
                     size_t j;
                     for(j=0; j<last; j+=pageSize)
                     {
@@ -2745,9 +2732,12 @@ unittest
                      , i, t.bytes!i, t.pages!i);
         }
         writefln("TOTAL: %s bytes", t.bytes);
-        writeln("INDEX (excluding value level):");
-        foreach(i; Sequence!(0, t.table.dim-1) )
-            writeln(t.table.slice!(i)[0..t.table.length!i]);
+        debug(std_uni)
+		{
+			writeln("INDEX (excluding value level):");
+			foreach(i; Sequence!(0, t.table.dim-1) )
+				writeln(t.table.slice!(i)[0..t.table.length!i]);
+		}
         writeln("---------------------------");
     }
     //@@@BUG link failure, lambdas not found by linker somehow (in case of trie2)
@@ -3101,13 +3091,13 @@ unittest
     foreach(k,v; keywordsMap)
         assert((k in keyTrie2[k]) == v);
     trieStats(keyTrie2);
-}
 
-unittest//bit size test
-{
+	//a bit size test
 	auto a = array(map!(x => to!ubyte(x))(iota(0, 255)));
 	auto bt = Trie!(bool, ubyte, sliceBits!(7, 8), sliceBits!(5, 7), sliceBits!(0, 5))(a);
+	trieStats(bt);
 }
+
 
 template useItemAt(size_t idx, T)
     if(isIntegral!T || is(T: dchar))
@@ -3138,11 +3128,11 @@ template idxTypes(Key, size_t fullBits, Prefix...)
     }
     else
     {
-        //Important bitpacking note:
-        //- each level has to hold enough of bits to address the next one    
-		//the bottom level is known to hold full bit width
+        //Important note on bit packing
+        //Each level has to hold enough of bits to address the next one    
+		//The bottom level is known to hold full bit width
 		//thus it's size in pages is fill_bit_width - size_of_last_prefix
-		//recourse on this notion
+		//Recourse on this notion
         alias TypeTuple!(
 			idxTypes!(Key, fullBits - Prefix[$-1].bitSize, Prefix[0..$-1]),
 			BitPacked!(fullBits - Prefix[$-1].bitSize, typeof(Prefix[$-2].entity(Key.init)))
