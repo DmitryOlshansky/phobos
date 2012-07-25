@@ -1481,7 +1481,13 @@ private:
 	this(Set)(in Set set)
 		if(is(typeof(Set.init.isSet)))
 	{
-		data = Uint24Array!(SP)(set.byInterval);
+		uint[] arr;
+		foreach(v; set.byInterval)
+		{
+			arr ~= v.a;
+			arr ~= v.b;
+		}
+		data = Uint24Array!(SP)(arr);
 	}
 
     this()(uint[] intervals...)
@@ -1784,6 +1790,7 @@ private:
         length = range.length;
         copy(range, this[]);
     }
+
 	this(Range)(Range range)
         if(isInputRange!Range &&  !hasLength!Range)
 	{
@@ -3159,13 +3166,9 @@ public: //Public API continues
     (general Unicode category: Part of C0(tab, vertical tab, form feed,
     carriage return, and linefeed characters), Zs, Zl, Zp, and NEL(U+0085))
   +/
-bool isWhite(dchar c) @safe pure nothrow
+bool isWhite(dchar c) @safe 
 {
-    return std.ascii.isWhite(c) ||
-           c == lineSep || c == paraSep ||
-           c == '\u0085' || c == '\u00A0' || c == '\u1680' || c == '\u180E' ||
-           (c >= '\u2000' && c <= '\u200A') ||
-           c == '\u202F' || c == '\u205F' || c == '\u3000';
+	return unicodeWhite_Space[c];
 }
 
 
@@ -5604,7 +5607,7 @@ unittest
 //==============================================================================
 // Private Section.
 //==============================================================================
-private:
+
 
 bool binarySearch(alias table)(dchar c) @safe pure nothrow
 {
