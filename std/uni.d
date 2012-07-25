@@ -211,12 +211,12 @@ struct MultiArray(Types...)
                 size_t len = storage.length;
                 copy(start[delta..len]
                  , start[0..len-delta]);
-                storage.length -= delta;
-
+                
                 //adjust offsets last, they affect raw_slice
                 foreach(i; n+1..dim)
                     offsets[i] -= delta;
             }
+			storage.length -= delta;
         }
         //else - NOP
     }
@@ -2316,6 +2316,8 @@ unittest//iteration
                 addValue!last(idxs, r.front.init, maxIdx-j);
             else
                 addValue!last(idxs, false, maxIdx-j);
+
+			table.length!last = table.length!last - pageSize;
         }
     }
 
@@ -2356,6 +2358,8 @@ unittest//iteration
             }
             addValue!last(idxs, false, maxKey - i);
         }
+
+		table.length!last = table.length!last - pageSize;
     }
 
     inout(V) opIndex(Key key) inout
@@ -2507,7 +2511,6 @@ private:
                         }
                     }
 
-					//level-1 needs at most 2^^bitSize(level) bits, so we can ignore creating new pages
                     if(j == last)
                     {							
                         next_lvl_index = cast(NextIdx)(indices[level]/pageSize - 1);
@@ -3091,9 +3094,11 @@ unittest
     trieStats(keyTrie2);
 
 	//a bit size test
-	auto a = array(map!(x => to!ubyte(x))(iota(0, 255)));
+	auto a = array(map!(x => to!ubyte(x))(iota(0, 256)));
 	auto bt = Trie!(bool, ubyte, sliceBits!(7, 8), sliceBits!(5, 7), sliceBits!(0, 5))(a);
 	trieStats(bt);
+	foreach(i; 0..256)
+		assert(bt[cast(ubyte)i]);
 }
 
 
