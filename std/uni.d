@@ -1017,12 +1017,12 @@ public:
         return s;
     }
 
-    @property auto byInterval() const
+    @property auto byInterval() pure const
     {
         import std.typecons;
         static struct IntervalRange
         {
-            this(in RleBitSet set_)
+            this(const ref RleBitSet set_)
             {
                 data = set_.data;
                 popFront();
@@ -5682,8 +5682,6 @@ Lis:
 *
 */
 //Automatically generated from Unicode Character Database files
-
-import std.uni;
 
 
 struct CommonCaseEntry
