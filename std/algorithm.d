@@ -6792,7 +6792,7 @@ Range partition(alias predicate,
         const middle = r.length / 2;
         alias .partition!(pred, ss, Range) recurse;
         auto lower = recurse(r[0 .. middle]);
-        auto upper = recurse(r[middle .. $]);
+        auto upper = recurse(r[middle .. r.length]);
         bringToFront(lower, r[middle .. r.length - upper.length]);
         return r[r.length - lower.length - upper.length .. r.length];
     }
@@ -7547,11 +7547,11 @@ private void sortImpl(alias less, SwapStrategy ss, Range)(Range r)
                 // find the last occurrence of the pivot
                 bool pred2(Elem a) { return less(pivot, a); }
                 //auto lastPivotPos = find!(pred2)(pivotsRight[1 .. $]).ptr;
-                auto pivotRunLen = find!(pred2)(pivotSpan[1 .. $]).length;
+                auto pivotRunLen = find!(pred2)(pivotSpan[1 .. pivotSpan.length]).length;
                 pivotSpan = pivotSpan[0 .. pivotRunLen + 1];
                 // now rotate firstPivotPos..lastPivotPos to the front
                 bringToFront(r, pivotSpan);
-                r = r[pivotSpan.length .. $];
+                r = r[pivotSpan.length .. r.length];
             }
             else
             {
