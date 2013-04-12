@@ -82,6 +82,7 @@ class StringException : Exception
         $(TR $(TD $(D > 0))  $(TD $(D s1 > s2)))
      )
   +/
+<<<<<<< HEAD
 int icmp(alias pred = "a < b", S1, S2)(S1 s1, S2 s2)
     if (isSomeString!S1 && isSomeString!S2)
 {
@@ -150,6 +151,9 @@ int icmp(alias pred = "a < b", S1, S2)(S1 s1, S2 s2)
         }
     }
 }
+=======
+alias icmp = std.uni.icmp;
+>>>>>>> Replace std.uni in phobos with new version
 
 unittest
 {
@@ -931,13 +935,17 @@ unittest
     toLowerInPlace(s3);
     assert(s3 == s2, s3);
 
-    s1 = "\u0130";
-    s2 = toLower(s1);
-    s3 = s1.dup;
-    assert(s2 == "i");
-    assert(s2 !is s1);
-    toLowerInPlace(s3);
-    assert(s3 == s2, s3);
+    // 0x0130 is I with dot above and has only TAILORED mapping to i
+    // thus not included in simple case folding
+    version(none){ 
+        s1 = "\u0130";
+        s2 = toLower(s1);
+        s3 = s1.dup;
+        assert(s2 == "i");
+        assert(s2 !is s1);
+        toLowerInPlace(s3);
+        assert(s3 == s2, s3);
+    }
 
     // Test on wchar and dchar strings.
     assert(toLower("Some String"w) == "some string"w);
@@ -1097,7 +1105,7 @@ unittest
 
 
 /++
-    Capitalize the first character of $(D s) and conver the rest of $(D s)
+    Capitalize the first character of $(D s) and convert the rest of $(D s)
     to lowercase.
  +/
 S capitalize(S)(S s) @trusted pure
@@ -1160,10 +1168,11 @@ unittest
         assert(cmp(s2, "Fol") == 0);
         assert(s2 !is s1);
 
+        //0x0130, 0x0131 is NOT folded in simple case folding
         s1 = to!S("\u0131 \u0130");
         s2 = capitalize(s1);
-        assert(cmp(s2, "\u0049 \u0069") == 0);
-        assert(s2 !is s1);
+        assert(cmp(s2, "\u0131 \u0130") == 0);
+        assert(s2 is s1);
 
         s1 = to!S("\u017F \u0049");
         s2 = capitalize(s1);
@@ -1172,7 +1181,6 @@ unittest
     }
     });
 }
-
 
 /++
     Split $(D s) into an array of lines using $(D '\r'), $(D '\n'),
