@@ -44,8 +44,11 @@ string synopsis()
  +/
 module std.exception;
 
-import std.array, std.c.string, std.conv, std.range, std.string, std.traits;
+import std.mini.array, std.c.string, std.conv, std.traits;
 import core.exception, core.stdc.errno;
+
+version(unittest)
+    import std.string, std.range;
 
 /++
     Asserts that the given expression does $(I not) throw the given type
