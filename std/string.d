@@ -790,319 +790,32 @@ unittest
 
 /++
     Returns a string which is identical to $(D s) except that all of its
-    characters are lowercase (in unicode, not just ASCII). If $(D s) does not
-    have any uppercase characters, then $(D s) is returned.
+    characters are converted to lowercase (by preforming Unicode lowercase mapping).
+    If none of $(D s) characters were affected, then $(D s) itself is returned.
   +/
-S toLower(S)(S s) @trusted pure
-    if (isSomeString!S)
-{
-    foreach (i, dchar cOuter; s)
-    {
-        if (!std.uni.isUpper(cOuter))
-            continue;
-        auto result = s[0.. i].dup;
-        foreach (dchar c; s[i .. $])
-        {
-            if (std.uni.isUpper(c))
-            {
-                c = std.uni.toLower(c);
-            }
-            result ~= c;
-        }
-        return cast(S) result;
-    }
-    return s;
-}
-
-unittest
-{
-    debug(string) printf("string.toLower.unittest\n");
-
-    assertCTFEable!(
-    {
-    foreach (S; TypeTuple!(string, wstring, dstring, char[], wchar[], dchar[]))
-    {
-        S s = cast(S)"hello world\u0101";
-        assert(toLower(s) is s);
-        const S sc = "hello world\u0101";
-        assert(toLower(sc) is sc);
-        immutable S si = "hello world\u0101";
-        assert(toLower(si) is si);
-
-        S t = cast(S)"Hello World\u0100";
-        assert(toLower(t) == s);
-        const S tc = "hello world\u0101";
-        assert(toLower(tc) == s);
-        immutable S ti = "hello world\u0101";
-        assert(toLower(ti) == s);
-    }
-    });
-}
-
+alias toLower = std.uni.toLower;
 /++
-    Converts $(D s) to lowercase (in unicode, not just ASCII) in place.
+    Converts $(D s) to lowercase (by performing Unicode lowercase mapping) in place.    
+    For a few characters string length may increase after the transformation,
+    in such a case the function reallocates exactly once.
     If $(D s) does not have any uppercase characters, then $(D s) is unaltered.
  +/
-void toLowerInPlace(C)(ref C[] s)
-    if (is(C == char) || is(C == wchar))
-{
-    for (size_t i = 0; i < s.length; )
-    {
-        immutable c = s[i];
-        if (std.ascii.isUpper(c))
-        {
-            s[i++] = cast(C) (c + (cast(C)'a' - 'A'));
-        }
-        else if (!std.ascii.isASCII(c))
-        {
-            // wide character
-            size_t j = i;
-            dchar dc = decode(s, j);
-            assert(j > i);
-            if (!std.uni.isUpper(dc))
-            {
-                i = j;
-                continue;
-            }
-            auto toAdd = to!(C[])(std.uni.toLower(dc));
-            s = s[0 .. i] ~ toAdd  ~ s[j .. $];
-            i += toAdd.length;
-        }
-        else
-        {
-            ++i;
-        }
-    }
-}
-
-void toLowerInPlace(C)(ref C[] s) @safe pure nothrow
-    if (is(C == dchar))
-{
-    foreach (ref c; s)
-    {
-        if (std.uni.isUpper(c))
-            c = std.uni.toLower(c);
-    }
-}
-
-unittest
-{
-    debug(string) printf("string.toLowerInPlace.unittest\n");
-
-    assertCTFEable!(
-    {
-    foreach (S; TypeTuple!(char[], wchar[], dchar[]))
-    {
-        S s = to!S("hello world\u0101");
-        toLowerInPlace(s);
-        assert(s == "hello world\u0101");
-
-        S t = to!S("Hello World\u0100");
-        toLowerInPlace(t);
-        assert(t == "hello world\u0101");
-    }
-    });
-}
-
-unittest
-{
-    debug(string) printf("string.toLower/toLowerInPlace.unittest\n");
-
-    assertCTFEable!(
-    {
-    string s1 = "FoL";
-    string s2 = toLower(s1);
-    assert(cmp(s2, "fol") == 0, s2);
-    assert(s2 != s1);
-
-    char[] s3 = s1.dup;
-    toLowerInPlace(s3);
-    assert(s3 == s2, s3);
-
-    s1 = "A\u0100B\u0101d";
-    s2 = toLower(s1);
-    s3 = s1.dup;
-    assert(cmp(s2, "a\u0101b\u0101d") == 0);
-    assert(s2 !is s1);
-    toLowerInPlace(s3);
-    assert(s3 == s2, s3);
-
-    s1 = "A\u0460B\u0461d";
-    s2 = toLower(s1);
-    s3 = s1.dup;
-    assert(cmp(s2, "a\u0461b\u0461d") == 0);
-    assert(s2 !is s1);
-    toLowerInPlace(s3);
-    assert(s3 == s2, s3);
-
-    // 0x0130 is I with dot above and has only TAILORED mapping to i
-    // thus not included in simple case folding
-    version(none){ 
-        s1 = "\u0130";
-        s2 = toLower(s1);
-        s3 = s1.dup;
-        assert(s2 == "i");
-        assert(s2 !is s1);
-        toLowerInPlace(s3);
-        assert(s3 == s2, s3);
-    }
-
-    // Test on wchar and dchar strings.
-    assert(toLower("Some String"w) == "some string"w);
-    assert(toLower("Some String"d) == "some string"d);
-    });
-}
-
+alias toLowerInPlace = std.uni.toLowerInPlace;
 
 /++
     Returns a string which is identical to $(D s) except that all of its
-    characters are uppercase (in unicode, not just ASCII). If $(D s) does not
-    have any lowercase characters, then $(D s) is returned.
+    characters are converted to uppercase (by preforming Unicode uppercase mapping).
+    If none of $(D s) characters were affected, then $(D s) itself is returned.
   +/
-S toUpper(S)(S s) @trusted pure
-    if (isSomeString!S)
-{
-    foreach (i, dchar cOuter; s)
-    {
-        if (!std.uni.isLower(cOuter))
-            continue;
-        auto result = s[0.. i].dup;
-        foreach (dchar c; s[i .. $])
-        {
-            if (std.uni.isLower(c))
-            {
-                c = std.uni.toUpper(c);
-            }
-            result ~= c;
-        }
-        return cast(S) result;
-    }
-    return s;
-}
-
-unittest
-{
-    debug(string) printf("string.toUpper.unittest\n");
-
-    assertCTFEable!(
-    {
-    foreach (S; TypeTuple!(string, wstring, dstring, char[], wchar[], dchar[]))
-    {
-        S s = cast(S)"HELLO WORLD\u0100";
-        assert(toUpper(s) is s);
-        const S sc = "HELLO WORLD\u0100";
-        assert(toUpper(sc) is sc);
-        immutable S si = "HELLO WORLD\u0100";
-        assert(toUpper(si) is si);
-
-        S t = cast(S)"hello world\u0101";
-        assert(toUpper(t) == s);
-        const S tc = "HELLO WORLD\u0100";
-        assert(toUpper(tc) == s);
-        immutable S ti = "HELLO WORLD\u0100";
-        assert(toUpper(ti) == s);
-    }
-    });
-}
+alias toUpper = std.uni.toUpper;
 
 /++
-    Converts $(D s) to uppercase (in unicode, not just ASCII) in place.
+    Converts $(D s) to uppercase  (by performing Unicode uppercase mapping) in place.
+    For a few characters string length may increase after the transformation,
+    in such a case the function reallocates exactly once.
     If $(D s) does not have any lowercase characters, then $(D s) is unaltered.
  +/
-void toUpperInPlace(C)(ref C[] s)
-    if (isSomeChar!C &&
-        (is(C == char) || is(C == wchar)))
-{
-    for (size_t i = 0; i < s.length; )
-    {
-        immutable c = s[i];
-        if ('a' <= c && c <= 'z')
-        {
-            s[i++] = cast(C) (c - (cast(C)'a' - 'A'));
-        }
-        else if (!std.ascii.isASCII(c))
-        {
-            // wide character
-            size_t j = i;
-            dchar dc = decode(s, j);
-            assert(j > i);
-            if (!std.uni.isLower(dc))
-            {
-                i = j;
-                continue;
-            }
-            auto toAdd = to!(C[])(std.uni.toUpper(dc));
-            s = s[0 .. i] ~ toAdd  ~ s[j .. $];
-            i += toAdd.length;
-        }
-        else
-        {
-            ++i;
-        }
-    }
-}
-
-void toUpperInPlace(C)(ref C[] s) @safe pure nothrow
-    if (is(C == dchar))
-{
-    foreach (ref c; s)
-    {
-        if (std.uni.isLower(c))
-            c = std.uni.toUpper(c);
-    }
-}
-
-unittest
-{
-    debug(string) printf("string.toUpperInPlace.unittest\n");
-
-    assertCTFEable!(
-    {
-    foreach (S; TypeTuple!(char[], wchar[], dchar[]))
-    {
-        S s = to!S("HELLO WORLD\u0100");
-        toUpperInPlace(s);
-        assert(s == "HELLO WORLD\u0100");
-
-        S t = to!S("Hello World\u0101");
-        toUpperInPlace(t);
-        assert(t == "HELLO WORLD\u0100");
-    }
-    });
-}
-
-unittest
-{
-    debug(string) printf("string.toUpper/toUpperInPlace.unittest\n");
-
-    assertCTFEable!(
-    {
-    string s1 = "FoL";
-    string s2;
-    char[] s3;
-
-    s2 = toUpper(s1);
-    s3 = s1.dup; toUpperInPlace(s3);
-    assert(s3 == s2, s3);
-    assert(cmp(s2, "FOL") == 0);
-    assert(s2 !is s1);
-
-    s1 = "a\u0100B\u0101d";
-    s2 = toUpper(s1);
-    s3 = s1.dup; toUpperInPlace(s3);
-    assert(s3 == s2);
-    assert(cmp(s2, "A\u0100B\u0100D") == 0);
-    assert(s2 !is s1);
-
-    s1 = "a\u0460B\u0461d";
-    s2 = toUpper(s1);
-    s3 = s1.dup; toUpperInPlace(s3);
-    assert(s3 == s2);
-    assert(cmp(s2, "A\u0460B\u0460D") == 0);
-    assert(s2 !is s1);
-    });
-}
-
+alias toUpperInPlace = std.uni.toUpperInPlace;
 
 /++
     Capitalize the first character of $(D s) and convert the rest of $(D s)
@@ -1144,9 +857,6 @@ S capitalize(S)(S s) @trusted pure
     return changed ? cast(S)retval : s;
 }
 
-unittest
-{
-    debug(string) printf("string.capitalize.unittest\n");
 
     assertCTFEable!(
     {

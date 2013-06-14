@@ -6756,12 +6756,24 @@ private template toCaseInPlaceAlloc(alias indexFn, uint maxIdx, alias tableFn)
     }
 }
 
+/++
+    Converts $(D s) to lowercase (by performing Unicode lowercase mapping) in place.    
+    For a few characters string length may increase after the transformation,
+    in such a case the function reallocates exactly once.
+    If $(D s) does not have any uppercase characters, then $(D s) is unaltered.
++/
 void toLowerInPlace(C)(ref C[] s) @trusted pure
     if (is(C == char) || is(C == wchar) || is(C == dchar))
 {
     toCaseInPlace!(LowerTriple)(s);
 }
 
+/++
+    Converts $(D s) to uppercase  (by performing Unicode uppercase mapping) in place.
+    For a few characters string length may increase after the transformation,
+    in such a case the function reallocates exactly once.
+    If $(D s) does not have any lowercase characters, then $(D s) is unaltered.
++/
 void toUpperInPlace(C)(ref C[] s) @trusted pure
     if (is(C == char) || is(C == wchar) || is(C == dchar))
 {
@@ -6769,10 +6781,10 @@ void toUpperInPlace(C)(ref C[] s) @trusted pure
 }
 
 /++
-    Returns a new string which is identical to $(D s) except that all of its
-    characters are lowercase (in unicode, not just ASCII). If $(D s) does not
-    have any convertible characters, then $(D s) is returned.
-  +/
+    Returns a string which is identical to $(D s) except that all of its
+    characters are converted to lowercase (by preforming Unicode lowercase mapping).
+    If none of $(D s) characters were affected, then $(D s) itself is returned.
++/
 S toLower(S)(S s) @trusted pure
     if(isSomeString!S)
 {    
@@ -6887,11 +6899,10 @@ dchar toUpper()(dchar c)
     }
 }
 
-
 /++
     Returns a string which is identical to $(D s) except that all of its
-    characters are uppercase (in unicode, not just ASCII). If $(D s) does not
-    have any lowercase characters, then $(D s) is returned.
+    characters are converted to uppercase (by preforming Unicode uppercase mapping).
+    If none of $(D s) characters were affected, then $(D s) itself is returned.
 +/
 S toUpper(S)(S s) @trusted pure
     if(isSomeString!S)
