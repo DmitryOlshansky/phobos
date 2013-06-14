@@ -3809,7 +3809,7 @@ public template CodepointSetTrie(sizes...)
         }
         uint luck;
         foreach(n; nibbles)
-            luck = max(luck, count(nibbles[], n));
+            luck = cast(uint)max(luck, count(nibbles[], n));
         return luck;
     }
 
@@ -3888,7 +3888,7 @@ unittest // codepointTrie example
         }
         uint luck;
         foreach(n; nibbles)
-            luck = max(luck, count(nibbles[], n));
+            luck = cast(uint)max(luck, count(nibbles[], n));
         return luck;
     }
 
