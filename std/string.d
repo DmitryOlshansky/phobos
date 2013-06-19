@@ -71,10 +71,7 @@ class StringException : Exception
 /++
     Compares two ranges of characters lexicographically. The comparison is
     case insensitive. Use $(XREF algorithm, cmp) for a case sensitive
-    comparison. icmp works like $(XREF algorithm, cmp) except that it
-    converts characters to lowercase prior to applying $(D pred). Technically,
-    $(D icmp(r1, r2)) is equivalent to
-    $(D cmp!"std.uni.toLower(a) < std.uni.toLower(b)"(r1, r2)).
+    comparison. For details see $(XREF uni, icmp).
 
     $(BOOKTABLE,
         $(TR $(TD $(D < 0))  $(TD $(D s1 < s2) ))

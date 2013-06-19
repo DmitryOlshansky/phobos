@@ -5275,6 +5275,8 @@ public:
             {
                 cap_ += grow;
                 ptr_ = cast(ubyte*)enforce(realloc(ptr_, 3*(cap_+1)));
+                import std.stdio;
+                writefln("realloced: p = %x", ptr_);
             }
             write24(ptr_, ch, len_++);
             return this;
@@ -5319,6 +5321,8 @@ public:
         {// dup it
             auto raw_cap = 3*(cap_+1);
             auto p = cast(ubyte*)enforce(malloc(raw_cap));
+            import std.stdio;
+            writefln("postblit: from p = %x to p = %x", ptr_, p);
             p[0..raw_cap] = ptr_[0..raw_cap];
             ptr_ = p;
         }
@@ -5327,7 +5331,11 @@ public:
     ~this()
     {
         if(isBig)
+        {
+            import std.stdio;
+            writefln("dtor: p = %x", ptr_);
             free(ptr_);
+        }
     }
 
 
@@ -5356,7 +5364,7 @@ private:
     }
 
     void convertToBig()
-    {
+    {        
         size_t k = smallLength;
         ubyte* p = cast(ubyte*)enforce(malloc(3*(grow+1)));
         for(int i=0; i<k; i++)
@@ -5367,6 +5375,8 @@ private:
         assert(grow > len_);
         cap_ = grow;
         setBig();
+        import std.stdio;
+        writefln("converted: p = %x", ptr_);
     }
 
     void setBig(){ slen_ |= small_flag; }
@@ -5382,7 +5392,7 @@ private:
 }
 
 static assert(Grapheme.sizeof == size_t.sizeof*4);
-
+/*
 // verify the example
 unittest
 {
@@ -5426,6 +5436,8 @@ unittest
     assert(g[1] == '~');
     assert(!g.valid);
 }
+
+*/
 
 unittest
 {
