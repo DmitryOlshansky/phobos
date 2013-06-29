@@ -1409,8 +1409,9 @@ string genUnrolledSwitchSearch(size_t size)
     string code = `auto power = bsr(m)+1;
     switch(power){`;
     size_t i = bsr(size);
-    foreach(v; iota(0, bsr(size)).retro().map!"2^^a"())
+    foreach_reverse(val; 0..bsr(size))
     {
+        auto v = 2^^val;
         code ~= `
         case pow:
             if(pred(range[idx+m], needle))
