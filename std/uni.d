@@ -5275,9 +5275,7 @@ public:
             if(len_ + 1 > cap_)
             {
                 cap_ += grow;
-                ptr_ = cast(ubyte*)enforce(realloc(ptr_, 3*(cap_+1)));
-                import std.stdio;
-                writefln("realloced: p = %x", ptr_);
+                ptr_ = cast(ubyte*)enforce(realloc(ptr_, 3*(cap_+1)));                
             }
             write24(ptr_, ch, len_++);
             return this;
@@ -5322,8 +5320,6 @@ public:
         {// dup it
             auto raw_cap = 3*(cap_+1);
             auto p = cast(ubyte*)enforce(malloc(raw_cap));
-            import std.stdio;
-            writefln("postblit: from p = %x to p = %x", ptr_, p);
             p[0..raw_cap] = ptr_[0..raw_cap];
             ptr_ = p;
         }
@@ -5333,8 +5329,6 @@ public:
     {
         if(isBig)
         {
-            import std.stdio;
-            writefln("dtor: p = %x", ptr_);
             free(ptr_);
         }
     }
@@ -5376,8 +5370,6 @@ private:
         assert(grow > len_);
         cap_ = grow;
         setBig();
-        import std.stdio;
-        writefln("converted: p = %x", ptr_);
     }
 
     void setBig(){ slen_ |= small_flag; }
@@ -5393,7 +5385,7 @@ private:
 }
 
 static assert(Grapheme.sizeof == size_t.sizeof*4);
-/*
+
 // verify the example
 unittest
 {
@@ -5437,8 +5429,6 @@ unittest
     assert(g[1] == '~');
     assert(!g.valid);
 }
-
-*/
 
 unittest
 {
@@ -5945,14 +5935,16 @@ dchar composeJamo(dchar lead, dchar vowel, dchar trailing=dchar.init)
 
 unittest
 {
-    void testDecomp(UnicodeDecomposition T)(dchar ch, string r)
+    static void testDecomp(UnicodeDecomposition T)(dchar ch, string r)
     {
-        assert(equalS(decompose!T(ch)[], r), text(decompose(ch)[], " vs ", r));
+        Grapheme g = decompose!T(ch);
+        assert(equalS(g[], r), text(g[], " vs ", r));        
     }
     testDecomp!Canonical('\u1FF4', "\u03C9\u0301\u0345");
     testDecomp!Canonical('\uF907', "\u9F9C");
     testDecomp!Compatibility('\u33FF', "\u0067\u0061\u006C");
     testDecomp!Compatibility('\uA7F9', "\u0153");
+
     // check examples
     assert(decomposeHangul('\uD4DB')[].equalS("\u1111\u1171\u11B6"));
     assert(composeJamo('\u1111', '\u1171', '\u11B6') == '\uD4DB');
