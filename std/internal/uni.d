@@ -99,18 +99,18 @@ struct Interval
 }
 
 /+
-    $(D CodepointSetOld) is a data structure for manipulating sets
+    $(D CodepointSet) is a data structure for manipulating sets
     of Unicode codepoints in an efficient manner.
-    Instances of CodepointSetOld have half-reference semantics akin to dynamic arrays,
+    Instances of CodepointSet have half-reference semantics akin to dynamic arrays,
     to obtain a unique copy use $(D dup).
 +/
-struct CodepointSetOld
+struct CodepointSet
 {
     enum uint endOfRange = 0x110000;
     uint[] ivals;
 
     //Add an $(D interval) of codepoints to this set.
-    @trusted ref CodepointSetOld add(Interval inter)
+    @trusted ref CodepointSet add(Interval inter)
     {
         debug(fred_charset) writeln("Inserting ",inter);
         if(ivals.empty)
@@ -148,11 +148,11 @@ struct CodepointSetOld
     }
 
     //Add a codepoint $(D ch) to this set.
-    ref CodepointSetOld add(dchar ch){ add(Interval(cast(uint)ch)); return this; }
+    ref CodepointSet add(dchar ch){ add(Interval(cast(uint)ch)); return this; }
 
     //Add $(D set) in this set.
     //Algebra: this = this | set.
-    ref CodepointSetOld add(in CodepointSetOld set)
+    ref CodepointSet add(in CodepointSet set)
     {
         debug(fred_charset) writef ("%s || %s --> ", ivals, set.ivals);
         for(size_t i=0; i<set.ivals.length; i+=2)
@@ -163,7 +163,7 @@ struct CodepointSetOld
 
     //Exclude $(D set) from this set.
     //Algebra: this = this - set.
-    @trusted ref CodepointSetOld sub(in CodepointSetOld set)
+    @trusted ref CodepointSet sub(in CodepointSet set)
     {
         if(empty)
         {
@@ -232,9 +232,9 @@ struct CodepointSetOld
 
     //Make this set a symmetric difference with $(D set).
     //Algebra: this = this ~ set (i.e. (this || set) -- (this && set)).
-    @trusted ref CodepointSetOld symmetricSub(in CodepointSetOld set)
+    @trusted ref CodepointSet symmetricSub(in CodepointSet set)
     {
-        auto a = CodepointSetOld(ivals.dup);
+        auto a = CodepointSet(ivals.dup);
         a.intersect(set);
         this.add(set);
         this.sub(a);
@@ -243,7 +243,7 @@ struct CodepointSetOld
 
     //Intersect this set with $(D set).
     //Algebra: this = this & set
-    @trusted ref CodepointSetOld intersect(in CodepointSetOld set)
+    @trusted ref CodepointSet intersect(in CodepointSet set)
     {
         if(empty || set.empty)
         {
@@ -298,7 +298,7 @@ struct CodepointSetOld
     }
 
     //this = !this (i.e. [^...] in regex syntax)
-    @trusted ref CodepointSetOld negate()
+    @trusted ref CodepointSet negate()
     {
         if(empty)
         {
@@ -371,9 +371,9 @@ struct CodepointSetOld
     }
 
     //Deep copy this set.
-    @property CodepointSetOld dup() const
+    @property CodepointSet dup() const
     {
-        return CodepointSetOld(ivals.dup);
+        return CodepointSet(ivals.dup);
     }
 
     //Full covered length from first codepoint to the last one.
@@ -393,13 +393,13 @@ struct CodepointSetOld
     }
 
     //Troika for built-in hash maps.
-    bool opEquals(ref const CodepointSetOld set) const
+    bool opEquals(ref const CodepointSet set) const
     {
         return ivals == set.ivals;
     }
 
     //ditto
-    int opCmp(ref const CodepointSetOld set) const
+    int opCmp(ref const CodepointSet set) const
     {
         return cmp(cast(const(uint)[])ivals, cast(const(uint)[])set.ivals);
     }
@@ -417,7 +417,7 @@ struct CodepointSetOld
     {
         const(uint)[] ivals;
         uint j;
-        this(in CodepointSetOld set)
+        this(in CodepointSet set)
         {
             ivals = set.ivals;
             if(!empty)
@@ -465,15 +465,15 @@ struct CodepointSetOld
 }
 
 /*
-    $(D CodepointTrieOld) is 1-level  $(LUCKY Trie) of codepoints.
-    Primary use case is to convert a previously obtained CodepointSetOld
+    $(D CodepointTrie) is 1-level  $(LUCKY Trie) of codepoints.
+    Primary use case is to convert a previously obtained CodepointSet
     in order to speed up subsequent element lookup.
 
     ---
         auto input = ...;
         Charset set;
         set.add(unicodeAlphabetic).add('$').add('#');
-        auto lookup = CodepointTrieOld!8(set);
+        auto lookup = CodepointTrie!8(set);
         int count;
         foreach(dchar ch; input)
             if(lookup[ch])
@@ -483,7 +483,7 @@ struct CodepointSetOld
     and provided for tuning to a specific applications.
     A default parameter of 8 works best in common cases though.
 */
-struct CodepointTrieOld(uint prefixBits)
+struct CodepointTrie(uint prefixBits)
     if(prefixBits > 4)
 {
     static if(size_t.sizeof == 4)
@@ -526,17 +526,17 @@ struct CodepointTrieOld(uint prefixBits)
     }
 
 public:
-    //Create a trie from CodepointSetOld $(D set).
-    @trusted this(in CodepointSetOld s)
+    //Create a trie from CodepointSet $(D set).
+    @trusted this(in CodepointSet s)
     {
         if(s.empty)
             return;
-        const(CodepointSetOld) set = s.chars > 500_000 ? (negative=true, s.dup.negate()) : s;
+        const(CodepointSet) set = s.chars > 500_000 ? (negative=true, s.dup.negate()) : s;
         uint bound = 0;//set up on first iteration
         ushort emptyBlock = ushort.max;
         auto ivals  = set.ivals;
         size_t[prefixWordSize] page;
-        for(uint i=0; i<CodepointSetOld.endOfRange; i+= prefixSize)
+        for(uint i=0; i<CodepointSet.endOfRange; i+= prefixSize)
         {
             if(i+prefixSize > ivals[bound] || emptyBlock == ushort.max)//avoid empty blocks if we have one already
             {
@@ -612,7 +612,7 @@ public:
     //invert trie (trick internal for regular expressions, has aliasing problem)
     @trusted private auto negated() const
     {
-        CodepointTrieOld t = cast(CodepointTrieOld)this;//shallow copy, need to subvert type system?
+        CodepointTrie t = cast(CodepointTrie)this;//shallow copy, need to subvert type system?
         t.negative = !negative;
         return t;
     }
@@ -622,16 +622,16 @@ public:
 unittest
 {
     auto wordSet =
-        CodepointSetOld.init.add(unicodeAlphabetic).add(unicodeMn).add(unicodeMc)
+        CodepointSet.init.add(unicodeAlphabetic).add(unicodeMn).add(unicodeMc)
         .add(unicodeMe).add(unicodeNd).add(unicodePc);
-    auto t = CodepointTrieOld!8(wordSet);
+    auto t = CodepointTrie!8(wordSet);
     assert(t['a']);
     assert(!t[' ']);
 }
 
 unittest
 {
-    CodepointSetOld set;
+    CodepointSet set;
     set.add(unicodeAlphabetic);
     for(size_t i=1;i<set.ivals.length; i++)
         assert(set.ivals[i-1] < set.ivals[i]);
@@ -648,7 +648,7 @@ unittest
     // test trie using ~2000 codepoints
     foreach(up; testCases.save)
     {
-        void test(in CodepointSetOld set, scope void delegate(uint ch) dg)
+        void test(in CodepointSet set, scope void delegate(uint ch) dg)
         {
             foreach (_; 0 .. 10)
             {
@@ -660,7 +660,7 @@ unittest
         }
 
         auto neg = up.set.dup.negate();
-        auto trie = CodepointTrieOld!8(up.set);
+        auto trie = CodepointTrie!8(up.set);
         test(up.set, ch => assert(trie[ch], text("on ch == ", ch, " seed was ", seed)));
         test(neg, ch => assert(!trie[ch], text("negative on ch == ", ch, " seed was ", seed)));
     }
@@ -688,7 +688,7 @@ unittest
 
 
 //fussy compare for unicode property names as per UTS-18
-int comparePropertyNameOld(Char)(const(Char)[] a, const(Char)[] b)
+int comparePropertyName(Char)(const(Char)[] a, const(Char)[] b)
 {
     for(;;)
     {
@@ -717,14 +717,14 @@ int comparePropertyNameOld(Char)(const(Char)[] a, const(Char)[] b)
 //ditto (workaround for internal tools)
 public bool propertyNameLess(Char)(const(Char)[] a, const(Char)[] b)
 {
-    return comparePropertyNameOld(a, b) < 0;
+    return comparePropertyName(a, b) < 0;
 }
 
 unittest
 {
-    assert(comparePropertyNameOld("test","test") == 0);
-    assert(comparePropertyNameOld("Al chemical Symbols", "Alphabetic Presentation Forms") == -1);
-    assert(comparePropertyNameOld("Basic Latin","basic-LaTin") == 0);
+    assert(comparePropertyName("test","test") == 0);
+    assert(comparePropertyName("Al chemical Symbols", "Alphabetic Presentation Forms") == -1);
+    assert(comparePropertyName("Basic Latin","basic-LaTin") == 0);
 }
 
 //Gets array of all of common case eqivalents of given codepoint
@@ -774,9 +774,9 @@ unittest
 }
 
 //
-@trusted CodepointSetOld caseEnclose(in CodepointSetOld set)
+@trusted CodepointSet caseEnclose(in CodepointSet set)
 {
-    CodepointSetOld n;
+    CodepointSet n;
     for(size_t i=0;i<set.ivals.length; i+=2)
     {
         CommonCaseEntry cs;
