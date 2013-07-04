@@ -645,7 +645,11 @@ import std.traits, std.range, std.algorithm, std.typecons,
 import std.array; //@@BUG UFCS doesn't work with 'local' imports
 import core.bitop;
 
-//version = debug_std_uni; // enable costly  O(n) asserts
+// debug = std_uni;
+
+debug(std_uni) import std.stdio;
+
+private:
 
 version(std_uni_bootstrap){}
 else
@@ -667,7 +671,7 @@ void copyForward(T)(T[] src, T[] dest)
         dest[i] = src[i];
 }
 
-// update to reflect all major CPUs supporting unaligned reads
+// TODO: update to reflect all major CPUs supporting unaligned reads
 version(X86)
     enum hasUnalignedReads = true;
 else version(X86_64)
@@ -675,8 +679,8 @@ else version(X86_64)
 else
     enum hasUnalignedReads = false; // better be safe then sorry
 
-enum dchar lineSep = '\u2028'; /// Constant $(CODEPOINT) (0x2028) - line separator.
-enum dchar paraSep = '\u2029'; /// Constant $(CODEPOINT) (0x2029) - paragraph separator.
+public enum dchar lineSep = '\u2028'; /// Constant $(CODEPOINT) (0x2028) - line separator.
+public enum dchar paraSep = '\u2029'; /// Constant $(CODEPOINT) (0x2029) - paragraph separator.
 
 // test the intro example
 unittest
@@ -736,12 +740,6 @@ unittest
     assert(normalize!NFKD("2¹⁰") == "210");
 }
 
-// debug = std_uni;
-
-debug(std_uni) import std.stdio;
-
-private:
-
 enum lastDchar = 0x10FFFF;
 
 auto force(T, F)(F from)
@@ -787,8 +785,7 @@ auto adaptIntRange(T, F)(F[] src)
         {
             return ConvertIntegers(data[s..e]);
         }
-
-        // doesn't work with slices @@@BUG 7097
+        
         @property size_t opDollar(){   return data.length; }
     }
     return ConvertIntegers(src);
@@ -1225,12 +1222,7 @@ pure nothrow:
                 original[j] = repval;// so speed it up by factor
         }
         for(; i<end; i++)
-            this[i] = val;
-        version(debug_std_uni)
-        {
-            for(i=start; i<end; i++)
-                assert(this[i] == val);
-        }
+            this[i] = val;        
     }
 
     auto opSlice(size_t from, size_t to)
