@@ -4187,7 +4187,7 @@ template TypeOfBitPacked(T)
     Applying it to a unary lambda function indicates that the returned value always
     fits within $(D bits) of bits.
 */
-public struct assumeSize(alias Fn, size_t bits)
+struct assumeSize(alias Fn, size_t bits)
 {
     enum bitSize = bits;
     static auto ref opCall(T)(auto ref T arg)
@@ -4216,7 +4216,7 @@ template sliceBitsImpl(size_t from, size_t to)
     The resulting lambda is wrapped in assumeSize and can be used directly
     with $(D Trie) template.
 */
-public template sliceBits(size_t from, size_t to)
+template sliceBits(size_t from, size_t to)
 {
     alias assumeSize!(sliceBitsImpl!(from, to), to-from) sliceBits;
 }
@@ -4434,7 +4434,7 @@ bool propertyNameLess(Char1, Char2)(const(Char1)[] a, const(Char2)[] b)
 }
 
 
-public ubyte[] compressIntervals(Range)(Range intervals)
+package ubyte[] compressIntervals(Range)(Range intervals)
     if(isInputRange!Range && isIntegralPair!(ElementType!Range))
 {
     ubyte[] storage;
@@ -4474,8 +4474,7 @@ unittest
 }
 
 // Creates a range of $(D CodepointInterval) that lazily decodes compressed data.
-// TODO: make it package when pushed to std.
-@safe public auto decompressIntervals(const(ubyte)[] data)
+@safe package auto decompressIntervals(const(ubyte)[] data)
 {
     return DecompressedIntervals(data);
 }
