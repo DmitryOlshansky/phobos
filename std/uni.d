@@ -842,9 +842,13 @@ struct MultiArray(Types...)
     @property auto slice(size_t n)()inout pure nothrow
     {
         auto ptr = raw_ptr!n;
-        size_t len = spaceFor!(bitSizeOf!(Types[n]))(sz[n]);
-        assert(ptr + len <= storage.ptr+storage.length);
-        return packedArrayView!(Types[n])(ptr[0..len]);
+        return packedArrayView!(Types[n])(ptr, sz[n]);
+    }
+
+    @property auto ptr(size_t n)()inout pure nothrow
+    {
+        auto ptr = raw_ptr!n;
+        return inout(PackedPtr!(Types[n]))(ptr);
     }
 
     template length(size_t n)
@@ -1091,40 +1095,39 @@ template PackedArrayView(T)
     alias PackedArrayView = PackedArrayViewImpl!(T, bits > 1 ? ceilPowerOf2(bits) : 1);
 }
 
-// data is packed only by power of two sized packs per word,
-// thus avoiding mul/div overhead at the cost of ultimate packing
-// this construct doesn't own memory, only provides access, see MultiArray for usage
-@trusted struct PackedArrayViewImpl(T, size_t bits)
+//unsafe and fast access to a chunk of RAM as if it contians packed values
+template PackedPtr(T)
+    if((is(T dummy == BitPacked!(U, sz), U, size_t sz)
+        && isBitPackableType!U) || isBitPackableType!T)
+{
+    private enum bits = bitSizeOf!T;
+    alias PackedPtr = PackedPtrImpl!(T, bits > 1 ? ceilPowerOf2(bits) : 1);
+}
+
+@trusted struct PackedPtrImpl(T, size_t bits)
 {
 pure nothrow:
     static assert(isPowerOf2(bits));
-    import core.bitop;
 
-    this(inout(size_t)[] arr)inout
+    this(inout(size_t)* ptr)inout
     {
-        original = arr;
+        origin = ptr;
     }
 
-    T simpleIndex(size_t n) inout
-    in
+    private T simpleIndex(size_t n) inout
     {
-        //@@BUG text is impure: text(n/factor, " vs ", original.length)
-        assert(n/factor < original.length);
-    }
-    body
-    {                     
         static if(factor == bytesPerWord*8)
         {
             // a re-write with less data dependency
             auto q = n / factor;
             auto r = n % factor;
-            return cast(T)(original[q] & (mask<<r) ? 1 : 0);
+            return cast(T)(origin[q] & (mask<<r) ? 1 : 0);
         }
         else
         {
             auto q = n / factor;
             auto r = n % factor;
-            return cast(T)((original[q] >> bits*r) & mask);
+            return cast(T)((origin[q] >> bits*r) & mask);
         }
     }
 
@@ -1139,10 +1142,13 @@ pure nothrow:
             alias U = ushort;
         else static if(factor == bytesPerWord/4)
             alias U = uint;
+        else static if(size_t.sizeof == 8 && factor == bytesPerWord/8)
+            alias U = ulong;
 
         T opIndex(size_t idx) inout
         {
-            return __ctfe ? simpleIndex(idx) : cast(inout(T))(cast(U*)original.ptr)[idx];
+            return __ctfe ? simpleIndex(idx) : 
+                cast(inout(T))(cast(U*)origin)[idx];
         }
 
         static if(isBitPacked!T) // lack of user-defined implicit conversion
@@ -1155,18 +1161,12 @@ pure nothrow:
 
         void opIndexAssign(TypeOfBitPacked!T val, size_t idx)
         {
-            (cast(U*)original.ptr)[idx] = cast(U)val;
+            (cast(U*)origin)[idx] = cast(U)val;
         }
     }
     else
     {
         T opIndex(size_t n) inout
-        in
-        {
-            //@@BUG text is impure: text(n/factor, " vs ", original.length)
-            assert(n/factor < original.length);
-        }
-        body
         {
             return simpleIndex(n);
         }
@@ -1182,9 +1182,6 @@ pure nothrow:
         void opIndexAssign(TypeOfBitPacked!T val, size_t n)
         in
         {
-            //@@@ BUG text is not pure
-            /*text("mask: ",mask, " bits: ", bits
-                        , "value:", val, " > ", mask)*/
             static if(isIntegral!T)
                 assert(val <= mask);
         }
@@ -1193,10 +1190,58 @@ pure nothrow:
             auto q = n / factor;
             auto r = n % factor;
             size_t tgt_shift = bits*r;
-            size_t word = original[q];
-            original[q] = (word & ~(mask<<tgt_shift))
+            size_t word = origin[q];
+            origin[q] = (word & ~(mask<<tgt_shift))
                 | (cast(size_t)val << tgt_shift);
         }
+    }
+
+private:
+    // factor - number of elements in one machine word
+    enum factor = size_t.sizeof*8/bits, mask = 2^^bits-1;
+    enum bytesPerWord =  size_t.sizeof;
+    size_t* origin;   
+}
+
+// data is packed only by power of two sized packs per word,
+// thus avoiding mul/div overhead at the cost of ultimate packing
+// this construct doesn't own memory, only provides access, see MultiArray for usage
+@trusted struct PackedArrayViewImpl(T, size_t bits)
+{
+pure nothrow:
+    
+    this(inout(size_t)* origin, size_t items)inout
+    {
+        ptr = inout(PackedPtr!(T))(origin);
+        limit = items;
+    }
+
+    T opIndex(size_t idx) inout
+    in
+    {
+        assert(idx < limit);
+    }
+    body
+    {
+        return ptr[idx];
+    }
+
+    static if(isBitPacked!T) // lack of user-defined implicit conversion
+    {
+        void opIndexAssign(T val, size_t idx)
+        {
+            return opIndexAssign(cast(TypeOfBitPacked!T)val, idx);
+        }
+    }
+
+    void opIndexAssign(TypeOfBitPacked!T val, size_t idx)
+    in
+    {
+        assert(idx < limit);
+    }
+    body
+    {
+        ptr[idx] = val;
     }
 
     static if(isBitPacked!T) // lack of user-defined implicit conversions
@@ -1206,23 +1251,37 @@ pure nothrow:
             opSliceAssign(cast(TypeOfBitPacked!T)val, start, end);
         }
     }
+
     void opSliceAssign(TypeOfBitPacked!T val, size_t start, size_t end)
+    in
+    {
+        assert(start <= end);
+        assert(end <= limit);
+    }
+    body
     {
         // rounded to factor granularity
         size_t pad_start = (start+factor-1)/factor*factor;// rounded up
+        if(pad_start >= end) //rounded up >= then end of slice
+        {
+            //nothing to gain, use per element assignment
+            foreach(i; start..end)
+                ptr[i] = val;
+            return;
+        }    
         size_t pad_end = end/factor*factor; // rounded down
         size_t i;
         for(i=start; i<pad_start; i++)
-            this[i] = val;
+            ptr[i] = val;
         // all in between is x*factor elements
         if(pad_start != pad_end)
         {
             size_t repval = replicateBits!(factor, bits)(val);
             for(size_t j=i/factor; i<pad_end; i+=factor, j++)
-                original[j] = repval;// so speed it up by factor
+                ptr.origin[j] = repval;// so speed it up by factor
         }
         for(; i<end; i++)
-            this[i] = val;        
+            ptr[i] = val;        
     }
 
     auto opSlice(size_t from, size_t to)
@@ -1242,14 +1301,13 @@ pure nothrow:
         return true;
     }
 
-    @property size_t length()const{ return original.length*factor; }
+    @property size_t length()const{ return limit; }
 
 private:
-
     // factor - number of elements in one machine word
-    enum factor = size_t.sizeof*8/bits, mask = 2^^bits-1;
-    enum bytesPerWord =  size_t.sizeof;
-    size_t[] original;
+    enum factor = size_t.sizeof*8/bits;
+    PackedPtr!(T) ptr;
+    size_t limit;
 }
 
 
@@ -1385,9 +1443,9 @@ unittest
     assert(nullSlice.empty);
 }
 
-private auto packedArrayView(T)(inout(size_t)[] arr) @trusted pure nothrow
+private auto packedArrayView(T)(inout(size_t)* ptr, size_t items) @trusted pure nothrow
 {
-    return inout(PackedArrayView!T)(arr);
+    return inout(PackedArrayView!T)(ptr, items);
 }
 
 
@@ -3638,8 +3696,8 @@ public:
         alias p = Prefix;
         idx = cast(size_t)p[0](key);
         foreach(i, v; p[0..$-1])
-            idx = cast(size_t)((_table.slice!i[idx]<<p[i+1].bitSize) + p[i+1](key));
-        auto val = _table.slice!(p.length-1)[idx];
+            idx = cast(size_t)((_table.ptr!i[idx]<<p[i+1].bitSize) + p[i+1](key));
+        auto val = _table.ptr!(p.length-1)[idx];
         return val;
     }
 
