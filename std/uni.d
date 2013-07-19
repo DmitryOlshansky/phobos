@@ -1095,7 +1095,7 @@ template PackedArrayView(T)
     alias PackedArrayView = PackedArrayViewImpl!(T, bits > 1 ? ceilPowerOf2(bits) : 1);
 }
 
-//unsafe and fast access to a chunk of RAM as if it contians packed values
+//unsafe and fast access to a chunk of RAM as if it contains packed values
 template PackedPtr(T)
     if((is(T dummy == BitPacked!(U, sz), U, size_t sz)
         && isBitPackableType!U) || isBitPackableType!T)
@@ -4202,7 +4202,7 @@ template bitSizeOf(Args...)
     if(Args.length == 1)
 {
     alias T = Args[0];
-    static if(is(typeof(T.bitSize) : size_t))
+    static if(__traits(compiles, { size_t val = T.bitSize; })) //(is(typeof(T.bitSize) : size_t))
     {
         enum bitSizeOf = T.bitSize;
     }
@@ -4254,9 +4254,17 @@ struct assumeSize(alias Fn, size_t bits)
     }
 }
 
-template sliceBitsImpl(size_t from, size_t to)
+/*
+    A helper for defining lambda function that yields a slice
+    of certain bits from an unsigned integral value.
+    The resulting lambda is wrapped in assumeSize and can be used directly
+    with $(D Trie) template.
+*/
+struct sliceBits(size_t from, size_t to)
 {
-    T sliceBitsImpl(T)(T x)
+    //for now bypass assumeSize, DMD has trouble inlining it
+    enum bitSize = to-from;
+    static auto opCall(T)(T x)
     out(result)
     {
         assert(result < (1<<to-from));
@@ -4266,17 +4274,6 @@ template sliceBitsImpl(size_t from, size_t to)
         static assert(from < to);
         return (x >> from) & ((1<<(to-from))-1);
     }
-}
-
-/*
-    A helper for defining lambda function that yields a slice
-    of certain bits from an unsigned integral value.
-    The resulting lambda is wrapped in assumeSize and can be used directly
-    with $(D Trie) template.
-*/
-template sliceBits(size_t from, size_t to)
-{
-    alias assumeSize!(sliceBitsImpl!(from, to), to-from) sliceBits;
 }
 
 uint low_8(uint x) { return x&0xFF; }
@@ -7066,14 +7063,15 @@ bool isAlpha(dchar c)
     // optimization
     if(c < 0xAA)
     {
-        if(c < 'A')
-            return false;
-        if(c <= 'Z')
+        size_t x = c - 'A';
+        if(x <= 'Z' - 'A')
             return true;
-        if(c < 'a')
-            return false;
-        if(c <= 'z')
-            return true;
+        else
+        {
+            x = c - 'a';
+            if(x <= 'z'-'a')
+                return true;
+        }
         return false;
     }
 
