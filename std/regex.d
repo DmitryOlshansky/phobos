@@ -580,6 +580,87 @@ static assert(Bytecode.sizeof == 4);
     return output.data;
 }
 
+//disassemble the whole chunk
+@trusted void printBytecode(in Bytecode[] slice, in NamedGroup[] dict=[])
+{
+    import std.stdio;
+    for(size_t pc=0; pc<slice.length; pc += slice[pc].length)
+        writeln(disassemble(slice, pc, dict));
+}
+
+//another pretty printer, writes out the bytecode of a regex and where the pc is
+@trusted void prettyPrint(Sink,Char = const(char))
+    (Sink sink, const(Bytecode)[] irb, uint pc = uint.max, int indent = 3, size_t index = 0)
+    if (isOutputRange!(Sink,Char))
+{//formattedWrite is @system
+    while(irb.length > 0)
+    {
+        formattedWrite(sink,"%3d",index);
+        if(pc == 0 && irb[0].code!=IR.Char)
+        {
+            for (int i = 0;i < indent-2;++i)
+                put(sink,"=");
+            put(sink,"> ");
+        }
+        else
+        {
+            if(isEndIR(irb[0].code))
+            {
+                indent -= 2;
+            }
+            if(indent > 0)
+            {
+                string spaces="             ";
+                put(sink,spaces[0..(indent%spaces.length)]);
+                for (size_t i = indent/spaces.length;i > 0;--i)
+                    put(sink,spaces);
+            }
+        }
+        if(irb[0].code == IR.Char)
+        {
+            put(sink,`"`);
+            int i = 0;
+            do
+            {
+                put(sink,cast(char[])([cast(dchar)irb[i].data]));
+                ++i;
+            } while(i < irb.length && irb[i].code == IR.Char);
+            put(sink,"\"");
+            if(pc < i)
+            {
+                put(sink,"\n");
+                for (int ii = indent+pc+1;ii > 0;++ii)
+                    put(sink,"=");
+                put(sink,"^");
+            }
+            index += i;
+            irb = irb[i..$];
+        }
+        else
+        {
+            put(sink,irb[0].mnemonic);
+            put(sink,"(");
+            formattedWrite(sink,"%d",irb[0].data);
+            int nArgs= irb[0].args;
+            for(int iarg = 0;iarg < nArgs;++iarg)
+            {
+                if(iarg+1 < irb.length)
+                    formattedWrite(sink,",%d",irb[iarg+1].data);
+                else
+                    put(sink,"*error* incomplete irb stream");
+            }
+            put(sink,")");
+            if(isStartIR(irb[0].code))
+            {
+                indent += 2;
+            }
+            index += lengthOfIR(irb[0].code);
+            irb = irb[lengthOfIR(irb[0].code)..$];
+        }
+        put(sink,"\n");
+    }
+}
+
 //index entry structure for name --> number of submatch
 struct NamedGroup
 {
@@ -597,6 +678,31 @@ struct Group(DataIndex)
         formattedWrite(a, "%s..%s", begin, end);
         return a.data;
     }
+}
+
+void reverseBytecode(Bytecode[] code)
+{
+    Bytecode[] rev = new Bytecode[code.length];
+    uint revPc = rev.length;
+    for(uint pc = 0; pc < code.length; )
+    {
+        uint len = code[pc].length;
+        if(code[pc].isAtom)
+        {
+            rev[revPc - len .. revPc] = code[pc .. pc + len];
+            revPc -= len;
+        }
+        else if(code[pc].isStart || code[pc].isEnd)
+        {
+            uint second = code[pc].indexOfPair(pc);
+            uint secLen = code[second].length;
+            rev[revPc - secLen .. revPc] = code[second .. second + secLen];
+            revPc -= secLen;
+        }
+        pc += len;
+    }
+    assert(revPc == 0);
+    code[] = rev[];
 }
 
 //Regular expression engine/parser options:
@@ -1046,7 +1152,6 @@ struct Parser(R)
                     assert(lookaroundNest);
                     fixLookaround(fix);
                     lookaroundNest--;
-                    put(ir[fix].paired);
                     break;
                 case IR.Option: //| xxx )
                     //two fixups: last option + full OR
@@ -1064,7 +1169,6 @@ struct Parser(R)
                         lookaroundNest--;
                         fix = fixupStack.pop();
                         fixLookaround(fix);
-                        put(ir[fix].paired);
                         break;
                     default://(?:xxx)
                         fixupStack.pop();
@@ -1327,7 +1431,7 @@ struct Parser(R)
             "maximum lookaround depth is exceeded");
     }
 
-    //fixup lookaround with start at offset fix
+    //fixup lookaround with start at offset fix and append a proper *-End opcode
     void fixLookaround(uint fix)
     {
         ir[fix] = Bytecode(ir[fix].code,
@@ -1338,6 +1442,16 @@ struct Parser(R)
         //groups are cumulative across lookarounds
         ir[fix+2] = Bytecode.fromRaw(groupStack.top+g);
         groupStack.top += g;
+        if(ir[fix].code == IR.LookbehindStart || ir[fix].code == IR.NeglookbehindStart)
+        {            
+            reverseBytecode(ir[fix + IRL!(IR.LookbehindStart) .. $]);            
+    }
+        put(ir[fix].paired);
+        debug(fred_parser)
+        {
+            //writeln("After reverse:");
+            printBytecode(ir[fix..$]);
+        }       
     }
 
     //CodepointSet operations relatively in order of priority
@@ -2127,9 +2241,6 @@ private:
     //print out disassembly a program's IR
     @trusted debug(std_regex_parser) void print() const
     {//@@@BUG@@@ write is system
-        writefln("PC\tINST\n");
-        prettyPrint(delegate void(const(char)[] s){ write(s); },ir);
-        writefln("\n");
         for(uint i = 0; i < ir.length; i += ir[i].length)
         {
             writefln("%d\t%s ", i, disassemble(ir, i, dict));
