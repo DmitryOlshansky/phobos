@@ -343,25 +343,25 @@ int lengthOfPairedIR(IR i)
 //if the operation has a merge point (this relies on the order of the ops)
 bool hasMerge(IR i)
 {
-    return (i&0b11)==0b10 && i <= IR.RepeatQEnd;
+    return (i & 0b11) == 0b10 && i <= IR.RepeatQEnd;
 }
 
 //is an IR that opens a "group"
 bool isStartIR(IR i)
 {
-    return (i&0b11)==0b01;
+    return (i & 0b11) == 0b01;
 }
 
 //is an IR that ends a "group"
 bool isEndIR(IR i)
 {
-    return (i&0b11)==0b10;
+    return (i & 0b11) == 0b10;
 }
 
 //is a standalone IR
 bool isAtomIR(IR i)
 {
-    return (i&0b11)==0b00;
+    return (i & 0b11) == 0b00;
 }
 
 //makes respective pair out of IR i, swapping start/end bits of instruction
@@ -376,21 +376,21 @@ struct Bytecode
 {
     uint raw;
     //natural constraints
-    enum maxSequence = 2+4;
-    enum maxData = 1<<22;
-    enum maxRaw = 1<<31;
+    enum maxSequence = 2 + 4;
+    enum maxData = 1 << 22;
+    enum maxRaw = 1 << 31;
 
     this(IR code, uint data)
     {
-        assert(data < (1<<22) && code < 256);
-        raw = code<<24 | data;
+        assert(data < (1 << 22) && code < 256);
+        raw = code << 24 | data;
     }
 
     this(IR code, uint data, uint seq)
     {
-        assert(data < (1<<22) && code < 256 );
+        assert(data < (1 << 22) && code < 256 );
         assert(seq >= 2 && seq < maxSequence);
-        raw = code<<24 | ((seq-2)<<22) | data;
+        raw = code << 24 | (seq - 2)<<22 | data;
     }
 
     //store raw data
@@ -405,10 +405,10 @@ struct Bytecode
     @property uint data() const { return raw & 0x003f_ffff; }
 
     //ditto
-    @property uint sequence() const { return 2+((raw >>22) & 0x3); }
+    @property uint sequence() const { return 2 + (raw >> 22 & 0x3); }
 
     //ditto
-    @property IR code() const { return cast(IR)(raw>>24); }
+    @property IR code() const { return cast(IR)(raw >> 24); }
 
     //ditto
     @property bool hotspot() const { return hasMerge(code); }
@@ -429,28 +429,28 @@ struct Bytecode
     void setBackrefence()
     {
         assert(code == IR.GroupStart || code == IR.GroupEnd);
-        raw = raw | (1<<23);
+        raw = raw | 1 << 23;
     }
 
     //is referenced
     @property bool backreference() const
     {
         assert(code == IR.GroupStart || code == IR.GroupEnd);
-        return cast(bool)(raw & (1<<23));
+        return cast(bool)(raw & 1 << 23);
     }
 
     //mark as local reference (for backrefs in lookarounds)
     void setLocalRef()
     {
         assert(code == IR.Backref);
-        raw = raw | (1<<23);
+        raw = raw | 1 << 23;
     }
 
     //is a local ref
     @property bool localRef() const
     {
         assert(code == IR.Backref);
-        return cast(bool)(raw & (1<<23));
+        return cast(bool)(raw & 1 << 23);
     }
 
     //human readable name of instruction
@@ -475,7 +475,7 @@ struct Bytecode
     @property Bytecode paired() const
     {//depends on bit and struct layout order
         assert(isStart || isEnd);
-        return Bytecode.fromRaw(raw ^ (0b11<<24));
+        return Bytecode.fromRaw(raw ^ 0b11 << 24);
     }
 
     //gets an index into IR block of the respective pair
@@ -504,12 +504,12 @@ static assert(Bytecode.sizeof == 4);
     case IR.RepeatStart, IR.InfiniteStart, IR.Option, IR.GotoEndOr, IR.OrStart:
         //forward-jump instructions
         uint len = irb[pc].data;
-        formattedWrite(output, " pc=>%u", pc+len+IRL!(IR.RepeatStart));
+        formattedWrite(output, " pc=>%u", pc + len + IRL!(IR.RepeatStart));
         break;
     case IR.RepeatEnd, IR.RepeatQEnd: //backward-jump instructions
         uint len = irb[pc].data;
         formattedWrite(output, " pc=>%u min=%u max=%u step=%u",
-            pc-len, irb[pc+3].raw, irb[pc+4].raw, irb[pc+2].raw);
+            pc-len, irb[pc + 3].raw, irb[pc + 4].raw, irb[pc + 2].raw);
         break;
     case IR.InfiniteEnd, IR.InfiniteQEnd, IR.OrEnd: //ditto
         uint len = irb[pc].data;
@@ -533,7 +533,7 @@ static assert(Bytecode.sizeof == 4);
         break;
     case IR.LookaheadStart, IR.NeglookaheadStart, IR.LookbehindStart, IR.NeglookbehindStart:
         uint len = irb[pc].data;
-        uint start = irb[pc+1].raw, end = irb[pc+2].raw;
+        uint start = irb[pc + 1].raw, end = irb[pc + 2].raw;
         formattedWrite(output, " pc=>%u [%u..%u]", pc + len + IRL!(IR.LookaheadStart), start, end);
         break;
     case IR.Backref: case IR.CodepointSet: case IR.Trie:
@@ -545,81 +545,8 @@ static assert(Bytecode.sizeof == 4);
     default://all data-free instructions
     }
     if(irb[pc].hotspot)
-        formattedWrite(output, " Hotspot %u", irb[pc+1].raw);
+        formattedWrite(output, " Hotspot %u", irb[pc + 1].raw);
     return output.data;
-}
-
-//another pretty printer, writes out the bytecode of a regex and where the pc is
-@trusted void prettyPrint(Sink,Char = const(char))
-    (Sink sink, const(Bytecode)[] irb, uint pc = uint.max, int indent = 3, size_t index = 0)
-    if (isOutputRange!(Sink,Char))
-{//formattedWrite is @system
-    while(irb.length > 0)
-    {
-        formattedWrite(sink,"%3d",index);
-        if(pc == 0 && irb[0].code!=IR.Char)
-        {
-            for (int i = 0;i < indent-2;++i)
-                put(sink,"=");
-            put(sink,"> ");
-        }
-        else
-        {
-            if(isEndIR(irb[0].code))
-            {
-                indent -= 2;
-            }
-            if(indent > 0)
-            {
-                string spaces="             ";
-                put(sink,spaces[0..(indent%spaces.length)]);
-                for (size_t i = indent/spaces.length;i > 0;--i)
-                    put(sink,spaces);
-            }
-        }
-        if(irb[0].code == IR.Char)
-        {
-            put(sink,`"`);
-            int i = 0;
-            do
-            {
-                put(sink,cast(char[])([cast(dchar)irb[i].data]));
-                ++i;
-            } while(i < irb.length && irb[i].code == IR.Char);
-            put(sink,"\"");
-            if(pc < i)
-            {
-                put(sink,"\n");
-                for (int ii = indent+pc+1;ii > 0;++ii)
-                    put(sink,"=");
-                put(sink,"^");
-            }
-            index += i;
-            irb = irb[i..$];
-        }
-        else
-        {
-            put(sink,irb[0].mnemonic);
-            put(sink,"(");
-            formattedWrite(sink,"%d",irb[0].data);
-            int nArgs= irb[0].args;
-            for(int iarg = 0;iarg < nArgs;++iarg)
-            {
-                if(iarg+1 < irb.length)
-                    formattedWrite(sink,",%d",irb[iarg+1].data);
-                else
-                    put(sink,"*error* incomplete irb stream");
-            }
-            put(sink,")");
-            if(isStartIR(irb[0].code))
-            {
-                indent += 2;
-            }
-            index += lengthOfIR(irb[0].code);
-            irb = irb[lengthOfIR(irb[0].code)..$];
-        }
-        put(sink,"\n");
-    }
 }
 
 //index entry structure for name --> number of submatch
@@ -657,8 +584,8 @@ enum RegexOption: uint {
 alias TypeTuple!('g', 'i', 'x', 'U', 'm', 's') RegexOptionNames;//do not reorder this list
 static assert( RegexOption.max < 0x80);
 enum RegexInfo : uint { oneShot = 0x80 }
-alias Escapables = TypeTuple!('[',']','\\','^','$','.','|','?',',','-',';',':',
-    '#','&','%','/','<','>','`', '*','+','(',')','{','}', '~');
+alias Escapables = TypeTuple!('[', ']', '\\', '^', '$', '.', '|', '?', ',', '-',
+    ';', ':', '#', '&', '%', '/', '<', '>', '`',  '*', '+', '(', ')', '{', '}',  '~');
 
 private enum NEL = '\u0085', LS = '\u2028', PS = '\u2029';
 
@@ -675,14 +602,14 @@ dchar parseUniHex(Char)(ref Char[] str, size_t maxDigit)
         if('0' <= current && current <= '9')
             val = val * 16 + current - '0';
         else if('a' <= current && current <= 'f')
-            val = val * 16 + current -'a' + 10;
+            val = val * 16 + current - 'a' + 10;
         else if('A' <= current && current <= 'F')
             val = val * 16 + current - 'A' + 10;
         else
             throw new Exception("invalid escape sequence");
     }
     enforce(val <= 0x10FFFF, "invalid codepoint");
-    str = str[maxDigit..$];
+    str = str[maxDigit .. $];
     return val;
 }
 
@@ -1230,7 +1157,7 @@ struct Parser(R)
         default:
             if(replace)
             {
-                copyForwardAlt(ir[offset+1..$],ir[offset..$-1]);
+                copyForwardAlt(ir[offset+1 .. $],ir[offset .. $-1]);
                 ir.length -= 1;
             }
             return;
@@ -1922,7 +1849,7 @@ struct Parser(R)
             enforce(current < 0x80, "invalid property name");
             result[k++] = cast(char)current;
         }
-        auto s = getUnicodeSet(result[0..k], negated,
+        auto s = getUnicodeSet(result[0 .. k], negated,
             cast(bool)(re_flags & RegexOption.casefold));
         enforce(!s.empty, "unrecognized unicode property spec");
         next();
@@ -1935,7 +1862,7 @@ struct Parser(R)
         auto app = appender!string();
         ir = null;
         formattedWrite(app, "%s\nPattern with error: `%s` <--HERE-- `%s`",
-                       msg, origin[0..$-pat.length], pat);
+                       msg, origin[0 .. $-pat.length], pat);
         throw new RegexException(app.data);
     }
 
@@ -1986,7 +1913,7 @@ public struct Regex(Char)
         assert(nc.length == 2);
         assert(nc.equal(["name", "var"]));
         assert(nc[0] == "name");
-        assert(nc[1..$].equal(["var"]));
+        assert(nc[1 .. $].equal(["var"]));
         ----
      +/
     @property auto namedCaptures()
@@ -2209,7 +2136,7 @@ unittest
     assert(nc.length == 2);
     assert(nc.equal(["name", "var"]));
     assert(nc[0] == "name");
-    assert(nc[1..$].equal(["var"]));
+    assert(nc[1 .. $].equal(["var"]));
 
     re = regex(`(\w+) (?P<named>\w+) (\w+)`);
     nc = re.namedCaptures;
@@ -2227,9 +2154,9 @@ unittest
     auto cp = nc.save;
     assert(nc.equal(cp));
     nc.popFront();
-    assert(nc.equal(cp[1..$]));
+    assert(nc.equal(cp[1 .. $]));
     nc.popBack();
-    assert(nc.equal(cp[1..$-1]));
+    assert(nc.equal(cp[1 .. $-1]));
 }
 
 //
@@ -2666,7 +2593,7 @@ public:
                     for(uint i = 0; i < len; i++)
                     {
                         auto x = charLen(re.ir[t.pc+i].data);
-                        if(countUntil(s[0..numS], x) < 0)
+                        if(countUntil(s[0 .. numS], x) < 0)
                            s[numS++] = x;
                     }
                     for(uint i = t.pc; i < end; i++)
@@ -3057,7 +2984,7 @@ struct Input(Char)
     //support for backtracker engine, might not be present
     void reset(size_t index){   _index = index;  }
 
-    String opSlice(size_t start, size_t end){   return _origin[start..end]; }
+    String opSlice(size_t start, size_t end){   return _origin[start .. end]; }
 
     struct BackLooper
     {
@@ -3075,7 +3002,7 @@ struct Input(Char)
             if(_index == 0)
                 return false;
 
-            res = _origin[0.._index].back;
+            res = _origin[0 .. _index].back;
             _index -= std.utf.strideBack(_origin, _index);
 
             return true;
@@ -3087,7 +3014,7 @@ struct Input(Char)
         //void reset(size_t index){   _index = index ? index-std.utf.strideBack(_origin, index) : 0;  }
         void reset(size_t index){   _index = index;  }
 
-        String opSlice(size_t start, size_t end){   return _origin[end..start]; }
+        String opSlice(size_t start, size_t end){   return _origin[end .. start]; }
         //index of at End position
         @property size_t lastIndex(){   return 0; }
     }
@@ -3099,14 +3026,14 @@ struct Input(Char)
 //unsafe, no initialization of elements
 @system T[] mallocArray(T)(size_t len)
 {
-    return (cast(T*)malloc(len*T.sizeof))[0..len];
+    return (cast(T*)malloc(len*T.sizeof))[0 .. len];
 }
 
 //very unsafe, no initialization
 @system T[] arrayInChunk(T)(size_t len, ref void[] chunk)
 {
-    auto ret = (cast(T*)chunk.ptr)[0..len];
-    chunk = chunk[len*T.sizeof..$];
+    auto ret = (cast(T*)chunk.ptr)[0 .. len];
+    chunk = chunk[len*T.sizeof .. $];
     return ret;
 }
 
@@ -3195,7 +3122,7 @@ template BacktrackingMatcher(bool CTregex)
         {
             auto chunk = mallocArray!(size_t)(stackSize(re));
             chunk[0] = cast(size_t)(memory.ptr);
-            memory = chunk[1..$];
+            memory = chunk[1 .. $];
         }
 
         void initExternalMemory(void[] memBlock)
@@ -3203,7 +3130,7 @@ template BacktrackingMatcher(bool CTregex)
             trackers = arrayInChunk!(DataIndex)(re.ngroup+1, memBlock);
             memory = cast(size_t[])memBlock;
             memory[0] = 0; //hidden pointer
-            memory = memory[1..$];
+            memory = memory[1 .. $];
         }
 
         void initialize(ref RegEx program, Stream stream, void[] memBlock)
@@ -3325,7 +3252,7 @@ template BacktrackingMatcher(bool CTregex)
                 infiniteNesting = -1;//intentional
                 auto start = s._index;
                 debug(std_regex_matcher)
-                    writeln("Try match starting at ", s[index..s.lastIndex]);
+                    writeln("Try match starting at ", s[index .. s.lastIndex]);
                 for(;;)
                 {
                     debug(std_regex_matcher)
@@ -3436,7 +3363,7 @@ template BacktrackingMatcher(bool CTregex)
                     case IR.Eol:
                         dchar back;
                         DataIndex bi;
-                        debug(std_regex_matcher) writefln("EOL (front 0x%x) %s", front, s[index..s.lastIndex]);
+                        debug(std_regex_matcher) writefln("EOL (front 0x%x) %s", front, s[index .. s.lastIndex]);
                         //no matching inside \r\n
                         if(atEnd || ((re.flags & RegexOption.multiline)
                             && endOfLine(front, s.loopBack(index).nextChar(back,bi)
@@ -3578,7 +3505,7 @@ template BacktrackingMatcher(bool CTregex)
                         uint len = re.ir[pc].data;
                         auto save = index;
                         uint ms = re.ir[pc+1].raw, me = re.ir[pc+2].raw;
-                        auto mem = malloc(initialMemory(re))[0..initialMemory(re)];
+                        auto mem = malloc(initialMemory(re))[0 .. initialMemory(re)];
                         scope(exit) free(mem.ptr);
                         auto matcher = BacktrackingMatcher(re, s, mem, front, index);
                         matcher.matches = matches[ms .. me];
@@ -3598,7 +3525,7 @@ template BacktrackingMatcher(bool CTregex)
                     case IR.NeglookbehindStart:
                         uint len = re.ir[pc].data;
                         uint ms = re.ir[pc+1].raw, me = re.ir[pc+2].raw;
-                        auto mem = malloc(initialMemory(re))[0..initialMemory(re)];
+                        auto mem = malloc(initialMemory(re))[0 .. initialMemory(re)];
                         scope(exit) free(mem.ptr);
                         auto backMatcher = BacktrackingMatcher!(Char, typeof(s.loopBack(index)))(re, s.loopBack(index), mem);
                         backMatcher.matches = matches[ms .. me];
@@ -3661,7 +3588,7 @@ template BacktrackingMatcher(bool CTregex)
                 return false;
             free(memory.ptr);//last segment is freed in RegexMatch
             immutable size = initialStack*(stateSize + 2*re.ngroup);
-            memory = prev[0..size];
+            memory = prev[0 .. size];
             lastState = size;
             return true;
         }
@@ -3678,8 +3605,8 @@ template BacktrackingMatcher(bool CTregex)
         void stackPush(T)(T[] val)
         {
             static assert(T.sizeof % size_t.sizeof == 0);
-            (cast(T*)&memory[lastState])[0..val.length]
-                = val[0..$];
+            (cast(T*)&memory[lastState])[0 .. val.length]
+                = val[0 .. $];
             lastState += val.length*(T.sizeof/size_t.sizeof);
             debug(std_regex_matcher) writeln("push array SP= ", lastState);
         }
@@ -3700,7 +3627,7 @@ template BacktrackingMatcher(bool CTregex)
         void stackPop(T)(ref T[] val)
         {
             lastState -= val.length*(T.sizeof/size_t.sizeof);
-            val[0..$] = (cast(T*)&memory[lastState])[0..val.length];
+            val[0 .. $] = (cast(T*)&memory[lastState])[0 .. val.length];
             debug(std_regex_matcher) writeln("pop array SP= ", lastState);
         }
 
@@ -3717,11 +3644,11 @@ template BacktrackingMatcher(bool CTregex)
                 *cast(State*)&memory[lastState] =
                     State(index, pc, counter, infiniteNesting);
                 lastState += stateSize;
-                memory[lastState..lastState+2*matches.length] = (cast(size_t[])matches)[];
+                memory[lastState .. lastState+2*matches.length] = (cast(size_t[])matches)[];
                 lastState += 2*matches.length;
                 debug(std_regex_matcher)
                     writefln("Saved(pc=%s) front: %s src: %s",
-                        pc, front, s[index..s.lastIndex]);
+                        pc, front, s[index .. s.lastIndex]);
             }
 
             //helper function, restores engine state
@@ -3748,7 +3675,7 @@ template BacktrackingMatcher(bool CTregex)
                 next();
                 debug(std_regex_matcher)
                     writefln("Backtracked (pc=%s) front: %s src: %s",
-                        pc, front, s[index..s.lastIndex]);
+                        pc, front, s[index .. s.lastIndex]);
                 return true;
             }
 
@@ -3765,13 +3692,13 @@ template BacktrackingMatcher(bool CTregex)
                 infiniteNesting = -1;//intentional
                 auto start = index;
                 debug(std_regex_matcher)
-                    writeln("Try matchBack at ",retro(s[index..s.lastIndex]));
+                    writeln("Try matchBack at ",retro(s[index .. s.lastIndex]));
                 for(;;)
                 {
                     debug(std_regex_matcher)
                         writefln("PC: %s\tCNT: %s\t%s \tfront: %s src: %s",
                             pc, counter, disassemble(re.ir, pc, re.dict),
-                            front, retro(s[index..s.lastIndex]));
+                            front, retro(s[index .. s.lastIndex]));
                     switch(re.ir[pc].code)
                     {
                     case IR.OrChar://assumes IRL!(OrChar) == 1
@@ -3877,7 +3804,7 @@ template BacktrackingMatcher(bool CTregex)
                         dchar back;
                         DataIndex bi;
                         debug(std_regex_matcher)
-                            writefln("EOL (front 0x%x) %s", front, s[index..s.lastIndex]);
+                            writefln("EOL (front 0x%x) %s", front, s[index .. s.lastIndex]);
                         //no matching inside \r\n
                         if((re.flags & RegexOption.multiline)
                                 && s.loopBack(index).nextChar(back,bi)
@@ -4033,7 +3960,7 @@ template BacktrackingMatcher(bool CTregex)
                         uint len = re.ir[pc].data;
                         pc -= len + IRL!(IR.LookaheadStart);
                         uint ms = re.ir[pc+1].raw, me = re.ir[pc+2].raw;
-                        auto mem = malloc(initialMemory(re))[0..initialMemory(re)];
+                        auto mem = malloc(initialMemory(re))[0 .. initialMemory(re)];
                         scope(exit) free(mem.ptr);
                         auto matcher = BacktrackingMatcher!(Char, typeof(s.loopBack(index)))(re, s.loopBack(index), mem);
                         matcher.matches = matches[ms .. me];
@@ -4053,7 +3980,7 @@ template BacktrackingMatcher(bool CTregex)
                         pc -= len + IRL!(IR.LookbehindStart);
                         auto save = index;
                         uint ms = re.ir[pc+1].raw, me = re.ir[pc+2].raw;
-                        auto mem = malloc(initialMemory(re))[0..initialMemory(re)];
+                        auto mem = malloc(initialMemory(re))[0 .. initialMemory(re)];
                         scope(exit) free(mem.ptr);
                         auto matcher = BacktrackingMatcher(re, s, mem, front, index);
                         matcher.re.ngroup =  me - ms;
@@ -4121,8 +4048,8 @@ template BacktrackingMatcher(bool CTregex)
             {
                 static if(args.length > 0)
                 {
-                    return  format[0..i-1] ~ to!string(args[0])
-                        ~ ctSub(format[i+1..$], args[1..$]);
+                    return  format[0 .. i-1] ~ to!string(args[0])
+                        ~ ctSub(format[i+1 .. $], args[1 .. $]);
                 }
                 else
                     assert(0);
@@ -4203,13 +4130,13 @@ struct CtContext
         if(match < total_matches)
         {
             text ~= ctSub("
-                    stackPop(matches[$$..$$]);", reserved, match);
+                    stackPop(matches[$$ .. $$]);", reserved, match);
             text ~= ctSub("
-                    matches[$$..$] = typeof(matches[0]).init;", match);
+                    matches[$$ .. $] = typeof(matches[0]).init;", match);
         }
         else
             text ~= ctSub("
-                    stackPop(matches[$$..$]);", reserved);
+                    stackPop(matches[$$ .. $]);", reserved);
         return text;
     }
 
@@ -4224,10 +4151,10 @@ struct CtContext
                     }", match - reserved, cast(int)counter + 2);
         if(match < total_matches)
             text ~= ctSub("
-                    stackPush(matches[$$..$$]);", reserved, match);
+                    stackPush(matches[$$ .. $$]);", reserved, match);
         else
             text ~= ctSub("
-                    stackPush(matches[$$..$]);", reserved);
+                    stackPush(matches[$$ .. $]);", reserved);
         text ~= counter ? ctSub("
                     stackPush($$);", count_expr) : "";
         text ~= ctSub("
@@ -4276,8 +4203,8 @@ struct CtContext
                 curInfLoop--;
             //start/end codegen
             //r.addr is at last test+ jump of loop, addr+1 is body of loop
-            nir = ir[ir[0].length+len..$];
-            r.code = ctGenFixupCode(ir[0..ir[0].length], addr, r.addr) ~ r.code;
+            nir = ir[ir[0].length+len .. $];
+            r.code = ctGenFixupCode(ir[0 .. ir[0].length], addr, r.addr) ~ r.code;
             r.code ~= ctGenFixupCode(nir, r.addr, addr+1);
             r.addr += 2;   //account end instruction + restore state
             ir = nir;
@@ -4286,9 +4213,9 @@ struct CtContext
             uint len = ir[0].data;
             auto nir = ir[ir[0].length .. ir[0].length+len];
             r = ctGenAlternation(nir, addr);
-            ir = ir[ir[0].length+len..$];
+            ir = ir[ir[0].length+len .. $];
             assert(ir[0].code == IR.OrEnd);
-            ir = ir[ir[0].length..$];
+            ir = ir[ir[0].length .. $];
             break;
         case IR.LookaheadStart:
         case IR.NeglookaheadStart:
@@ -4306,10 +4233,10 @@ struct CtContext
                         //(neg)lookahead piece ends
                     }
                     auto save = index;
-                    auto mem = malloc(initialMemory(re))[0..initialMemory(re)];
+                    auto mem = malloc(initialMemory(re))[0 .. initialMemory(re)];
                     scope(exit) free(mem.ptr);
                     auto lookahead = typeof(matcher)(re, s, mem, front, index);
-                    lookahead.matches = matches[$$..$$];
+                    lookahead.matches = matches[$$ .. $$];
                     lookahead.backrefed = backrefed.empty ? matches : backrefed;
                     lookahead.re.nativeFn = &matcher_$$; //hookup closure's binary code
                     bool match = $$;
@@ -4360,11 +4287,11 @@ struct CtContext
                 r.code = ctGenFixupCode(ir[0 .. ir[0].length], addr, r.addr+1) ~ r.code;
                 addr = r.addr+1;//leave space for GotoEndOr
                 pieces ~= r;
-                ir = ir[optL+len..$];
+                ir = ir[optL+len .. $];
             }
             else
             {
-                pieces ~= ctGenBlock(ir[optL..$], addr);
+                pieces ~= ctGenBlock(ir[optL .. $], addr);
                 addr = pieces[$-1].addr;
                 break;
             }
@@ -4400,10 +4327,10 @@ struct CtContext
             r ~= ctSub( `
                     tracker_$$ = DataIndex.max;
                     goto case $$;`, curInfLoop, fixup);
-            ir = ir[ir[0].length..$];
+            ir = ir[ir[0].length .. $];
             break;
         case IR.InfiniteEnd:
-            testCode = ctQuickTest(ir[IRL!(IR.InfiniteEnd)..$],addr+1);
+            testCode = ctQuickTest(ir[IRL!(IR.InfiniteEnd) .. $],addr+1);
             r ~= ctSub( `
                     if(tracker_$$ == index)
                     {//source not consumed
@@ -4421,10 +4348,10 @@ struct CtContext
                     goto case;`, curInfLoop, addr+2,
                     curInfLoop, testCode, saveCode(addr+1),
                     fixup, addr+1, restoreCode());
-            ir = ir[ir[0].length..$];
+            ir = ir[ir[0].length .. $];
             break;
         case IR.InfiniteQEnd:
-            testCode = ctQuickTest(ir[IRL!(IR.InfiniteEnd)..$],addr+1);
+            testCode = ctQuickTest(ir[IRL!(IR.InfiniteEnd) .. $],addr+1);
             r ~= ctSub( `
                     if(tracker_$$ == index)
                     {//source not consumed
@@ -4444,12 +4371,12 @@ struct CtContext
                     goto case $$;`, curInfLoop, addr+2, curInfLoop,
                     testCode, saveCode(addr+1),
                     addr+2, fixup, addr+1, restoreCode(), fixup);
-            ir = ir[ir[0].length..$];
+            ir = ir[ir[0].length .. $];
             break;
         case IR.RepeatStart, IR.RepeatQStart:
             r ~= ctSub( `
                     goto case $$;`, fixup);
-            ir = ir[ir[0].length..$];
+            ir = ir[ir[0].length .. $];
             break;
          case IR.RepeatEnd, IR.RepeatQEnd:
             //len, step, min, max
@@ -4496,7 +4423,7 @@ struct CtContext
                     $$
                     goto case $$;`, step, addr+2, addr+1, restoreCode(),
                     ir[0].code == IR.RepeatEnd ? addr+2 : fixup );
-            ir = ir[ir[0].length..$];
+            ir = ir[ir[0].length .. $];
             break;        
         case IR.Option:
             r ~= ctSub( `
@@ -4508,7 +4435,7 @@ struct CtContext
                 $$
                 goto case $$;`, saveCode(addr+1), addr+2,
                     addr+1, restoreCode(), fixup);
-                ir = ir[ir[0].length..$];
+                ir = ir[ir[0].length .. $];
             break;
         default:
             assert(0, text(ir[0].mnemonic));
@@ -4528,7 +4455,7 @@ struct CtContext
             }
             else
             {
-                auto code = ctAtomCode(ir[pc..$], -1);
+                auto code = ctAtomCode(ir[pc .. $], -1);
                 return ctSub(`
                     int test_$$()
                     {
@@ -4680,7 +4607,7 @@ struct CtContext
             code ~= ctSub(`
                     dchar back;
                     DataIndex bi;
-                    debug(std_regex_matcher) writefln("EOL (front 0x%x) %s", front, s[index..s.lastIndex]);
+                    debug(std_regex_matcher) writefln("EOL (front 0x%x) %s", front, s[index .. s.lastIndex]);
                     //no matching inside \r\n
                     if(atEnd || ((re.flags & RegexOption.multiline)
                             && endOfLine(front, s.loopBack(index).nextChar(back,bi)
@@ -4748,7 +4675,7 @@ struct CtContext
             size_t tracker_$$;`, i);
         r ~= `
             goto StartLoop;
-            debug(std_regex_matcher) writeln("Try CT matching  starting at ",s[index..s.lastIndex]);
+            debug(std_regex_matcher) writeln("Try CT matching  starting at ",s[index .. s.lastIndex]);
         L_backtrack:
             if(lastState || prevStack())
             {
@@ -5010,7 +4937,7 @@ enum OneShot { Fwd, Bwd };
                 genCounter++;
                 debug(std_regex_matcher)
                 {
-                    writefln("Threaded matching threads at  %s", s[index..s.lastIndex]);
+                    writefln("Threaded matching threads at  %s", s[index .. s.lastIndex]);
                     foreach(t; clist[])
                     {
                         assert(t);
@@ -5073,7 +5000,7 @@ enum OneShot { Fwd, Bwd };
     +/
     void finish(const(Thread!DataIndex)* t, Group!DataIndex[] matches)
     {
-        matches.ptr[0..re.ngroup] = t.matches.ptr[0..re.ngroup];
+        matches.ptr[0 .. re.ngroup] = t.matches.ptr[0 .. re.ngroup];
         debug(std_regex_matcher)
         {
             writef("FOUND pc=%s prog_len=%s",
@@ -5199,7 +5126,7 @@ enum OneShot { Fwd, Bwd };
                 }
                 break;
             case IR.Eol:
-                debug(std_regex_matcher) writefln("EOL (front 0x%x) %s",  front, s[index..s.lastIndex]);
+                debug(std_regex_matcher) writefln("EOL (front 0x%x) %s",  front, s[index .. s.lastIndex]);
                 dchar back;
                 DataIndex bi;
                 //no matching inside \r\n
@@ -5326,14 +5253,14 @@ enum OneShot { Fwd, Bwd };
                 if(merge[re.ir[t.pc + 1].raw+t.counter] < genCounter)
                 {
                     debug(std_regex_matcher) writefln("A thread(pc=%s) passed there : %s ; GenCounter=%s mergetab=%s",
-                                    t.pc, s[index..s.lastIndex], genCounter, merge[re.ir[t.pc + 1].raw+t.counter] );
+                                    t.pc, s[index .. s.lastIndex], genCounter, merge[re.ir[t.pc + 1].raw+t.counter] );
                     merge[re.ir[t.pc + 1].raw+t.counter] = genCounter;
                     t.pc += IRL!(IR.OrEnd);
                 }
                 else
                 {
                     debug(std_regex_matcher) writefln("A thread(pc=%s) got merged there : %s ; GenCounter=%s mergetab=%s",
-                                    t.pc, s[index..s.lastIndex], genCounter, merge[re.ir[t.pc + 1].raw+t.counter] );
+                                    t.pc, s[index .. s.lastIndex], genCounter, merge[re.ir[t.pc + 1].raw+t.counter] );
                     recycle(t);
                     t = worklist.fetch();
                     if(!t)
@@ -5377,9 +5304,9 @@ enum OneShot { Fwd, Bwd };
                 {
                     size_t idx = source[n].begin + t.uopCounter;
                     size_t end = source[n].end;
-                    if(s[idx..end].front == front)
+                    if(s[idx .. end].front == front)
                     {
-                        t.uopCounter += std.utf.stride(s[idx..end], 0);
+                        t.uopCounter += std.utf.stride(s[idx .. end], 0);
                         if(t.uopCounter + source[n].begin == source[n].end)
                         {//last codepoint
                             t.pc += IRL!(IR.Backref);
@@ -5407,7 +5334,7 @@ enum OneShot { Fwd, Bwd };
             case IR.NeglookbehindStart:
                 auto matcher =
                     ThompsonMatcher!(Char, typeof(s.loopBack(index)))
-                    (this, re.ir[t.pc..t.pc+re.ir[t.pc].data+IRL!(IR.LookbehindStart)], s.loopBack(index));
+                    (this, re.ir[t.pc .. t.pc+re.ir[t.pc].data+IRL!(IR.LookbehindStart)], s.loopBack(index));
                 matcher.re.ngroup = re.ir[t.pc+2].raw - re.ir[t.pc+1].raw;
                 matcher.backrefed = backrefed.empty ? t.matches : backrefed;
                 //backMatch
@@ -5431,7 +5358,7 @@ enum OneShot { Fwd, Bwd };
                 t.pc = re.ir[t.pc].indexOfPair(t.pc);
                 assert(re.ir[t.pc].code == IR.LookaheadStart || re.ir[t.pc].code == IR.NeglookaheadStart);
                 uint ms = re.ir[t.pc+1].raw, me = re.ir[t.pc+2].raw;
-                finish(t, matches.ptr[ms..me]);
+                finish(t, matches.ptr[ms .. me]);
                 recycle(t);
                 //cut off low priority threads
                 recycle(clist);
@@ -5581,9 +5508,9 @@ enum OneShot { Fwd, Bwd };
             debug(std_regex_matcher)
             {
                 static if(direction == OneShot.Fwd)
-                    writefln("-- Threaded matching (forward) threads at  %s",  s[index..s.lastIndex]);
+                    writefln("-- Threaded matching (forward) threads at  %s",  s[index .. s.lastIndex]);
                 else
-                    writefln("-- Threaded matching (backward) threads at  %s", retro(s[index..s.lastIndex]));
+                    writefln("-- Threaded matching (backward) threads at  %s", retro(s[index .. s.lastIndex]));
             }
             if(startPc!=RestartPc)
             {
@@ -5729,7 +5656,7 @@ enum OneShot { Fwd, Bwd };
                 }
                 break;
             case IR.Eol:
-                debug(std_regex_matcher) writefln("EOL (front 0x%x) %s", front, s[index..s.lastIndex]);
+                debug(std_regex_matcher) writefln("EOL (front 0x%x) %s", front, s[index .. s.lastIndex]);
                 dchar back;
                 DataIndex bi;
                 //no matching inside \r\n
@@ -5901,9 +5828,9 @@ enum OneShot { Fwd, Bwd };
                 {
                     size_t idx = source[n].begin + t.uopCounter;
                     size_t end = source[n].end;
-                    if(s[idx..end].front == front)//could be a BUG in backward matching
+                    if(s[idx .. end].front == front)//could be a BUG in backward matching
                     {
-                        t.uopCounter += std.utf.stride(s[idx..end], 0);
+                        t.uopCounter += std.utf.stride(s[idx .. end], 0);
                         if(t.uopCounter + source[n].begin == source[n].end)
                         {//last codepoint
                             t.pc--;
@@ -6077,7 +6004,7 @@ enum OneShot { Fwd, Bwd };
     void prepareFreeList(size_t size, ref void[] memory)
     {
         void[] mem = memory[0 .. threadSize*size];
-        memory = memory[threadSize*size..$];
+        memory = memory[threadSize*size .. $];
         freelist = cast(Thread!DataIndex*)&mem[0];
         size_t i;
         for(i = threadSize; i < threadSize*size; i += threadSize)
@@ -6109,7 +6036,7 @@ enum OneShot { Fwd, Bwd };
     Thread!DataIndex* fork(Thread!DataIndex* master, uint pc, uint counter)
     {
         auto t = allocate();
-        t.matches.ptr[0..re.ngroup] = master.matches.ptr[0..re.ngroup];
+        t.matches.ptr[0 .. re.ngroup] = master.matches.ptr[0 .. re.ngroup];
         t.pc = pc;
         t.counter = counter;
         t.uopCounter = 0;
@@ -6120,7 +6047,7 @@ enum OneShot { Fwd, Bwd };
     Thread!DataIndex* createStart(DataIndex index, uint pc = 0)
     {
         auto t = allocate();
-        t.matches.ptr[0..re.ngroup] = (Group!DataIndex).init;
+        t.matches.ptr[0 .. re.ngroup] = (Group!DataIndex).init;
         t.matches[0].begin = index;
         t.pc = pc;
         t.counter = 0;
@@ -6189,7 +6116,7 @@ private:
 
     @property Group!DataIndex[] matches()
     {
-       return ngroup > smallString ? big_matches : small_matches[0..ngroup];
+       return ngroup > smallString ? big_matches : small_matches[0 .. ngroup];
     }
 
     void newMatches()
@@ -6254,7 +6181,7 @@ public:
     {
         assert(f+i < b,text("requested submatch number ", i," is out of range"));
         assert(matches[f+i].begin <= matches[f+i].end, text("wrong match: ", matches[f+i].begin, "..", matches[f+i].end));
-        return _input[matches[f+i].begin..matches[f+i].end];
+        return _input[matches[f+i].begin .. matches[f+i].end];
     }
 
     /++
@@ -6278,7 +6205,7 @@ public:
         if(isSomeString!String)
     {
         size_t index = lookupNamedGroup(names, i);
-        return _input[matches[index].begin..matches[index].end];
+        return _input[matches[index].begin .. matches[index].end];
     }
 
     ///Number of matches in this object.
@@ -6330,10 +6257,10 @@ private:
     {
         _input = input;
         immutable size = EngineType.initialMemory(prog)+size_t.sizeof;
-        _memory = (enforce(malloc(size))[0..size]);
+        _memory = (enforce(malloc(size))[0 .. size]);
         scope(failure) free(_memory.ptr);
         *cast(size_t*)_memory.ptr = 1;
-        _engine = EngineType(prog, Input!Char(input), _memory[size_t.sizeof..$]);
+        _engine = EngineType(prog, Input!Char(input), _memory[size_t.sizeof .. $]);
         _captures = Captures!(R,EngineType.DataIndex)(this);
         _captures._empty = !_engine.match(_captures.matches);
         debug(std_regex_allocation) writefln("RefCount (ctor): %x %d", _memory.ptr, counter);
@@ -6404,8 +6331,8 @@ public:
         {//do cow magic first
             counter--;//we abandon this reference
             immutable size = EngineType.initialMemory(_engine.re)+size_t.sizeof;
-            _memory = (enforce(malloc(size))[0..size]);
-            _engine = _engine.dupTo(_memory[size_t.sizeof..size]);
+            _memory = (enforce(malloc(size))[0 .. size]);
+            _engine = _engine.dupTo(_memory[size_t.sizeof .. size]);
             counter = 1;//points to new chunk
         }
         //previous _captures can have escaped references from Capture object
@@ -6694,10 +6621,10 @@ L_Replace_Loop:
             }
             else if(format[0] == '{')
             {
-                auto x = find!(a => !ascii.isAlpha(a))(format[1..$]);
+                auto x = find!(a => !ascii.isAlpha(a))(format[1 .. $]);
                 enforce(!x.empty && x[0] == '}', "no matching '}' in replacement format");
                 auto name = format[1 .. $ - x.length];
-                format = x[1..$];
+                format = x[1 .. $];
                 enforce(!name.empty, "invalid name in ${...} replacement format");
                 sink.put(captures[name]);
             }
