@@ -390,7 +390,7 @@ struct Bytecode
     {
         assert(data < (1 << 22) && code < 256 );
         assert(seq >= 2 && seq < maxSequence);
-        raw = code << 24 | (seq - 2)<<22 | data;
+        raw = code << 24 | (seq - 2) << 22 | data;
     }
 
     //store raw data
@@ -828,7 +828,7 @@ struct Parser(R)
     {
         if(n / 32 >= backrefed.length)
             backrefed.length = n / 32 + 1;
-        backrefed[n / 32] |= 1<<(n & 31);
+        backrefed[n / 32] |= 1 << (n & 31);
     }
 
     @property dchar current(){ return _current; }
@@ -1979,7 +1979,7 @@ private:
     {
         if(n / 32 >= backrefed.length)
             return 0;
-        return backrefed[n / 32] & (1<<(n & 31));
+        return backrefed[n / 32] & (1 << (n & 31));
     }
 
     //check if searching is not needed
@@ -2489,7 +2489,7 @@ private:
                 Char[dchar.sizeof / Char.sizeof] buf;
                 uint tmask = mask;
                 size_t total = encode(buf, ch);
-                for(size_t i = 0; i < total; i++, tmask<<=1)
+                for(size_t i = 0; i < total; i++, tmask <<= 1)
                 {
                     static if(charSize == 1)
                         setBits(buf[i], tmask);
@@ -2497,7 +2497,7 @@ private:
                     {
                         setBits(buf[i] & 0xFF, tmask);
                         tmask <<= 1;
-                        setBits(buf[i]>>8, tmask);
+                        setBits(buf[i] >> 8, tmask);
                     }
                 }
             }
@@ -2765,7 +2765,7 @@ public:
         assert(!empty);
         auto p = cast(const(ubyte)*)(haystack.ptr + idx);
         uint state = uint.max;
-        uint limit = 1u<<(n_length - 1u);
+        uint limit = 1u << (n_length - 1u);
         debug(std_regex_search) writefln("Limit: %32b",limit);
         if(fChar != uint.max)
         {
@@ -2790,8 +2790,8 @@ public:
                     assert((cast(size_t)p & (Char.sizeof - 1)) == orginalAlign);
                     static if(charSize == 3)
                     {
-                        state = (state<<1) | table[p[1]];
-                        state = (state<<1) | table[p[2]];
+                        state = (state << 1) | table[p[1]];
+                        state = (state << 1) | table[p[2]];
                         p += 4;
                     }
                     else
@@ -2806,14 +2806,14 @@ public:
                  //use the usual shift-or cycle
                     static if(charSize == 3)
                     {
-                        state = (state<<1) | table[p[0]];
-                        state = (state<<1) | table[p[1]];
-                        state = (state<<1) | table[p[2]];
+                        state = (state << 1) | table[p[0]];
+                        state = (state << 1) | table[p[1]];
+                        state = (state << 1) | table[p[2]];
                         p += 4;
                     }
                     else
                     {
-                        state = (state<<1) | table[p[0]];
+                        state = (state << 1) | table[p[0]];
                         p++;
                     }
                     if(!(state & limit))
@@ -2831,9 +2831,9 @@ public:
                 const(ubyte)* end = cast(ubyte*)(haystack.ptr + haystack.length);
                 while(p != end)
                 {
-                    state = (state<<1) | table[p[0]];
-                    state = (state<<1) | table[p[1]];
-                    state = (state<<1) | table[p[2]];
+                    state = (state << 1) | table[p[0]];
+                    state = (state << 1) | table[p[1]];
+                    state = (state << 1) | table[p[2]];
                     p += 4;
                     if(!(state & limit))//division rounds down for dchar
                         return (p - cast(ubyte*)haystack.ptr) / Char.sizeof
@@ -2846,17 +2846,17 @@ public:
                 size_t i  = 0;
                 if(len & 1)
                 {
-                    state = (state<<1) | table[p[i++]];
+                    state = (state << 1) | table[p[i++]];
                     if(!(state & limit))
                         return idx + i / Char.sizeof - length;
                 }
                 while(i < len)
                 {
-                    state = (state<<1) | table[p[i++]];
+                    state = (state << 1) | table[p[i++]];
                     if(!(state & limit))
                         return idx + i / Char.sizeof
                             -length;
-                    state = (state<<1) | table[p[i++]];
+                    state = (state << 1) | table[p[i++]];
                     if(!(state & limit))
                         return idx + i/Char.sizeof
                             -length;
@@ -3054,7 +3054,7 @@ template BacktrackingMatcher(bool CTregex)
         }
         static assert(State.sizeof % size_t.sizeof == 0);
         enum stateSize = State.sizeof / size_t.sizeof;
-        enum initialStack = 1<<16;
+        enum initialStack = 1 << 16;
         alias const(Char)[] String;
         static if(CTregex)
             alias StaticRegex!Char RegEx;
