@@ -1430,11 +1430,6 @@ struct Parser(R)
             reverseBytecode(ir[fix + IRL!(IR.LookbehindStart) .. $]);            
     }
         put(ir[fix].paired);
-        debug(fred_parser)
-        {
-            //writeln("After reverse:");
-            printBytecode(ir[fix..$]);
-        }       
     }
 
     //CodepointSet operations relatively in order of priority
