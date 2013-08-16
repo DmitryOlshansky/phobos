@@ -3178,11 +3178,11 @@ template BacktrackingMatcher(bool CTregex)
         enum stateSize = State.sizeof / size_t.sizeof;
         enum initialStack = 1<<16;
         alias const(Char)[] String;
-        static if(CTregex)
-            alias StaticRegex!Char RegEx;
-        else
             alias Regex!Char RegEx;
+        alias MatchFn = bool function (ref BacktrackingMatcher!(Char, Stream));        
         RegEx re;      //regex program
+        static if(CTregex)
+            MatchFn nativeFn; //native code for that program
         //Stream state
         Stream s;
         DataIndex index;
@@ -3271,19 +3271,34 @@ template BacktrackingMatcher(bool CTregex)
             return tmp;
         }
 
-        //
+        this(ref RegEx program, Stream stream, void[] memBlock, dchar ch, DataIndex idx)
+        {
+            initialize(program, stream, memBlock);
+            front = ch;
+            index = idx;
+        }
+
         this(ref RegEx program, Stream stream, void[] memBlock)
         {
             initialize(program, stream, memBlock);
             next();
         }
 
-        //
-        this(ref RegEx program, Stream stream, void[] memBlock, dchar ch, DataIndex idx)
+        auto fwdMatcher(ref BacktrackingMatcher matcher, void[] memBlock)
         {
-            initialize(program, stream, memBlock);
-            front = ch;
-            index = idx;
+            alias BackMatcherTempl = .BacktrackingMatcher!(CTregex);
+            alias BackMatcher = BackMatcherTempl!(Char, Stream);
+            auto fwdMatcher = BackMatcher(matcher.re, s, memBlock, front, index);
+            return fwdMatcher;
+        }
+
+        auto bwdMatcher(ref BacktrackingMatcher matcher, void[] memBlock)
+        {
+            alias BackMatcherTempl = .BacktrackingMatcher!(CTregex);
+            alias BackMatcher = BackMatcherTempl!(Char, typeof(s.loopBack(index)));
+            auto fwdMatcher =
+                BackMatcher(matcher.re, s.loopBack(index), memBlock);
+            return fwdMatcher;
         }
 
         //
@@ -3358,14 +3373,11 @@ template BacktrackingMatcher(bool CTregex)
         +/
         bool matchImpl()
         {
-            static if(CTregex && is(typeof(re.nativeFn(this))))
+            static if(CTregex && is(typeof(nativeFn(this))))
             {
-                if(re.nativeFn)
-                {
                     debug(std_regex_ctr) writeln("using C-T matcher");
-                    return re.nativeFn(this);
+                return nativeFn(this);
                 }
-            }
             else
             {
                 pc = 0;
@@ -3631,13 +3643,11 @@ template BacktrackingMatcher(bool CTregex)
                         scope(exit) free(mem.ptr);
                         static if(Stream.isLoopback)
                         {
-                            alias Matcher = BacktrackingMatcher!(Char, typeof(s.loopBack(index)));
-                            auto matcher = Matcher(re, s.loopBack(index), mem);
+                            auto matcher = bwdMatcher(this, mem);
                         }
                         else
                         {
-                            alias Matcher = BacktrackingMatcher!(Char, Stream);
-                            auto matcher = Matcher(re, s, mem, front, index);
+                            auto matcher = fwdMatcher(this, mem);
                         }
                         matcher.matches = matches[ms .. me];
                         matcher.backrefed = backrefed.empty ? matches : backrefed;
@@ -4008,44 +4018,48 @@ struct CtContext
             break;
         case IR.LookaheadStart:
         case IR.NeglookaheadStart:
+        case IR.LookbehindStart: 
+        case IR.NeglookbehindStart:
             uint len = ir[0].data;
+            bool behind = ir[0].code == IR.LookbehindStart || ir[0].code == IR.NeglookbehindStart;
+            bool negative = ir[0].code == IR.NeglookaheadStart || ir[0].code == IR.NeglookbehindStart;
+            string mType = behind ? "typeof(backMatcher(matcher, [])" : "typeof(fwdMatcher(matcher, []))";
+            string create = behind ? "backMatcher(matcher, mem)" : "fwdMatcher(matcher, mem)";
             uint start = IRL!(IR.LookbehindStart);
             uint end = IRL!(IR.LookbehindStart)+len+IRL!(IR.LookaheadEnd);
             CtContext context = lookaround(); //split off new context
             auto slice = ir[start .. end];
             r.code ~= ctSub(`
-            case $$: //fake lookahead "atom"
-                    static bool matcher_$$(ref typeof(matcher) matcher) @trusted
+            case $$: //fake lookaround "atom"
+                    static bool matcher_$$(ref $$ matcher) @trusted
                     {
-                        //(neg)lookahead piece start
+                        //(neg)lookaround piece start
                         $$
-                        //(neg)lookahead piece ends
+                        //(neg)lookaround piece ends
                     }
                     auto save = index;
                     auto mem = malloc(initialMemory(re))[0..initialMemory(re)];
                     scope(exit) free(mem.ptr);
-                    auto lookahead = typeof(matcher)(re, s, mem, front, index);
-                    lookahead.matches = matches[$$..$$];
-                    lookahead.backrefed = backrefed.empty ? matches : backrefed;
-                    lookahead.re.nativeFn = &matcher_$$; //hookup closure's binary code
+                    auto lookaround = $$;
+                    lookaround.matches = matches[$$..$$];
+                    lookaround.backrefed = backrefed.empty ? matches : backrefed;
+                    lookaround.nativeFn = &matcher_$$; //hookup closure's binary code
                     bool match = $$;
                     s.reset(save);
                     next();
                     if(match)
                         $$
                     else
-                        $$`, addr, addr, 
+                        $$`, addr, addr, mType,
                         context.ctGenRegEx(slice),
+                        create,
                         ir[1].raw, ir[2].raw, //start - end of matches slice
                         addr, 
-                        ir[0].code == IR.LookaheadStart 
-                        ? "lookahead.matchImpl()" : "!lookahead.matchImpl()", 
+                        negative ? "!lookaround.matchImpl()" : "lookaround.matchImpl()", 
                         nextInstr, bailOut);
             ir = ir[end .. $];
             r.addr = addr + 1;
             break;
-        case IR.LookbehindStart: case IR.NeglookbehindStart:
-            assert(false, "Lookbehind is not supported yet");
         case IR.LookaheadEnd: case IR.NeglookaheadEnd:
         case IR.LookbehindEnd: case IR.NeglookbehindEnd:
             ir = ir[IRL!(IR.LookaheadEnd) .. $];
@@ -5643,6 +5657,8 @@ private:
         scope(failure) free(_memory.ptr);
         *cast(size_t*)_memory.ptr = 1;
         _engine = EngineType(prog, Input!Char(input), _memory[size_t.sizeof..$]);
+        static if(is(RegEx == StaticRegex!(BasicElementOf!R)))
+            _engine.nativeFn = prog.nativeFn;
         _captures = Captures!(R,EngineType.DataIndex)(this);
         _captures._empty = !_engine.match(_captures.matches);
         debug(std_regex_allocation) writefln("RefCount (ctor): %x %d", _memory.ptr, counter);
@@ -6946,7 +6962,7 @@ unittest
             alias Tests = Sequence!(185, 220);
         }
         else
-            alias Tests = TypeTuple!(Sequence!(0, 70), Sequence!(225, 232));
+            alias Tests = TypeTuple!(Sequence!(0, 70), Sequence!(225, 238));
         foreach(a, v; Tests)
         {
             enum tvd = tv[v];
