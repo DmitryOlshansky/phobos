@@ -5775,6 +5775,8 @@ private @trusted auto matchOnce(alias Engine, RegEx, R)(R input, RegEx re)
     scope(exit) free(memory.ptr);
     auto captures = Captures!(R, EngineType.DataIndex)(input, re.ngroup, re.dict);
     auto engine = EngineType(re, Input!Char(input), memory);    
+    static if(is(RegEx == StaticRegex!(BasicElementOf!R)))
+        engine.nativeFn = re.nativeFn;
     captures._empty = !engine.match(captures.matches);
     return captures;
 }
@@ -5997,6 +5999,7 @@ public auto matchAll(R, RegEx)(R input, RegEx re)
         assert(cmf.equal(["34/56", "34", "56"].map!(to!String)()));
         assert(cmf["Quot"] == "34".to!String());
         assert(cmf["Denom"] == "56".to!String());
+
         auto cmAll = matchAll(str, ctPat);
         assert(cmAll.front.equal(cmf));
         cmAll.popFront();
