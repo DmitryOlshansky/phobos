@@ -4026,15 +4026,22 @@ struct CtContext
             uint len = ir[0].data;
             bool behind = ir[0].code == IR.LookbehindStart || ir[0].code == IR.NeglookbehindStart;
             bool negative = ir[0].code == IR.NeglookaheadStart || ir[0].code == IR.NeglookbehindStart;
-            string mType = behind ? "typeof(bwdMatcher(matcher, []))" : "typeof(fwdMatcher(matcher, []))";
-            string create = behind ? "bwdMatcher(matcher, mem)" : "fwdMatcher(matcher, mem)";
+            //TODO: should use Stream.isLoopback (or just keep track of direction)
+            string fwdType = "typeof(fwdMatcher(matcher, []))";
+            string bwdType = "typeof(bwdMatcher(matcher, []))"; 
+            string fwdCreate = "fwdMatcher(matcher, mem)";
+            string bwdCreate = "bwdMatcher(matcher, mem)";
             uint start = IRL!(IR.LookbehindStart);
             uint end = IRL!(IR.LookbehindStart)+len+IRL!(IR.LookaheadEnd);
             CtContext context = lookaround(); //split off new context
             auto slice = ir[start .. end];
             r.code ~= ctSub(`
             case $$: //fake lookaround "atom"
-                    static bool matcher_$$(ref $$ matcher) @trusted
+                    static if(typeof(matcher.s).isLoopback)
+                        alias Lookaround = $$;
+                    else
+                        alias Lookaround = $$;
+                    static bool matcher_$$(ref Lookaround matcher) @trusted
                     {
                         //(neg)lookaround piece start
                         $$
@@ -4043,7 +4050,10 @@ struct CtContext
                     auto save = index;
                     auto mem = malloc(initialMemory(re))[0..initialMemory(re)];
                     scope(exit) free(mem.ptr);
+                    static if(typeof(matcher.s).isLoopback)
                     auto lookaround = $$;
+                    else
+                        auto lookaround = $$;
                     lookaround.matches = matches[$$..$$];
                     lookaround.backrefed = backrefed.empty ? matches : backrefed;
                     lookaround.nativeFn = &matcher_$$; //hookup closure's binary code
@@ -4053,9 +4063,10 @@ struct CtContext
                     if(match)
                         $$
                     else
-                        $$`, addr, addr, mType,
-                        context.ctGenRegEx(slice),
-                        create,
+                        $$`, addr, 
+                        behind ? fwdType : bwdType, behind ? bwdType : fwdType, 
+                        addr, context.ctGenRegEx(slice),
+                        behind ? fwdCreate : bwdCreate, behind ? bwdCreate : fwdCreate, 
                         ir[1].raw, ir[2].raw, //start - end of matches slice
                         addr, 
                         negative ? "!lookaround.matchImpl()" : "lookaround.matchImpl()", 
