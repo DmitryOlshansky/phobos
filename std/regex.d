@@ -868,26 +868,29 @@ auto memoizeExpr(string expr)()
 //basic stack, just in case it gets used anywhere else then Parser
 @trusted struct Stack(T)
 {
-    Appender!(T[]) stack;  
-    @property bool empty(){ return stack.data.empty; }
-    void push(T item)
-    {
-        stack.put(item);
-    }
-    @property ref T top()
-    {
-        assert(!empty);
-        return stack.data[$-1];
-    }
-    @property size_t length() {  return stack.data.length; }
+    T[] data;
+    @property bool empty(){ return data.empty; }
+
+    @property size_t length(){ return data.length; }
+
+    void push(T val){ data ~= val;  }
+    
     T pop()
     {
         assert(!empty);
-        auto t = stack.data[$-1];
-        stack.shrinkTo(stack.data.length-1);
-        return t;
+        auto val = data[$ - 1];
+        data = data[0 .. $ - 1];
+        if(!__ctfe)
+            data.assumeSafeAppend();
+        return val;
     }
-}
+
+    @property ref T top()
+    {
+        assert(!empty);
+        return data[$ - 1]; 
+    }
+    }
 
 //safety limits
 enum maxGroupNumber = 2^^19;
@@ -1921,7 +1924,7 @@ struct Parser(R)
         case '1': .. case '9':
             uint nref = cast(uint)current - '0';
             uint maxBackref;
-            foreach(v; groupStack.stack.data)
+            foreach(v; groupStack.data)
                 maxBackref += v;
             uint localLimit = maxBackref - groupStack.top;
             enforce(nref < maxBackref, "Backref to unseen group");
@@ -4023,8 +4026,8 @@ struct CtContext
             uint len = ir[0].data;
             bool behind = ir[0].code == IR.LookbehindStart || ir[0].code == IR.NeglookbehindStart;
             bool negative = ir[0].code == IR.NeglookaheadStart || ir[0].code == IR.NeglookbehindStart;
-            string mType = behind ? "typeof(backMatcher(matcher, [])" : "typeof(fwdMatcher(matcher, []))";
-            string create = behind ? "backMatcher(matcher, mem)" : "fwdMatcher(matcher, mem)";
+            string mType = behind ? "typeof(bwdMatcher(matcher, []))" : "typeof(fwdMatcher(matcher, []))";
+            string create = behind ? "bwdMatcher(matcher, mem)" : "fwdMatcher(matcher, mem)";
             uint start = IRL!(IR.LookbehindStart);
             uint end = IRL!(IR.LookbehindStart)+len+IRL!(IR.LookaheadEnd);
             CtContext context = lookaround(); //split off new context
@@ -4700,7 +4703,7 @@ enum OneShot { Fwd, Bwd };
         return m;
     }
 
-    auto backMatcher()(Bytecode[] piece)
+    auto bwdMatcher()(Bytecode[] piece)
     {
         alias BackLooper = typeof(s.loopBack(index));
         auto m = ThompsonMatcher!(Char, BackLooper)(this, piece, s.loopBack(index));
@@ -5158,7 +5161,7 @@ enum OneShot { Fwd, Bwd };
                 static if(Stream.isLoopback)
                     auto matcher = fwdMatcher(re.ir[t.pc .. end]);
                 else
-                    auto matcher = backMatcher(re.ir[t.pc .. end]);
+                    auto matcher = bwdMatcher(re.ir[t.pc .. end]);
                 matcher.re.ngroup = re.ir[t.pc+2].raw - re.ir[t.pc+1].raw;
                 matcher.backrefed = backrefed.empty ? t.matches : backrefed;
                 //backMatch
@@ -5185,7 +5188,7 @@ enum OneShot { Fwd, Bwd };
                 uint end = t.pc+len+IRL!(IR.LookaheadEnd)+IRL!(IR.LookaheadStart);
                 bool positive = re.ir[t.pc].code == IR.LookaheadStart;
                 static if(Stream.isLoopback)
-                    auto matcher = backMatcher(re.ir[t.pc .. end]);
+                    auto matcher = bwdMatcher(re.ir[t.pc .. end]);
                 else
                     auto matcher = fwdMatcher(re.ir[t.pc .. end]);
                 matcher.re.ngroup = me - ms;
@@ -6962,7 +6965,7 @@ unittest
             alias Tests = Sequence!(185, 220);
         }
         else
-            alias Tests = TypeTuple!(Sequence!(0, 70), Sequence!(225, 238));
+            alias Tests = TypeTuple!(Sequence!(0, 70), Sequence!(225, tv.length));
         foreach(a, v; Tests)
         {
             enum tvd = tv[v];
