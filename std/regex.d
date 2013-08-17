@@ -618,17 +618,17 @@ struct Group(DataIndex)
     {
         for(uint pc = start; pc < end; )
         {
-        uint len = code[pc].length;
+            uint len = code[pc].length;
             if(code[pc].code == IR.GotoEndOr)
                 break; //pick next alternation branch
-        if(code[pc].isAtom)
-        {
-            rev[revPc - len .. revPc] = code[pc .. pc + len];
-            revPc -= len;
+            if(code[pc].isAtom)
+            {
+                rev[revPc - len .. revPc] = code[pc .. pc + len];
+                revPc -= len;
                 pc += len;
-        }
-        else if(code[pc].isStart || code[pc].isEnd)
-        {
+            }
+            else if(code[pc].isStart || code[pc].isEnd)
+            {
                 //skip over other embedded lookbehinds they are reversed 
                 if(code[pc].code == IR.LookbehindStart
                     || code[pc].code == IR.NeglookbehindStart)
@@ -640,10 +640,10 @@ struct Group(DataIndex)
                     revPc -= blockLen;
                     continue;
                 }
-            uint second = code[pc].indexOfPair(pc);
-            uint secLen = code[second].length;
-            rev[revPc - secLen .. revPc] = code[second .. second + secLen];
-            revPc -= secLen;
+                uint second = code[pc].indexOfPair(pc);
+                uint secLen = code[second].length;
+                rev[revPc - secLen .. revPc] = code[second .. second + secLen];
+                revPc -= secLen;
                 if(code[pc].code == IR.OrStart)
                 {
                     //we pass len bytes forward, but secLen in reverse
@@ -656,7 +656,7 @@ struct Group(DataIndex)
                         {
                             assert(code[i - 1].code == IR.GotoEndOr);
                             rev[r - 1] = code[i - 1];
-        }
+                        }
                         rev[r] = code[i];
                         auto newStart = i + IRL!(IR.Option);
                         auto newEnd = newStart + code[i].data;
@@ -674,8 +674,8 @@ struct Group(DataIndex)
                     assert(code[pc].code == IR.OrEnd);
                 }
                 else
-        pc += len;
-    }
+                    pc += len;
+            }
         }
         if(stack.empty())
             break;
@@ -890,7 +890,7 @@ auto memoizeExpr(string expr)()
         assert(!empty);
         return data[$ - 1]; 
     }
-    }
+}
 
 //safety limits
 enum maxGroupNumber = 2^^19;
