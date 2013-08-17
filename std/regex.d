@@ -584,7 +584,7 @@ static assert(Bytecode.sizeof == 4);
 @trusted void printBytecode()(in Bytecode[] slice, in NamedGroup[] dict=[])
 {
     import std.stdio;
-    for(size_t pc=0; pc<slice.length; pc += slice[pc].length)
+    for(uint pc=0; pc<slice.length; pc += slice[pc].length)
         writeln("\t", disassemble(slice, pc, dict));
 }
 
@@ -610,10 +610,10 @@ struct Group(DataIndex)
 @trusted void reverseBytecode()(Bytecode[] code)
 {
     Bytecode[] rev = new Bytecode[code.length];
-    uint revPc = rev.length;
+    uint revPc = cast(uint)rev.length;
     Stack!(Tuple!(uint, uint, uint)) stack;
     uint start = 0;
-    uint end = code.length;
+    uint end = cast(uint)code.length;
     for(;;)
     {
         for(uint pc = start; pc < end; )
@@ -4026,7 +4026,6 @@ struct CtContext
             uint len = ir[0].data;
             bool behind = ir[0].code == IR.LookbehindStart || ir[0].code == IR.NeglookbehindStart;
             bool negative = ir[0].code == IR.NeglookaheadStart || ir[0].code == IR.NeglookbehindStart;
-            //TODO: should use Stream.isLoopback (or just keep track of direction)
             string fwdType = "typeof(fwdMatcher(matcher, []))";
             string bwdType = "typeof(bwdMatcher(matcher, []))"; 
             string fwdCreate = "fwdMatcher(matcher, mem)";
@@ -4051,7 +4050,7 @@ struct CtContext
                     auto mem = malloc(initialMemory(re))[0..initialMemory(re)];
                     scope(exit) free(mem.ptr);
                     static if(typeof(matcher.s).isLoopback)
-                    auto lookaround = $$;
+                        auto lookaround = $$;
                     else
                         auto lookaround = $$;
                     lookaround.matches = matches[$$..$$];
