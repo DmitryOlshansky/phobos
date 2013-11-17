@@ -3448,7 +3448,7 @@ private:
     enum lastLevel = Prefix.length-1;
     struct ConstructState
     {
-        uint idx_zeros, idx_ones;
+        size_t idx_zeros, idx_ones;
     }
     // iteration over levels of Trie, each indexes its own level and thus a shortened domain
     size_t[Prefix.length] indices;    
@@ -3510,7 +3510,9 @@ private:
             // page at once loop
             if(state[level].idx_zeros != size_t.max && val == T.init)
             {
-                addValue!(level-1)(state[level].idx_zeros, numVals/pageSize);
+                alias typeof(table.slice!(level-1)[0]) NextIdx;
+                addValue!(level-1)(force!NextIdx(state[level].idx_zeros),
+                    numVals/pageSize);
                 ptr = table.slice!level; //table structure might have changed
                 numVals %= pageSize;
             }
