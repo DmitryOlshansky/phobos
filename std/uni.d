@@ -1301,22 +1301,33 @@ pure nothrow:
         ptr[start+idx] = val;
     }
 
-    auto opSlice(size_t from, size_t to)
+    auto opSlice(size_t from, size_t to)inout
     {
         assert(from <= to);
         assert(to+start <= end);
         return typeof(this)(ptr, start+from, start+to);
     }
 
-    auto opSlice(){ return opSlice(0, length); }
+    auto opSlice()inout { return opSlice(0, length); }
 
-    bool opEquals(T)(auto ref T arr) const
+    bool opEquals(PackedSliceImpl arr)
     {
         if(length != arr.length)
-           return false;
-        for(size_t i=0;i<length; i++)
-            if(this[i] != arr[i])
-                return false;
+            return false;
+        if(start % factor != 0 || arr.start % factor != 0)
+        {
+            return equalS(this[], arr[]);
+        }
+        //fast path
+        auto cnt = length/factor;
+        auto first = ptr.origin + start/factor;
+        auto second = arr.ptr.origin + arr.start/factor;
+        if(first[0..cnt] != second[0..cnt])
+            return false;
+        if(length % factor)
+        {
+            return equalS(this[cnt*factor..$], arr[cnt*factor..$]);
+        }
         return true;
     }
     
@@ -3554,7 +3565,7 @@ private:
         size_t j;
         for(j=0; j<last; j+=pageSize)
         {
-            if(equalS(ptr[j..j+pageSize], slice[0..pageSize]))
+            if(ptr[j..j+pageSize] == slice[0..pageSize])
             {
                 // get index to it, reuse ptr space for the next block
                 next_lvl_index = force!NextIdx(j/pageSize);
