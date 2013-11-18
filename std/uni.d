@@ -850,8 +850,7 @@ struct MultiArray(Types...)
 
     @property auto slice(size_t n)()inout pure nothrow
     {
-        auto ptr = raw_ptr!n;
-        return packedArrayView!(Types[n])(ptr, sz[n]);
+        return packedSlice!(Types[n])(ptr!n, 0, sz[n]);
     }
 
     @property auto ptr(size_t n)()inout pure nothrow
@@ -1104,12 +1103,12 @@ template isBitPackableType(T)
 }
 
 //============================================================================
-template PackedArrayView(T)
+template PackedSlice(T)
     if((is(T dummy == BitPacked!(U, sz), U, size_t sz)
         && isBitPackableType!U) || isBitPackableType!T)
 {
     private enum bits = bitSizeOf!T;
-    alias PackedArrayView = PackedArrayViewImpl!(T, bits > 1 ? ceilPowerOf2(bits) : 1);
+    alias PackedSlice = PackedSliceImpl!(T, bits > 1 ? ceilPowerOf2(bits) : 1);
 }
 
 //unsafe and fast access to a chunk of RAM as if it contains packed values
@@ -1221,72 +1220,34 @@ private:
 // data is packed only by power of two sized packs per word,
 // thus avoiding mul/div overhead at the cost of ultimate packing
 // this construct doesn't own memory, only provides access, see MultiArray for usage
-@trusted struct PackedArrayViewImpl(T, size_t bits)
+@trusted struct PackedSliceImpl(T, size_t bits)
 {
 pure nothrow:
 
-    this(inout(size_t)* origin, size_t items)inout
+    this(inout(PackedPtr!(T)) origin, size_t s, size_t e)inout
     {
-        ptr = inout(PackedPtr!(T))(origin);
-        limit = items;
+        ptr = origin;
+        start = s;
+        end = e;
     }
 
-    bool zeros(size_t s, size_t e)
-    in
+    bool zeros()
     {
-        assert(s <= e);
-    }
-    body
-    {
-        foreach(v; this[s..e])
+        foreach(v; this)
             if(v)
                 return false;
         return true;
-    }   
-
-    T opIndex(size_t idx) inout
-    in
-    {
-        assert(idx < limit);
     }
-    body
-    {
-        return ptr[idx];
-    }
-
+    
     static if(isBitPacked!T) // lack of user-defined implicit conversion
     {
-        void opIndexAssign(T val, size_t idx)
+        void opAssign(T val)
         {
-            return opIndexAssign(cast(TypeOfBitPacked!T)val, idx);
+            opAssign(cast(TypeOfBitPacked!T)val);
         }
     }
 
-    void opIndexAssign(TypeOfBitPacked!T val, size_t idx)
-    in
-    {
-        assert(idx < limit);
-    }
-    body
-    {
-        ptr[idx] = val;
-    }
-
-    static if(isBitPacked!T) // lack of user-defined implicit conversions
-    {
-        void opSliceAssign(T val, size_t start, size_t end)
-        {
-            opSliceAssign(cast(TypeOfBitPacked!T)val, start, end);
-        }
-    }
-
-    void opSliceAssign(TypeOfBitPacked!T val, size_t start, size_t end)
-    in
-    {
-        assert(start <= end);
-        assert(end <= limit);
-    }
-    body
+    void opAssign(TypeOfBitPacked!T val)
     {
         // rounded to factor granularity
         size_t pad_start = (start+factor-1)/factor*factor;// rounded up
@@ -1301,7 +1262,7 @@ pure nothrow:
         size_t i;
         for(i=start; i<pad_start; i++)
             ptr[i] = val;
-        // all in between is x*factor elements
+        // all in between is multipe of factor elements
         if(pad_start != pad_end)
         {
             size_t repval = replicateBits!(factor, bits)(val);
@@ -1312,9 +1273,39 @@ pure nothrow:
             ptr[i] = val;
     }
 
+    T opIndex(size_t idx) inout
+    in
+    {
+        assert(start+idx < end);
+    }
+    body
+    {
+        return ptr[start+idx];
+    }
+
+    static if(isBitPacked!T) // lack of user-defined implicit conversion
+    {
+        void opIndexAssign(T val, size_t idx)
+        {
+            return opIndexAssign(cast(TypeOfBitPacked!T)val, idx);
+        }
+    }
+
+    void opIndexAssign(TypeOfBitPacked!T val, size_t idx)
+    in
+    {
+        assert(start+idx < end);
+    }
+    body
+    {
+        ptr[start+idx] = val;
+    }
+
     auto opSlice(size_t from, size_t to)
     {
-        return sliceOverIndexed(from, to, &this);
+        assert(from <= to);
+        assert(to+start <= end);
+        return typeof(this)(ptr, start+from, start+to);
     }
 
     auto opSlice(){ return opSlice(0, length); }
@@ -1328,16 +1319,22 @@ pure nothrow:
                 return false;
         return true;
     }
-
-    @property size_t length()const{ return limit; }
+    
+    @property bool empty(){ return start == end; }
+    @property T front(){ return ptr[start]; }
+    void popFront(){ start++; }
+    @property T back(){ return ptr[end-1]; }
+    void popBack(){ end--; }
+    auto save(){ return this; }
+    @property size_t length()const{ return end-start; }
+    alias opDollar = length;
 
 private:
     // factor - number of elements in one machine word
     enum factor = size_t.sizeof*8/bits;
     PackedPtr!(T) ptr;
-    size_t limit;
+    size_t start, end;
 }
-
 
 private struct SliceOverIndexed(T)
 {
@@ -1471,9 +1468,10 @@ unittest
     assert(nullSlice.empty);
 }
 
-private auto packedArrayView(T)(inout(size_t)* ptr, size_t items) @trusted pure nothrow
+@trusted pure nothrow
+private auto packedSlice(T)(inout(PackedPtr!T) ptr, size_t start, size_t end)
 {
-    return inout(PackedArrayView!T)(ptr, items);
+    return inout(PackedSlice!T)(ptr, start, end);
 }
 
 
@@ -3578,7 +3576,7 @@ private:
         {
     L_allocate_page:
             next_lvl_index = force!NextIdx(idx!level/pageSize - 1);
-            if(state[level].idx_zeros == size_t.max && ptr.zeros(j, j+pageSize))
+            if(state[level].idx_zeros == size_t.max && ptr[j..j+pageSize].zeros())
             {                
                 state[level].idx_zeros = next_lvl_index;
             }
