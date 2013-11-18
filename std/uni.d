@@ -1262,7 +1262,7 @@ pure nothrow:
         size_t i;
         for(i=start; i<pad_start; i++)
             ptr[i] = val;
-        // all in between is multipe of factor elements
+        // all in between is multiple of factor elements
         if(pad_start != pad_end)
         {
             size_t repval = replicateBits!(factor, bits)(val);
@@ -1545,6 +1545,8 @@ size_t switchUniformLowerBound(alias pred, Range, T)(Range range, T needle)
     if(is(T : ElementType!Range))
 {
     assert(isPowerOf2(range.length));
+    if(!range.length)
+        return 0;
     size_t idx = 0, m = range.length/2;
     enum max = 1<<10;
     while(m >= max)
