@@ -2392,9 +2392,14 @@ int quickTestFwd(RegEx)(uint pc, dchar front, const ref RegEx re)
                 case IR.CodepointSet:
                 case IR.Trie:
                     auto set = re.charsets[re.ir[pc].data];
-                    auto x = rand(set.ivals.length/2);
-                    auto y = rand(set.ivals[x*2+1] - set.ivals[2*x]);
-                    formattedWrite(app, "%s", cast(dchar)(set.ivals[2*x]+y));
+                    dchar r;
+                    do
+                    {
+                        auto x = rand(set.ivals.length/2);
+                        auto y = rand(set.ivals[x*2+1] - set.ivals[2*x]);
+                        r = cast(dchar)(set.ivals[2*x]+y);
+                    }while(!isValidDchar(r));
+                    formattedWrite(app, "%s", r);
                     pc += IRL!(IR.CodepointSet);
                     break;
                 case IR.Any:
@@ -2884,7 +2889,7 @@ public:
         uint state = uint.max;
         uint limit = 1u<<(n_length - 1u);
         debug(std_regex_search) writefln("Limit: %32b",limit);
-        if(fChar != uint.max)
+        /*if(fChar != uint.max)
         {
             const(ubyte)* end = cast(ubyte*)(haystack.ptr + haystack.length);
             const orginalAlign = cast(size_t)p & (Char.sizeof-1);
@@ -2940,7 +2945,7 @@ public:
                 debug(std_regex_search) writefln("State: %32b", state);
             }
         }
-        else
+        else*/
         {
             //normal path, partially unrolled for char/wchar
             static if(charSize == 3)
