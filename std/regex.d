@@ -2395,8 +2395,8 @@ int quickTestFwd(RegEx)(uint pc, dchar front, const ref RegEx re)
                     dchar r;
                     do
                     {
-                        auto x = rand(set.ivals.length/2);
-                        auto y = rand(set.ivals[x*2+1] - set.ivals[2*x]);
+                        auto x = rand(cast(uint)set.ivals.length/2);
+                        auto y = rand(cast(uint)set.ivals[x*2+1] - set.ivals[2*x]);
                         r = cast(dchar)(set.ivals[2*x]+y);
                     }while(!isValidDchar(r));
                     formattedWrite(app, "%s", r);
@@ -2484,7 +2484,7 @@ int quickTestFwd(RegEx)(uint pc, dchar front, const ref RegEx re)
                         pc += IRL!(IR.InfiniteEnd);
                         break;
                     }
-                    dataLenOld = app.data.length;
+                    dataLenOld = cast(uint)app.data.length;
                     if(app.data.length < limit && rand(3) > 0)
                         pc = pc - len;
                     else
