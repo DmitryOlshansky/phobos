@@ -4425,10 +4425,10 @@ struct MatchPair
 @safe pure nothrow:
     //can't use Tuple due to forward reference bug, see also CodepointInterval
     ///Result of test.
-    @property bool result()(){ return (value & 0x1); }
+    @property bool result()(){ return value & 0x1; }
     ///Tested $(CODEPOINT) length.
     @property uint length()(){ return value>>1; }
-    this(bool m, uint len)
+    this()(bool m, uint len)
     {
         value = m | (len<<1);
     }
@@ -4517,10 +4517,10 @@ public enum isUtfMatcher(M, C) = __traits(compiles, (){
     C[] s;
     auto d = s.decoder;
     M m;
-    static assert(is(typeof(m(d)) == MatchPair));
+ //   static assert(is(typeof(m(d)) == MatchPair));
     static assert(is(typeof(m.ascii(d)) == MatchPair));
     static assert(is(typeof(m.uni(d)) == MatchPair));
-    static assert(is(typeof(m(s)) == MatchPair));
+//    static assert(is(typeof(m(s)) == MatchPair));
     static assert(is(typeof(m.ascii(s)) == MatchPair));
     static assert(is(typeof(m.uni(s)) == MatchPair));
 });
@@ -4570,7 +4570,6 @@ template Utf8Matcher()
 
     char truncate()(char ch) pure @safe
     {
-        assert((ch & 0b1100_0000) == 0x80);
         ch -= 0x80;
         return ch < 0x40 ? ch : (badEncoding(), cast(char)0);
     }
@@ -4608,10 +4607,11 @@ template Utf8Matcher()
         string code;
         foreach(size; TypeTuple!(2, 3, 4))
             code ~= format(q{
-                (ch & ~leadMask!%d) == encMask!(%d)
-                    ? lookup!(%d)(inp) :
+                if ((ch & ~leadMask!%d) == encMask!(%d))
+                    return lookup!(%d)(inp);
+                else
             }, size, size, size);
-        code ~= "MatchPair(false, 4)";
+        code ~= "{ badEncoding(); assert(0); }";
         return code;
     }
 
@@ -4634,7 +4634,10 @@ template Utf8Matcher()
         {
             assert(!inp.empty);
             auto ch = inp[0];
-            return ch < 0x80 ? MatchPair(tab!1[ch], 1) : mixin(dispatch);
+            if (ch < 0x80)
+                return MatchPair(tab!1[ch], 1);
+            else
+                mixin(dispatch);
         }
 
         public MatchPair ascii(Range)(Range inp) const pure @trusted
@@ -4653,7 +4656,7 @@ template Utf8Matcher()
         {
             assert(!inp.empty);
             auto ch = inp[0];
-            return mixin(dispatch);
+            mixin(dispatch);
         }
 
         MatchPair lookup(int size, Range)(Range inp) const pure @trusted
@@ -4669,6 +4672,28 @@ template Utf8Matcher()
             foreach(i; staticIota!(1, size))
             {
                 needle[i] = truncate(inp[i]);
+            }
+            //overlong encoding checks
+            static if(size == 2)
+            {
+                //0x80-0x7FF
+                //got 6 bits in needle[1], must use at least 8 bits
+                //must use at least 2 bits in needle[1]
+                if(needle[0] < 2) badEncoding();
+            }
+            else static if(size == 3)
+            {
+                //0x800-0xFFFF
+                //got 6 bits in needle[2], must use at least 12bits
+                //must use 6 bits in needle[1] or anything in needle[0]
+                if(needle[0] == 0 && needle[1] < 0x20) badEncoding();
+            }
+            else static if(size == 4)
+            {
+                //0x800-0xFFFF
+                //got 2x6=12 bits in needle[2..3] must use at least 17bits
+                //must use 5 bits (or above) in needle[1] or anything in needle[0]
+                if(needle[0] == 0 && needle[1] < 0x10) badEncoding();
             }
             return MatchPair(tab!size[needle], size);
         }
@@ -4763,6 +4788,8 @@ template Utf16Matcher()
             //not a high surrogate
             if(x > 0x3FF)
             {
+                //low surrogate
+                if(x <= 0x7FF) badEncoding();
                 auto ch = inp[0];
                 return MatchPair(bmp[ch], cast(ubyte)1);
             }
@@ -5009,6 +5036,35 @@ unittest
     foreach(msg; fails16){
         assert(collectException((){
             utf16(msg.map!(x => cast(wchar)x));
+        }()));
+    }
+}
+
+// cover decode fail cases of Matcher
+unittest
+{
+    import std.string : format;
+    auto utf16 = utfMatcher!wchar(unicode.L);
+    auto utf8 = utfMatcher!char(unicode.L);
+    //decode failure cases UTF-8
+    alias fails8 = TypeTuple!("\xC1", "\x80\x00","\xC0\x00", "\xCF\x79",
+        "\xFF\x00\0x00\0x00\x00", "\xC0\0x80\0x80\x80", "\x80\0x00\0x00\x00",
+        "\xCF\x00\0x00\0x00\x00");
+    foreach(msg; fails8){
+        assert(collectException((){
+            auto s = msg;
+            import std.utf;
+            size_t idx = 0;
+            //decode(s, idx);
+            utf8.test(s);
+        }()), format("%( %2x %)", cast(ubyte[])msg));
+    }
+    //decode failure cases UTF-16
+    alias fails16 = TypeTuple!([0xD811], [0xDC02]);
+    foreach(msg; fails16){
+        assert(collectException((){
+            auto s = msg.map!(x => cast(wchar)x);
+            utf16.test(s);
         }()));
     }
 }
