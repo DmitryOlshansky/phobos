@@ -4823,7 +4823,7 @@ public auto utfMatcher(Char, Set)(Set set) @trusted
     $(P $(D test). The range is left unaffected regardless
     of the result of test.)
 */
-bool match(Matcher, Range)(Matcher m, ref Range str) pure @trusted
+public bool match(Matcher, Range)(auto ref Matcher m, ref Range str) pure @trusted
     if(isUtfMatcher!(Matcher, ElementEncodingType!Range))
 {
     auto r = m(str);
@@ -4833,7 +4833,7 @@ bool match(Matcher, Range)(Matcher m, ref Range str) pure @trusted
 }
 
 ///ditto
-bool skip(Matcher, Range)(Matcher m, ref Range str) pure @trusted
+public bool skip(Matcher, Range)(auto ref Matcher m, ref Range str) pure @trusted
     if(isUtfMatcher!(Matcher, ElementEncodingType!Range))
 {
     auto r = m(str);
@@ -4842,7 +4842,7 @@ bool skip(Matcher, Range)(Matcher m, ref Range str) pure @trusted
 }
 
 ///ditto
-bool test(Matcher, Range)(Matcher m, ref Range str) pure @trusted
+public bool test(Matcher, Range)(auto ref Matcher m, ref Range str) pure @trusted
     if(isUtfMatcher!(Matcher, ElementEncodingType!Range))
 {
     return m(str).result;
