@@ -4422,11 +4422,17 @@ struct clampIdx(size_t idx, size_t bits)
 */
 struct MatchPair
 {
+@safe pure nothrow:
     //can't use Tuple due to forward reference bug, see also CodepointInterval
     ///Result of test.
-    bool result;
+    @property bool result()(){ return (value & 0x1); }
     ///Tested $(CODEPOINT) length.
-    ubyte length;
+    @property uint length()(){ return value>>1; }
+    this(bool m, uint len)
+    {
+        value = m | (len<<1);
+    }
+    uint value;
 }
 
 /**
