@@ -635,9 +635,11 @@ struct TextFile(BufferT)
         // set the width of the current mode
         final switch(_mode)
         {
+        case Mode.LockedOutput:
         case Mode.Output:
             _outbuf.width = w;
             break;
+        case Mode.LockedInput:
         case Mode.Input:
             _inbuf.width = w;
             break;
@@ -649,9 +651,11 @@ struct TextFile(BufferT)
         // set the width of the current mode
         final switch(_mode)
         {
+        case Mode.LockedOutput:
         case Mode.Output:
             _outbuf.outputByteOrder = bo;
             break;
+        case Mode.LockedInput:
         case Mode.Input:
             _inbuf.inputByteOrder = bo;
             break;
@@ -671,9 +675,9 @@ struct TextFile(BufferT)
     {
         if(m != _mode)
         {
-            final switch(_mode)
+            final switch(_mode) with(Mode)
             {
-            case Mode.Output:
+            case Output:
                 // currently in output mode, flush any data written, and reset the buffer
                 if(bufferIdx)
                 {
@@ -681,7 +685,7 @@ struct TextFile(BufferT)
                     _outbuf.reset();
                 }
                 break;
-            case Mode.Input:
+            case Input:
                 // currently in input mode. Need to reposition the actual stream to where the buffer's current index is.
                 if(bufferIdx != _inbuf.window.length)
                 {
@@ -690,24 +694,30 @@ struct TextFile(BufferT)
                     _inbuf.reset(); // reset the input buffer.
                 }
                 break;
+            case LockedInput:
+            case LockedOutput:
+                assert(false);
             }
             // switch to new mode
             _mode = m;
             bufferIdx = 0;
-            final switch(_mode)
+            final switch(_mode) with(Mode)
             {
-            case Mode.Output:
+            case Output:
                 // ensure the width and byte order are identical
                 _outbuf.width = _inbuf.width;
                 _outbuf.outputByteOrder = _inbuf.inputByteOrder;
                 // extend the buffer to its extents
                 _outbuf.load(0);
                 break;
-            case Mode.Input:
+            case Input:
                 // ensure the width and byte order are identical
                 _inbuf.width = _outbuf.width;
                 _inbuf.inputByteOrder = _outbuf.outputByteOrder;
                 break;
+            case LockedInput:
+            case LockedOutput:
+                assert(false);
             }
         }
     }
