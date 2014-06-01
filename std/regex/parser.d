@@ -287,6 +287,7 @@ enum maxCumulativeRepetitionLength = 2^^20;
 struct Parser(R)
     if (isForwardRange!R && is(ElementType!R : dchar))
 {
+    alias Char = BasicElementOf!R;
     enum infinite = ~0u;
     dchar _current;
     bool empty;
@@ -302,6 +303,7 @@ struct Parser(R)
     uint counterDepth = 0; //current depth of nested counted repetitions
     CodepointSet[] charsets;  //
     const(Trie)[] tries; //
+    UtfMatcher!Char[] matchers;
     uint[] backrefed; //bitarray for groups
 
     @trusted this(S)(R pattern, S flags)
@@ -1268,6 +1270,7 @@ struct Parser(R)
                 auto t  = getTrie(set);
                 put(Bytecode(IR.Trie, cast(uint)tries.length));
                 tries ~= t;
+                matchers ~= utfMatcher!Char(set);
                 debug(std_regex_allocation) writeln("Trie generated");
             }
             else
@@ -1409,8 +1412,6 @@ struct Parser(R)
                        msg, origin[0..$-pat.length], pat);
         throw new RegexException(app.data);
     }
-
-    alias Char = BasicElementOf!R;
 
     @property program()
     {
