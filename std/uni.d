@@ -5125,7 +5125,7 @@ template Utf32Matcher()
             auto ch = decode(inp, idx);
             if(trie[ch])
             {
-                inp = inp[idx..$];
+                inp.popFrontN(idx);
                 return true;
             }
             else
@@ -5138,7 +5138,7 @@ template Utf32Matcher()
             assert(!inp.empty);
             size_t idx = 0;
             auto ch = decode(inp, idx);
-            inp = inp[idx..$];
+            inp.popFrontN(idx);
             return trie[ch];
         }
 

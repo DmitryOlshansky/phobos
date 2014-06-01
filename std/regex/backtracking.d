@@ -10,6 +10,53 @@ import std.range, std.typecons, std.traits, core.stdc.stdlib;
 debug(std_regex_matcher) import std.stdio;
 debug(std_regex_ctr) import std.stdio;
 
+int quickTestNonDec(RegEx, Stream)(uint pc, ref Stream s, const ref RegEx re)
+{
+    for(;;)
+        switch(re.ir[pc].code)
+        {
+        case IR.OrChar:
+            if(s.atEnd)
+                return -1;
+            dchar front = s.peek;
+            uint len = re.ir[pc].sequence;
+            uint end = pc + len;
+            if(re.ir[pc].data != front && re.ir[pc+1].data != front)
+            {
+                for(pc = pc+2; pc < end; pc++)
+                    if(re.ir[pc].data == front)
+                        break;
+                if(pc == end)
+                    return -1;
+            }
+            return 0;
+        case IR.Char:
+            if(!s.atEnd && s.peek == re.ir[pc].data)
+                return 0;
+            else
+                return -1;
+        case IR.Any:
+            return s.atEnd ? -1 : 0;
+        case IR.CodepointSet:
+            if(!s.atEnd && re.matchers[re.ir[pc].data].test(s))
+            //if(!s.atEnd && re.charsets[re.ir[pc].data].scanFor(s.peek))
+                return 0;
+            else
+                return -1;
+        case IR.GroupStart, IR.GroupEnd:
+            pc += IRL!(IR.GroupStart);
+            break;
+        case IR.Trie:
+            if(!s.atEnd && re.matchers[re.ir[pc].data].test(s))
+            //if(re.tries[re.ir[pc].data][front])
+                return 0;
+            else
+                return -1;
+        default:
+            return 0;
+        }
+}
+
 /+
     BacktrackingMatcher implements backtracking scheme of matching
     regular expressions.
@@ -191,7 +238,7 @@ template BacktrackingMatcher(bool CTregex)
                         {
                             if(atEnd)
                                 break;
-                            next();
+                            s.skipChar();
                             search();
                             if(atEnd)
                             {
@@ -213,7 +260,7 @@ template BacktrackingMatcher(bool CTregex)
                 {
                     if(atEnd)
                         break;
-                    next();
+                    s.skipChar();
                     if(atEnd)
                     {
                         exhausted = true;
@@ -280,12 +327,13 @@ template BacktrackingMatcher(bool CTregex)
                         pc += IRL!(IR.Any);
                         break;
                     case IR.CodepointSet:
-                        if(!next() || !re.charsets[re.ir[pc].data].scanFor(front))
+                        //if(!next() || !re.charsets[re.ir[pc].data].scanFor(front))
+                        if(atEnd || !re.matchers[re.ir[pc].data].match(s))
                             goto L_backtrack;
                         pc += IRL!(IR.CodepointSet);
                         break;
                     case IR.Trie:
-                        if(!next() || !re.tries[re.ir[pc].data][front])
+                        if(atEnd || !re.matchers[re.ir[pc].data].skip(s))
                             goto L_backtrack;
                         pc += IRL!(IR.Trie);
                         break;
@@ -373,7 +421,7 @@ template BacktrackingMatcher(bool CTregex)
                         int test;
                         if(re.ir[pc].code == IR.InfiniteEnd)
                         {
-                            test = quickTestFwd(pc+IRL!(IR.InfiniteEnd), s.peek, re);
+                            test = quickTestNonDec(pc+IRL!(IR.InfiniteEnd), s, re);
                             if(test >= 0)
                                 pushState(pc+IRL!(IR.InfiniteEnd), counter);
                             infiniteNesting++;
@@ -381,7 +429,7 @@ template BacktrackingMatcher(bool CTregex)
                         }
                         else
                         {
-                            test = quickTestFwd(pc - len, s.peek, re);
+                            test = quickTestNonDec(pc - len, s, re);
                             if(test >= 0)
                             {
                                 infiniteNesting++;
@@ -444,7 +492,7 @@ template BacktrackingMatcher(bool CTregex)
                         int test;
                         if(re.ir[pc].code == IR.InfiniteEnd)
                         {
-                            test = quickTestFwd(pc+IRL!(IR.InfiniteEnd), s.peek, re);
+                            test = quickTestNonDec(pc+IRL!(IR.InfiniteEnd), s, re);
                             if(test >= 0)
                             {
                                 infiniteNesting--;
@@ -455,7 +503,7 @@ template BacktrackingMatcher(bool CTregex)
                         }
                         else
                         {
-                            test = quickTestFwd(pc-len, s.peek, re);
+                            test = quickTestNonDec(pc-len, s, re);
                             if(test >= 0)
                                 pushState(pc-len, counter);
                             pc += IRL!(IR.InfiniteEnd);

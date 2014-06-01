@@ -496,6 +496,7 @@ package:
     uint threadCount;
     uint flags;         //global regex flags
     public const(Trie)[]  tries; //
+    public UtfMatcher!Char[] matchers; //
     uint[] backrefed; //bit array of backreferenced submatches
     Kickstart!Char kickstart;
 
@@ -591,10 +592,17 @@ struct Input(Char)
         //back direction is not really used - it's just to qualify as RA
         @property auto back(){ return _origin[$-1]; }
         void popBack(){ _origin = _origin[0..$-1]; }
-
         @property auto save(){ return this; }
         ref opIndex(size_t ofs){ return _origin[_index+ofs]; }
+        //hackish
+        auto opSlice(size_t s, size_t e){ return Input(_origin[0..$], _index+s); }
         @property size_t length(){ return _origin.length - _index; }
+        alias opDollar = length;
+    }
+
+    void skipChar()
+    {
+        _index += std.utf.stride(_origin, _index);
     }
 
     //codepoint at current stream position
@@ -641,6 +649,11 @@ struct Input(Char)
                 _origin = input._origin;
                 _index = index;
             }
+            this(String input, size_t index)
+            {
+                _origin = input;
+                _index = index;
+            }
             //make it range of Char
             @property bool empty(){ return _index == 0; }
             @property auto front(){ return _origin[_index-1]; }
@@ -648,10 +661,12 @@ struct Input(Char)
             //back direction is not really used - it's just to qualify as RA
             @property auto back(){ return _origin[0]; }
             void popBack(){ _origin = _origin[1..$]; }
-
             @property auto save(){ return this; }
             ref opIndex(size_t ofs){ return _origin[_index-1-ofs]; }
-            @property size_t length(){ return _index - 1; }
+            //hackish
+            auto opSlice(size_t s, size_t e){ return BackLooper(_origin, _index-s); }
+            @property size_t length(){ return _index; }
+            alias opDollar = length;
         }
 
         @trusted bool nextChar(ref dchar res,ref size_t pos)
@@ -665,6 +680,12 @@ struct Input(Char)
 
             return true;
         }
+
+        void skipChar()
+        {
+            _index -= std.utf.strideBack(_origin, _index);
+        }
+
         @property atEnd(){ return _index == 0; }
         auto loopBack(size_t index){ return Input(_origin, index); }
 
@@ -672,7 +693,7 @@ struct Input(Char)
         void reset(size_t index){   _index = index;  }
 
         //slice using global offsets
-        String slice(size_t start, size_t end){   return _origin[end..start]; }
+        String slice(size_t start, size_t end){  return _origin[end..start]; }
 
         //index of at End position
         @property size_t lastIndex(){   return 0; }

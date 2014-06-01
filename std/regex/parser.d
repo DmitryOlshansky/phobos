@@ -20,6 +20,7 @@ auto makeRegex(S)(Parser!S p)
         flags = p.re_flags;
         charsets = p.charsets;
         tries = p.tries;
+        matchers = p.matchers;
         backrefed = p.backrefed;
         re.lightPostprocess();
         debug(std_regex_parser)
@@ -1276,6 +1277,7 @@ struct Parser(R)
             else
             {
                 put(Bytecode(IR.CodepointSet, cast(uint)charsets.length));
+                matchers ~= utfMatcher!Char(set);
                 tries ~= Trie.init;
             }
             charsets ~= set;
