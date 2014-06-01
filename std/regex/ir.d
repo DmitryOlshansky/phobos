@@ -575,16 +575,27 @@ struct Input(Char)
     alias String = const(Char)[];
     String _origin;
     size_t _index;
-
-    //constructs Input object out of plain string
-    this(String input, size_t idx = 0)
+    pure nothrow
     {
-        _origin = input;
-        _index = idx;
-    }
+        //constructs Input object out of plain string
+        this(String input, size_t idx = 0)
+        {
+            _origin = input;
+            _index = idx;
+        }
 
-    //make it range of char
-    //@property bool empty(){ return }
+        //make it range of Char
+        @property bool empty(){ return _index == _origin.length; }
+        @property auto front(){ return _origin[_index]; }
+        void popFront(){  _index++; }
+        //back direction is not really used - it's just to qualify as RA
+        @property auto back(){ return _origin[$-1]; }
+        void popBack(){ _origin = _origin[0..$-1]; }
+
+        @property auto save(){ return this; }
+        ref opIndex(size_t ofs){ return _origin[_index+ofs]; }
+        @property size_t length(){ return _origin.length - _index; }
+    }
 
     //codepoint at current stream position
     bool nextChar(ref dchar res, ref size_t pos)
@@ -614,7 +625,7 @@ struct Input(Char)
     //support for backtracker engine, might not be present
     void reset(size_t index){   _index = index;  }
 
-    //slice using globlal offsets
+    //slice using global offsets
     String slice(size_t start, size_t end){   return _origin[start..end]; }
 
     struct BackLooper
@@ -623,11 +634,26 @@ struct Input(Char)
         enum { isLoopback = true };
         String _origin;
         size_t _index;
-        this(Input input, size_t index)
+        pure nothrow
         {
-            _origin = input._origin;
-            _index = index;
+            this(Input input, size_t index)
+            {
+                _origin = input._origin;
+                _index = index;
+            }
+            //make it range of Char
+            @property bool empty(){ return _index == 1; }
+            @property auto front(){ return _origin[_index-1]; }
+            void popFront(){  _index--; }
+            //back direction is not really used - it's just to qualify as RA
+            @property auto back(){ return _origin[0]; }
+            void popBack(){ _origin = _origin[1..$]; }
+
+            @property auto save(){ return this; }
+            ref opIndex(size_t ofs){ return _origin[_index-1-ofs]; }
+            @property size_t length(){ return _index - 1; }
         }
+
         @trusted bool nextChar(ref dchar res,ref size_t pos)
         {
             pos = _index;
@@ -654,6 +680,12 @@ struct Input(Char)
     auto loopBack(size_t index){   return BackLooper(this, index); }
 }
 
+unittest
+{
+    import std.range;
+    static assert(isRandomAccessRange!(Input!char));
+    static assert(isRandomAccessRange!(Input!char.BackLooper));
+}
 
 //both helpers below are internal, on its own are quite "explosive"
 //unsafe, no initialization of elements
