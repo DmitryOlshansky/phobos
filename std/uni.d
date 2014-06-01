@@ -4677,7 +4677,7 @@ template Utf8Matcher()
         import std.algorithm : map;
         auto ascii = set & unicode.ASCII;
         auto utf8_2 = set & CodepointSet(0x80, 0x800);
-        auto utf8_3 = set & CodepointSet(0x800, 0x1_0000);
+        auto utf8_3 = set & (CodepointSet(0x800, 0x1_0000) - CodepointSet(0xD800, 0xDFFF+1));
         auto utf8_4 = set & CodepointSet(0x1_0000, lastDchar+1);
         auto asciiT = ascii.byCodepoint.map!(x=>cast(char)x).buildTrie!(AsciiSpec);
         auto utf8_2T = utf8_2.byCodepoint.map!(x=>encode!2(x)).buildTrie!(Utf8Spec2);
@@ -4775,19 +4775,19 @@ template Utf8Matcher()
                 mixin(dispatch);
         }
 
-        bool match(C)(ref C[] str) const pure @trusted
+        public bool match(C)(ref C[] str) const pure @trusted
             if(isSomeChar!C)
         {
             return fwdStr!"match"(str);
         }
 
-        bool skip(C)(ref C[] str) const pure @trusted
+        public bool skip(C)(ref C[] str) const pure @trusted
             if(isSomeChar!C)
         {
             return fwdStr!"skip"(str);
         }
 
-        bool test(C)(ref C[] str) const pure @trusted
+        public bool test(C)(ref C[] str) const pure @trusted
             if(isSomeChar!C)
         {
             return fwdStr!"test"(str);
@@ -4927,9 +4927,9 @@ template Utf16Matcher()
     {
         import std.algorithm : map;
         auto ascii = set & unicode.ASCII;
-        auto bmp = (set & CodepointSet.fromIntervals(0x80, 0xFFFF+1))
-            - CodepointSet.fromIntervals(0xD800, 0xDFFF+1);
-        auto other = set - (bmp | ascii);
+        auto bmp = (set & CodepointSet(0x80, 0xFFFF+1))
+            - CodepointSet(0xD800, 0xDFFF+1);
+        auto other = set - CodepointSet(0x0, 0xFFFF+1);
         auto asciiT = ascii.byCodepoint.map!(x=>cast(char)x).buildTrie!(AsciiSpec);
         auto bmpT = bmp.byCodepoint.map!(x=>cast(wchar)x).buildTrie!(BmpSpec);
         auto otherT = other.byCodepoint.map!(x=>encode2(x)).buildTrie!(UniSpec);
@@ -5000,19 +5000,19 @@ template Utf16Matcher()
                 return lookupUni!mode(inp);
         }
 
-        bool match(C)(ref C[] str) const pure @trusted
+        public bool match(C)(ref C[] str) const pure @trusted
             if(isSomeChar!C)
         {
             return fwdStr!"match"(str);
         }
 
-        bool skip(C)(ref C[] str) const pure @trusted
+        public bool skip(C)(ref C[] str) const pure @trusted
             if(isSomeChar!C)
         {
             return fwdStr!"skip"(str);
         }
 
-        bool test(C)(ref C[] str) const pure @trusted
+        public bool test(C)(ref C[] str) const pure @trusted
             if(isSomeChar!C)
         {
             return fwdStr!"test"(str);
@@ -5146,7 +5146,7 @@ template Utf32Matcher()
             auto ch = decode(inp, idx);
             if(trie[ch])
             {
-                inp = inp[idx..$];
+                inp.popFrontN(idx);
                 return true;
             }
             else
@@ -5159,7 +5159,7 @@ template Utf32Matcher()
             assert(!inp.empty);
             size_t idx = 0;
             auto ch = decode(inp, idx);
-            inp = inp[idx..$];
+            inp.popFrontN(idx);
             return trie[ch];
         }
 
@@ -5213,6 +5213,9 @@ public auto utfMatcher(Char, Set)(Set set) @trusted
     else
         static assert(false, "Only character types 'char' and 'wchar' are allowed");
 }
+
+/// Type of matcher object returned by $(LREF utfMatcher) function.
+public alias UtfMatcher(Char) = typeof(utfMatcher!Char(CodepointSet.init));
 
 
 //a range of code units, packed with index to speed up forward iteration

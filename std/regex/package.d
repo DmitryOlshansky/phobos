@@ -337,6 +337,7 @@ template ctRegexImpl(alias pattern, string flags=[])
     alias Matcher = BacktrackingMatcher!(true);
     @trusted bool func(ref Matcher!Char matcher)
     {
+        /*debug(std_regex_matcher) */import std.stdio;
         debug(std_regex_ctr) pragma(msg, source);
         mixin(source);
     }
@@ -1311,7 +1312,7 @@ public @trusted void replaceAllInto(alias fun, Sink, R, RegEx)
 public R replace(alias scheme = match, R, C, RegEx)(R input, RegEx re, const(C)[] format)
     if(isSomeString!R && isRegexFor!(RegEx, R))
 {
-    return replaceAllWith!((m, sink) => replaceFmt(format, m, sink), match)(input, re);
+    return replaceAllWith!((m, sink) => replaceFmt(format, m, sink), scheme)(input, re);
 }
 
 ///ditto
