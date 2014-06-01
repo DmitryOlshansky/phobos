@@ -254,7 +254,7 @@ template BacktrackingMatcher(bool CTregex)
                 infiniteNesting = -1;//intentional
                 auto start = s._index;
                 debug(std_regex_matcher)
-                    writeln("Try match starting at ", s[index..s.lastIndex]);
+                    writeln("Try match starting at ", s.slice(index, s.lastIndex));
                 for(;;)
                 {
                     debug(std_regex_matcher)
@@ -365,7 +365,7 @@ template BacktrackingMatcher(bool CTregex)
                     case IR.Eol:
                         dchar back;
                         DataIndex bi;
-                        debug(std_regex_matcher) writefln("EOL (front 0x%x) %s", front, s[index..s.lastIndex]);
+                        debug(std_regex_matcher) writefln("EOL (front 0x%x) %s", front, s.slice(index, s.lastIndex));
                         //no matching inside \r\n
                         if(atEnd || ((re.flags & RegexOption.multiline)
                             && endOfLine(front, s.loopBack(index).nextChar(back,bi)
@@ -560,8 +560,8 @@ template BacktrackingMatcher(bool CTregex)
                     case IR.Backref:
                         uint n = re.ir[pc].data;
                         auto referenced = re.ir[pc].localRef
-                                ? s[matches[n].begin .. matches[n].end]
-                                : s[backrefed[n].begin .. backrefed[n].end];
+                                ? s.slice(matches[n].begin, matches[n].end)
+                                : s.slice(backrefed[n].begin, backrefed[n].end);
                         while(!atEnd && !referenced.empty && front == referenced.front)
                         {
                             next();
@@ -675,7 +675,7 @@ template BacktrackingMatcher(bool CTregex)
                 }
                 debug(std_regex_matcher)
                     writefln("Saved(pc=%s) front: %s src: %s",
-                        pc, front, s[index..s.lastIndex]);
+                        pc, front, s.slice(index, s.lastIndex));
             }
 
             //helper function, restores engine state
@@ -699,7 +699,7 @@ template BacktrackingMatcher(bool CTregex)
                 infiniteNesting = state.infiniteNesting;
                 debug(std_regex_matcher)
                 {
-                    writefln("Restored matches", front, s[index .. s.lastIndex]);
+                    writefln("Restored matches", front, s.slice(index ,  s.lastIndex));
                     foreach(i, m; matches)
                         writefln("Sub(%d) : %s..%s", i, m.begin, m.end);
                 }
@@ -707,7 +707,7 @@ template BacktrackingMatcher(bool CTregex)
                 next();
                 debug(std_regex_matcher)
                     writefln("Backtracked (pc=%s) front: %s src: %s",
-                        pc, front, s[index..s.lastIndex]);
+                        pc, front, s.slice(index, s.lastIndex));
                 return true;
             }
         }
@@ -1298,7 +1298,7 @@ struct CtContext
             code ~= ctSub(`
                     dchar back;
                     DataIndex bi;
-                    debug(std_regex_matcher) writefln("EOL (front 0x%x) %s", front, s[index..s.lastIndex]);
+                    debug(std_regex_matcher) writefln("EOL (front 0x%x) %s", front, s.slice(index, s.lastIndex));
                     //no matching inside \r\n
                     if(atEnd || ((re.flags & RegexOption.multiline)
                             && endOfLine(front, s.loopBack(index).nextChar(back,bi)
@@ -1325,9 +1325,9 @@ struct CtContext
         case IR.Backref:
             string mStr = "auto referenced = ";
             mStr ~= ir[0].localRef
-                ? ctSub("s[matches[$$].begin .. matches[$$].end];",
+                ? ctSub("s.slice(matches[$$].begin, matches[$$].end);",
                     ir[0].data, ir[0].data)
-                : ctSub("s[backrefed[$$].begin .. backrefed[$$].end];",
+                : ctSub("s.slice(backrefed[$$].begin, backrefed[$$].end);",
                     ir[0].data, ir[0].data);
             code ~= ctSub( `
                     $$
@@ -1364,7 +1364,7 @@ struct CtContext
             auto start = s._index;`;
         r ~= `
             goto StartLoop;
-            debug(std_regex_matcher) writeln("Try CT matching  starting at ",s[index..s.lastIndex]);
+            debug(std_regex_matcher) writeln("Try CT matching  starting at ",s.slice(index, s.lastIndex));
         L_backtrack:
             if(lastState || prevStack())
             {

@@ -8,6 +8,8 @@ import std.algorithm, std.conv, std.exception, std.range, std.typecons,
 
 import std.regex.parser : Escapables; // characters that need escaping
 
+debug(std_regex_test) import std.stdio;
+
 alias Sequence(int B, int E) = staticIota!(B, E);
 
 unittest

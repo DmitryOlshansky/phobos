@@ -1,7 +1,7 @@
 //Written in the D programming language
 /*
     Implementation of Thompson NFA std.regex engine.
-    Key point is evaluation of all possible threads (state) at each step 
+    Key point is evaluation of all possible threads (state) at each step
     in a breadth-first manner, thereby geting some nice properties:
         - looking at each character only once
         - merging of equivalent threads, that gives matching process linear time complexity
@@ -256,7 +256,7 @@ struct ThreadList(DataIndex)
                 genCounter++;
                 debug(std_regex_matcher)
                 {
-                    writefln("Threaded matching threads at  %s", s[index..s.lastIndex]);
+                    writefln("Threaded matching threads at  %s", s.slice(index, s.lastIndex));
                     foreach(t; clist[])
                     {
                         assert(t);
@@ -453,7 +453,7 @@ struct ThreadList(DataIndex)
                 }
                 break;
             case IR.Eol:
-                debug(std_regex_matcher) writefln("EOL (front 0x%x) %s",  front, s[index..s.lastIndex]);
+                debug(std_regex_matcher) writefln("EOL (front 0x%x) %s",  front, s.slice(index, s.lastIndex));
                 dchar back;
                 DataIndex bi;
                 //no matching inside \r\n
@@ -580,14 +580,14 @@ struct ThreadList(DataIndex)
                 if(merge[re.ir[t.pc + 1].raw+t.counter] < genCounter)
                 {
                     debug(std_regex_matcher) writefln("A thread(pc=%s) passed there : %s ; GenCounter=%s mergetab=%s",
-                                    t.pc, s[index .. s.lastIndex], genCounter, merge[re.ir[t.pc + 1].raw + t.counter] );
+                                    t.pc, s.slice(index ,  s.lastIndex), genCounter, merge[re.ir[t.pc + 1].raw + t.counter] );
                     merge[re.ir[t.pc + 1].raw+t.counter] = genCounter;
                     t.pc += IRL!(IR.OrEnd);
                 }
                 else
                 {
                     debug(std_regex_matcher) writefln("A thread(pc=%s) got merged there : %s ; GenCounter=%s mergetab=%s",
-                                    t.pc, s[index .. s.lastIndex], genCounter, merge[re.ir[t.pc + 1].raw + t.counter] );
+                                    t.pc, s.slice(index ,  s.lastIndex), genCounter, merge[re.ir[t.pc + 1].raw + t.counter] );
                     recycle(t);
                     t = worklist.fetch();
                     if(!t)
@@ -631,9 +631,9 @@ struct ThreadList(DataIndex)
                 {
                     size_t idx = source[n].begin + t.uopCounter;
                     size_t end = source[n].end;
-                    if(s[idx..end].front == front)
+                    if(s.slice(idx, end).front == front)
                     {
-                        t.uopCounter += std.utf.stride(s[idx..end], 0);
+                        t.uopCounter += std.utf.stride(s.slice(idx, end), 0);
                         if(t.uopCounter + source[n].begin == source[n].end)
                         {//last codepoint
                             t.pc += IRL!(IR.Backref);
@@ -828,7 +828,7 @@ struct ThreadList(DataIndex)
         {
             debug(std_regex_matcher)
             {
-                writefln("-- Threaded matching threads at  %s",  s[index..s.lastIndex]);
+                writefln("-- Threaded matching threads at  %s",  s.slice(index, s.lastIndex));
             }
             if(startPc!=RestartPc)
             {

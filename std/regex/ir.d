@@ -567,7 +567,7 @@ package:
 
 //Simple UTF-string abstraction compatible with stream interface
 struct Input(Char)
-    if(is(Char :dchar))
+    if(is(Char : dchar))
 {
     import std.utf;
     alias DataIndex = size_t;
@@ -583,6 +583,9 @@ struct Input(Char)
         _index = idx;
     }
 
+    //make it range of char
+    //@property bool empty(){ return }
+
     //codepoint at current stream position
     bool nextChar(ref dchar res, ref size_t pos)
     {
@@ -592,9 +595,12 @@ struct Input(Char)
         res = std.utf.decode(_origin, _index);
         return true;
     }
-    @property bool atEnd(){
+
+    @property bool atEnd()
+    {
         return _index == _origin.length;
     }
+
     bool search(Kickstart)(ref Kickstart kick, ref dchar res, ref size_t pos)
     {
         size_t idx = kick.search(_origin, _index);
@@ -608,7 +614,8 @@ struct Input(Char)
     //support for backtracker engine, might not be present
     void reset(size_t index){   _index = index;  }
 
-    String opSlice(size_t start, size_t end){   return _origin[start..end]; }
+    //slice using globlal offsets
+    String slice(size_t start, size_t end){   return _origin[start..end]; }
 
     struct BackLooper
     {
@@ -636,10 +643,11 @@ struct Input(Char)
         auto loopBack(size_t index){   return Input(_origin, index); }
 
         //support for backtracker engine, might not be present
-        //void reset(size_t index){   _index = index ? index-std.utf.strideBack(_origin, index) : 0;  }
         void reset(size_t index){   _index = index;  }
 
-        String opSlice(size_t start, size_t end){   return _origin[end..start]; }
+        //slice using global offsets
+        String slice(size_t start, size_t end){   return _origin[end..start]; }
+
         //index of at End position
         @property size_t lastIndex(){   return 0; }
     }
