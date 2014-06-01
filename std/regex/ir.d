@@ -642,7 +642,7 @@ struct Input(Char)
                 _index = index;
             }
             //make it range of Char
-            @property bool empty(){ return _index == 1; }
+            @property bool empty(){ return _index == 0; }
             @property auto front(){ return _origin[_index-1]; }
             void popFront(){  _index--; }
             //back direction is not really used - it's just to qualify as RA
@@ -665,8 +665,8 @@ struct Input(Char)
 
             return true;
         }
-        @property atEnd(){ return _index == 0 || _index == std.utf.strideBack(_origin, _index); }
-        auto loopBack(size_t index){   return Input(_origin, index); }
+        @property atEnd(){ return _index == 0; }
+        auto loopBack(size_t index){ return Input(_origin, index); }
 
         //support for backtracker engine, might not be present
         void reset(size_t index){   _index = index;  }
@@ -678,6 +678,17 @@ struct Input(Char)
         @property size_t lastIndex(){   return 0; }
     }
     auto loopBack(size_t index){   return BackLooper(this, index); }
+}
+
+//transitional helper
+dchar peek(Stream)(auto ref Stream s)
+{
+    dchar ch;
+    size_t dummy;
+    auto i = s._index;
+    s.nextChar(ch, dummy);
+    s._index = i;
+    return ch;
 }
 
 unittest

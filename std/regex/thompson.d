@@ -11,6 +11,8 @@ module std.regex.thompson;
 import std.regex.ir;
 import std.range;
 
+debug(std_regex_matcher) import std.stdio;
+
 //State of VM thread
 struct Thread(DataIndex)
 {

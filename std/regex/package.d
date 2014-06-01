@@ -337,6 +337,7 @@ template ctRegexImpl(alias pattern, string flags=[])
     alias Matcher = BacktrackingMatcher!(true);
     @trusted bool func(ref Matcher!Char matcher)
     {
+        /*debug(std_regex_matcher) */import std.stdio;
         debug(std_regex_ctr) pragma(msg, source);
         mixin(source);
     }

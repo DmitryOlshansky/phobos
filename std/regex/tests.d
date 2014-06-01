@@ -394,7 +394,7 @@ unittest
         version(std_regex_ct1)
         {
             pragma(msg, "Testing 1st part of ctRegex");
-            alias Tests = Sequence!(0, 155);
+            alias Tests = Sequence!(0, 120);
         }
         else version(std_regex_ct2)
         {
@@ -410,10 +410,10 @@ unittest
         else version(std_regex_ct4)
         {
             pragma(msg, "Testing 4th part of ctRegex");
-            alias Tests = Sequence!(220, tv.length);
+            alias Tests = Sequence!(230, tv.length);
         }
         else
-            alias Tests = TypeTuple!(Sequence!(0, 30), Sequence!(235, tv.length-5));
+            alias Tests = TypeTuple!(Sequence!(0, 30), Sequence!(236, tv.length-5));
         foreach(a, v; Tests)
         {
             enum tvd = tv[v];
