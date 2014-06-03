@@ -589,6 +589,7 @@ struct Input(Char)
         @property bool empty(){ return _index == _origin.length; }
         @property auto front(){ return _origin[_index]; }
         void popFront(){  _index++; }
+        void popFrontN(size_t n){  _index += n; }
         //back direction is not really used - it's just to qualify as RA
         @property auto back(){ return _origin[$-1]; }
         void popBack(){ _origin = _origin[0..$-1]; }
@@ -658,6 +659,7 @@ struct Input(Char)
             @property bool empty(){ return _index == 0; }
             @property auto front(){ return _origin[_index-1]; }
             void popFront(){  _index--; }
+            void popFrontN(size_t n){  _index -= n; }
             //back direction is not really used - it's just to qualify as RA
             @property auto back(){ return _origin[0]; }
             void popBack(){ _origin = _origin[1..$]; }

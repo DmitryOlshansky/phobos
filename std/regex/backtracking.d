@@ -10,6 +10,81 @@ import std.range, std.typecons, std.traits, core.stdc.stdlib;
 debug(std_regex_matcher) import std.stdio;
 debug(std_regex_ctr) import std.stdio;
 
+bool testDChar(Stream)(ref Stream s, dchar ch)
+{
+    alias Char = Unqual!(typeof(s.front));
+    static if(is(Char == dchar))
+        return ch == s.front;
+    else
+        return ch <= 0x7F ? s.front == ch : slowTestDChar(s, ch);
+}
+
+bool slowTestDChar(Stream)(ref Stream s, dchar ch)
+{
+    alias Char = Unqual!(typeof(s.front));
+    Char[dchar.sizeof/Char.sizeof] buf=void;
+    size_t cnt = std.utf.encode(buf, ch);
+    if(s.length < cnt)
+        return false;
+     static if(Stream.isLoopback) // look at UTF array backwards
+            for(size_t i=0; i<cnt; i++)
+            {
+                if(s[i] != buf[cnt-1-i])
+                    return false;
+            }
+        else
+            for(size_t i=0; i<cnt; i++)
+            {
+                if(s[i] != buf[i])
+                    return false;
+            }
+    return true;
+}
+
+bool matchDChar(Stream)(ref Stream s, dchar ch)
+{
+    alias Char = Unqual!(typeof(s.front));
+    static if(is(Char == dchar))
+    {
+        if(ch == s.front)
+        {
+            s.popFront();
+            return true;
+        }
+        return false;
+    }
+    else
+    {
+        if(ch <= 0x7F)
+        {
+            if(s.front == ch)
+            {
+                s.popFront();
+                return true;
+            }
+            return false;
+        }
+        Char[dchar.sizeof/Char.sizeof] buf;
+        size_t cnt = std.utf.encode(buf, ch);
+        if(s.length < cnt)
+            return false;
+        static if(Stream.isLoopback) // look at UTF array backwards
+            for(size_t i=0; i<cnt; i++)
+            {
+                if(s[i] != buf[cnt-1-i])
+                    return false;
+            }
+        else
+            for(size_t i=0; i<cnt; i++)
+            {
+                if(s[i] != buf[i])
+                    return false;
+            }
+        s.popFrontN(cnt);
+        return true;
+    }
+}
+
 int quickTestNonDec(RegEx, Stream)(uint pc, ref Stream s, const ref RegEx re)
 {
     for(;;)
@@ -18,20 +93,19 @@ int quickTestNonDec(RegEx, Stream)(uint pc, ref Stream s, const ref RegEx re)
         case IR.OrChar:
             if(s.atEnd)
                 return -1;
-            dchar front = s.peek;
             uint len = re.ir[pc].sequence;
             uint end = pc + len;
-            if(re.ir[pc].data != front && re.ir[pc+1].data != front)
+            if(!s.testDChar(re.ir[pc].data) && !s.testDChar(re.ir[pc+1].data))
             {
                 for(pc = pc+2; pc < end; pc++)
-                    if(re.ir[pc].data == front)
+                    if(s.testDChar(re.ir[pc].data))
                         break;
                 if(pc == end)
                     return -1;
             }
             return 0;
         case IR.Char:
-            if(!s.atEnd && s.peek == re.ir[pc].data)
+            if(!s.atEnd && s.testDChar(re.ir[pc].data))
                 return 0;
             else
                 return -1;
@@ -39,7 +113,6 @@ int quickTestNonDec(RegEx, Stream)(uint pc, ref Stream s, const ref RegEx re)
             return s.atEnd ? -1 : 0;
         case IR.CodepointSet:
             if(!s.atEnd && re.matchers[re.ir[pc].data].test(s))
-            //if(!s.atEnd && re.charsets[re.ir[pc].data].scanFor(s.peek))
                 return 0;
             else
                 return -1;
@@ -48,7 +121,6 @@ int quickTestNonDec(RegEx, Stream)(uint pc, ref Stream s, const ref RegEx re)
             break;
         case IR.Trie:
             if(!s.atEnd && re.matchers[re.ir[pc].data].test(s))
-            //if(re.tries[re.ir[pc].data][front])
                 return 0;
             else
                 return -1;
@@ -128,7 +200,7 @@ template BacktrackingMatcher(bool CTregex)
             static if(kicked)
                 s._index = re.kickstart.search(s._origin, s._index);
             else
-                next();
+                s.skipChar();
         }
 
         //
@@ -231,24 +303,13 @@ template BacktrackingMatcher(bool CTregex)
                 {
                     for(;;)
                     {
-
+                        search();
+                        if(atEnd) // non-empty kickstart => no match at end of input
+                            break;
                         if(matchFinalize())
                             return true;
-                        else
-                        {
-                            if(atEnd)
-                                break;
-                            s.skipChar();
-                            search();
-                            if(atEnd)
-                            {
-                                exhausted = true;
-                                return matchFinalize();
-                            }
-                        }
+                        s.skipChar();
                     }
-                    exhausted = true;
-                    return false; //early return
                 }
             }
             //no search available - skip a char at a time
@@ -291,7 +352,8 @@ template BacktrackingMatcher(bool CTregex)
                 infiniteNesting = -1;//intentional
                 auto start = s._index;
                 debug(std_regex_matcher)
-                    writeln("Try match starting at ", s.slice(s._index, s.lastIndex));
+                    writeln("Try match starting at ", s.slice(s._index, s.lastIndex),
+                         is(typeof(s) == Input!Char) ? " " : " backwards");
                 for(;;)
                 {
                     debug(std_regex_matcher)
@@ -301,14 +363,14 @@ template BacktrackingMatcher(bool CTregex)
                     switch(re.ir[pc].code)
                     {
                     case IR.OrChar://assumes IRL!(OrChar) == 1
-                        if(!next())
+                        if(atEnd)
                             goto L_backtrack;
                         uint len = re.ir[pc].sequence;
                         uint end = pc + len;
-                        if(re.ir[pc].data != front && re.ir[pc+1].data != front)
+                        if(!s.matchDChar(re.ir[pc].data) && !s.matchDChar(re.ir[pc+1].data))
                         {
                             for(pc = pc+2; pc < end; pc++)
-                                if(re.ir[pc].data == front)
+                                if(s.matchDChar(re.ir[pc].data))
                                     break;
                             if(pc == end)
                                 goto L_backtrack;
@@ -316,19 +378,19 @@ template BacktrackingMatcher(bool CTregex)
                         pc = end;
                         break;
                     case IR.Char:
-                        if(!next() || front != re.ir[pc].data)
+                        if(atEnd || !s.matchDChar(re.ir[pc].data))
                             goto L_backtrack;
                         pc += IRL!(IR.Char);
                     break;
                     case IR.Any:
-                        if(!next() || (!(re.flags & RegexOption.singleline)
-                                && (front == '\r' || front == '\n')))
+                        if(atEnd || (!(re.flags & RegexOption.singleline)
+                                && (s.front == '\r' || s.front == '\n')))
                             goto L_backtrack;
+                        s.skipChar();
                         pc += IRL!(IR.Any);
                         break;
                     case IR.CodepointSet:
-                        //if(!next() || !re.charsets[re.ir[pc].data].scanFor(front))
-                        if(atEnd || !re.matchers[re.ir[pc].data].match(s))
+                        if(atEnd || !re.matchers[re.ir[pc].data].skip(s))
                             goto L_backtrack;
                         pc += IRL!(IR.CodepointSet);
                         break;
