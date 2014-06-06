@@ -754,6 +754,7 @@ unittest
     //a second issue with same symptoms
     auto r2 = regex(`([а-яА-Я\-_]+\s*)+(?<=[\s\.,\^])`);
     match("аллея Театральная", r2);
+    bmatch("аллея Театральная", r2);
 }
 unittest
 {// bugzilla 8637 purity of enforce
