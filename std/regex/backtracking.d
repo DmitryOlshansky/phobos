@@ -10,125 +10,6 @@ import std.range, std.typecons, std.traits, core.stdc.stdlib;
 debug(std_regex_matcher) import std.stdio;
 debug(std_regex_ctr) import std.stdio;
 
-bool testDChar(Stream)(ref Stream s, dchar ch)
-{
-    alias Char = Unqual!(typeof(s.front));
-    static if(is(Char == dchar))
-        return ch == s.front;
-    else
-        return ch <= 0x7F ? s.front == ch : slowTestDChar(s, ch);
-}
-
-bool slowTestDChar(Stream)(ref Stream s, dchar ch)
-{
-    alias Char = Unqual!(typeof(s.front));
-    Char[dchar.sizeof/Char.sizeof] buf=void;
-    size_t cnt = std.utf.encode(buf, ch);
-    if(s.length < cnt)
-        return false;
-     static if(Stream.isLoopback) // look at UTF array backwards
-            for(size_t i=0; i<cnt; i++)
-            {
-                if(s[i] != buf[cnt-1-i])
-                    return false;
-            }
-        else
-            for(size_t i=0; i<cnt; i++)
-            {
-                if(s[i] != buf[i])
-                    return false;
-            }
-    return true;
-}
-
-bool matchDChar(Stream)(ref Stream s, dchar ch)
-{
-    alias Char = Unqual!(typeof(s.front));
-    static if(is(Char == dchar))
-    {
-        if(ch == s.front)
-        {
-            s.popFront();
-            return true;
-        }
-        return false;
-    }
-    else
-    {
-        if(ch <= 0x7F)
-        {
-            if(s.front == ch)
-            {
-                s.popFront();
-                return true;
-            }
-            return false;
-        }
-        Char[dchar.sizeof/Char.sizeof] buf;
-        size_t cnt = std.utf.encode(buf, ch);
-        if(s.length < cnt)
-            return false;
-        static if(Stream.isLoopback) // look at UTF array backwards
-            for(size_t i=0; i<cnt; i++)
-            {
-                if(s[i] != buf[cnt-1-i])
-                    return false;
-            }
-        else
-            for(size_t i=0; i<cnt; i++)
-            {
-                if(s[i] != buf[i])
-                    return false;
-            }
-        s.popFrontN(cnt);
-        return true;
-    }
-}
-
-int quickTestNonDec(RegEx, Stream)(uint pc, ref Stream s, const ref RegEx re)
-{
-    for(;;)
-        switch(re.ir[pc].code)
-        {
-        case IR.OrChar:
-            if(s.atEnd)
-                return -1;
-            uint len = re.ir[pc].sequence;
-            uint end = pc + len;
-            if(!s.testDChar(re.ir[pc].data) && !s.testDChar(re.ir[pc+1].data))
-            {
-                for(pc = pc+2; pc < end; pc++)
-                    if(s.testDChar(re.ir[pc].data))
-                        break;
-                if(pc == end)
-                    return -1;
-            }
-            return 0;
-        case IR.Char:
-            if(!s.atEnd && s.testDChar(re.ir[pc].data))
-                return 0;
-            else
-                return -1;
-        case IR.Any:
-            return s.atEnd ? -1 : 0;
-        case IR.CodepointSet:
-            if(!s.atEnd && re.matchers[re.ir[pc].data].test(s))
-                return 0;
-            else
-                return -1;
-        case IR.GroupStart, IR.GroupEnd:
-            pc += IRL!(IR.GroupStart);
-            break;
-        case IR.Trie:
-            if(!s.atEnd && re.matchers[re.ir[pc].data].test(s))
-                return 0;
-            else
-                return -1;
-        default:
-            return 0;
-        }
-}
-
 /+
     BacktrackingMatcher implements backtracking scheme of matching
     regular expressions.
@@ -383,12 +264,8 @@ template BacktrackingMatcher(bool CTregex)
                         pc += IRL!(IR.Any);
                         break;
                     case IR.CodepointSet:
-                        if(atEnd || !re.matchers[re.ir[pc].data].skip(s))
-                            goto L_backtrack;
-                        pc += IRL!(IR.CodepointSet);
-                        break;
                     case IR.Trie:
-                        if(atEnd || !re.matchers[re.ir[pc].data].skip(s))
+                        if(atEnd || !s.matchClass(re.matchers[re.ir[pc].data]))
                             goto L_backtrack;
                         pc += IRL!(IR.Trie);
                         break;
@@ -761,8 +638,8 @@ template BacktrackingMatcher(bool CTregex)
                     lastState += trackers.length;
                 }
                 debug(std_regex_matcher)
-                    writefln("Saved(pc=%s) front: %s src: %s",
-                        pc, front, s.slice(s._index, s.lastIndex));
+                    writefln("Saved(pc=%s) src: %s",
+                        pc,  s.slice(s._index, s.lastIndex));
             }
 
             //helper function, restores engine state
@@ -786,13 +663,13 @@ template BacktrackingMatcher(bool CTregex)
                 infiniteNesting = state.infiniteNesting;
                 debug(std_regex_matcher)
                 {
-                    writefln("Restored matches", front, s.slice(s._index ,  s.lastIndex));
+                    writefln("Restored matches", s.slice(s._index, s.lastIndex));
                     foreach(i, m; matches)
                         writefln("Sub(%d) : %s..%s", i, m.begin, m.end);
                 }
                 debug(std_regex_matcher)
-                    writefln("Backtracked (pc=%s) front: %s src: %s",
-                        pc, front, s.slice(s._index, s.lastIndex));
+                    writefln("Backtracked (pc=%s) src: %s",
+                        pc, s.slice(s._index, s.lastIndex));
                 return true;
             }
         }
@@ -1271,7 +1148,7 @@ struct CtContext
             nextInstr = ctSub("goto case $$;", addr+1);
             code ~=  ctSub( `
                  case $$: debug(std_regex_matcher) writefln("#$$ $$ src: %s",
-                    s.slice(s._index, s._index+s.length));
+                    s.slice(s._index, s.lastIndex));
                 `, addr, addr, ir[0].mnemonic);
         }
         switch(ir[0].code)
@@ -1309,9 +1186,9 @@ struct CtContext
         case IR.Trie:
             code ~= load;
             code ~= ctSub( `
-                    if(!re.matchers[$$].$$(s))
+                    if(!$$Class(s, re.matchers[$$]))
                         $$
-                    $$`, ir[0].data, addr < 0 ? "test" : "skip", bailOut, nextInstr);
+                    $$`,  addr < 0 ? "test" : "match", ir[0].data, bailOut, nextInstr);
             break;
         case IR.Wordboundary:
             code ~= ctSub( `
@@ -1442,7 +1319,7 @@ struct CtContext
             auto start = s._index;`;
         r ~= `
             goto StartLoop;
-            debug(std_regex_matcher) writeln("Try CT matching  starting at ",s.slice(s._index, s.lastIndex));
+            debug(std_regex_matcher) writeln("Try CT matching  starting at ", s.slice(s._index, s.lastIndex));
         L_backtrack:
             if(lastState || prevStack())
             {
