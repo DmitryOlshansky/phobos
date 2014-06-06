@@ -86,6 +86,9 @@ struct ThreadList(DataIndex)
     }
 }
 
+// What is at front of range - nothing, single code unit (<= ASCII), full codepoint ( > ASCII)
+enum InputKind { None=0, Unit, Point };
+
 /+
    Thomspon matcher does all matching in lockstep,
    never looking at the same char twice
@@ -100,8 +103,6 @@ struct ThreadList(DataIndex)
     Group!DataIndex[] backrefed;
     Regex!Char re;           //regex program
     Stream s;
-    dchar front;
-    DataIndex index;
     DataIndex genCounter;    //merge trace counter, goes up on every dchar
     size_t[size_t] subCounters; //a table of gen counter per sub-engine: PC -> counter
     size_t threadSize;
@@ -109,7 +110,7 @@ struct ThreadList(DataIndex)
     bool exhausted;
     static if(__traits(hasMember,Stream, "search"))
     {
-        enum kicked = true;
+        enum kicked = false;
     }
     else
         enum kicked = false;
@@ -127,20 +128,10 @@ struct ThreadList(DataIndex)
     }
 
     //true if it's start of input
-    @property bool atStart(){   return index == 0; }
+    @property bool atStart(){   return s._index == 0; }
 
     //true if it's end of input
-    @property bool atEnd(){  return index == s.lastIndex && s.atEnd; }
-
-    bool next()
-    {
-        if(!s.nextChar(front, index))
-        {
-            index =  s.lastIndex;
-            return false;
-        }
-        return true;
-    }
+    @property bool atEnd(){  return s.atEnd; }
 
     static if(kicked)
     {
@@ -183,8 +174,6 @@ struct ThreadList(DataIndex)
         threadSize = matcher.threadSize;
         merge = matcher.merge;
         freelist = matcher.freelist;
-        front = matcher.front;
-        index = matcher.index;
     }
 
     auto fwdMatcher()(Bytecode[] piece, size_t counter)
@@ -196,10 +185,9 @@ struct ThreadList(DataIndex)
 
     auto bwdMatcher()(Bytecode[] piece, size_t counter)
     {
-        alias BackLooper = typeof(s.loopBack(index));
-        auto m = ThompsonMatcher!(Char, BackLooper)(this, piece, s.loopBack(index));
+        alias BackLooper = typeof(s.loopBack(s._index));
+        auto m = ThompsonMatcher!(Char, BackLooper)(this, piece, s.loopBack(s._index));
         m.genCounter = counter;
-        m.next();
         return m;
     }
 
@@ -209,12 +197,6 @@ struct ThreadList(DataIndex)
         tmp.initExternalMemory(memory);
         tmp.genCounter = 0;
         return tmp;
-    }
-
-    enum MatchResult{
-        NoMatch,
-        PartialMatch,
-        Match,
     }
 
     bool match(Group!DataIndex[] matches)
@@ -227,38 +209,30 @@ struct ThreadList(DataIndex)
         }
         if(re.flags & RegexInfo.oneShot)
         {
-            next();
             exhausted = true;
-            return matchOneShot(matches)==MatchResult.Match;
+            return matchOneShot(matches);
         }
         static if(kicked)
             if(!re.kickstart.empty)
-                return matchImpl!(true)(matches);
-        return matchImpl!(false)(matches);
+                return matchImpl!(true, true)(matches);
+        return matchImpl!(false, true)(matches);
     }
 
     //match the input and fill matches
-    bool matchImpl(bool withSearch)(Group!DataIndex[] matches)
+    bool matchImpl(bool withKick, bool withSearch)(Group!DataIndex[] matches)
     {
-        if(!matched && clist.empty)
-        {
-           static if(withSearch)
-                search();
-           else
-                next();
-        }
-        else//char in question is  fetched in prev call to match
-        {
-            matched = false;
-        }
-
-        if(!atEnd)//if no char
-            for(;;)
+        matched = false;
+        static if(!withSearch)
+            clist.insertBack(createStart(s._index));
+        if(!atEnd)
+            for(;;) with(InputKind)
             {
                 genCounter++;
                 debug(std_regex_matcher)
                 {
-                    writefln("Threaded matching threads at  %s", s.slice(index, s.lastIndex));
+                    writefln("Threaded matching threads at src: %s  %s",
+                        s.slice(s._index, s.lastIndex),
+                        is(typeof(s) == Input!Char) ? " " : " backwards");
                     foreach(t; clist[])
                     {
                         assert(t);
@@ -267,35 +241,35 @@ struct ThreadList(DataIndex)
                         writeln();
                     }
                 }
-                for(Thread!DataIndex* t = clist.fetch(); t; t = clist.fetch())
+                uint step = s.stride();
+                if(step == 1)
                 {
-                    eval!true(t, matches);
+                    if(evalAll!(Unit, withSearch)(matches))
+                    {
+                        s.popFrontN(step);
+                        break;
+                    }
                 }
-                if(!matched)//if we already have match no need to push the engine
-                    eval!true(createStart(index), matches);//new thread staring at this position
-                else if(nlist.empty)
+                else if (evalAll!(Point, withSearch)(matches))
                 {
-                    debug(std_regex_matcher) writeln("Stopped  matching before consuming full input");
-                    break;//not a partial match for sure
+                    s.popFrontN(step);
+                    break;
                 }
+                s.popFrontN(step);
                 clist = nlist;
                 nlist = (ThreadList!DataIndex).init;
                 if(clist.tip is null)
                 {
-                    static if(withSearch)
+                    static if(withKick)
                     {
                         if(!search())
                             break;
                     }
-                    else
-                    {
-                        if(!next())
-                            break;
-                    }
+                    else if(!withSearch)
+                        break;
                 }
-                else if(!next())
+                if(atEnd)
                 {
-                    if (!atEnd) return false;
                     exhausted = true;
                     break;
                 }
@@ -304,22 +278,19 @@ struct ThreadList(DataIndex)
         genCounter++; //increment also on each end
         debug(std_regex_matcher) writefln("Threaded matching threads at end");
         //try out all zero-width posibilities
-        for(Thread!DataIndex* t = clist.fetch(); t; t = clist.fetch())
-        {
-            eval!false(t, matches);
-        }
-        if(!matched)
-            eval!false(createStart(index), matches);//new thread starting at end of input
+        evalAll!(InputKind.None, withSearch)(matches);
         if(matched)
-        {//in case NFA found match along the way
-         //and last possible longer alternative ultimately failed
-            s.reset(matches[0].end);//reset to last successful match
-            next();//and reload front character
-            //--- here the exact state of stream was restored ---
-            exhausted = atEnd || !(re.flags & RegexOption.global);
-            //+ empty match advances the input
-            if(!exhausted && matches[0].begin == matches[0].end)
-                next();
+        {
+            // in case NFA found match along the way
+            // and last possible longer alternative ultimately failed
+            static if(withSearch) // no point in any of this for one-shot mode
+            {
+                s.reset(matches[0].end);// reset to last successful match
+                exhausted = atEnd || !(re.flags & RegexOption.global);
+                //+ empty match advances the input
+                if(!exhausted && matches[0].begin == matches[0].end)
+                    s.skipChar();
+            }
         }
         return matched;
     }
@@ -342,11 +313,28 @@ struct ThreadList(DataIndex)
         matched = true;
     }
 
+    bool evalAll(InputKind kind, bool spawnThread)(Group!DataIndex[] matches)
+    {
+        for(Thread!DataIndex* t = clist.fetch(); t; t = clist.fetch())
+            eval!kind(t, matches);
+        if(!matched)//if we already have match no need to push the engine
+        {
+            if(spawnThread) // should be optimized away if false
+                eval!kind(createStart(s._index), matches);//new thread staring at this position
+        }
+        else if(nlist.empty) //matched and no better threads
+        {
+            debug(std_regex_matcher) writeln("Stopped  matching before consuming full input");
+            return true;
+        }
+        return false;
+    }
+
     /+
         match thread against codepoint, cutting trough all 0-width instructions
         and taking care of control flow, then add it to nlist
     +/
-    void eval(bool withInput)(Thread!DataIndex* t, Group!DataIndex[] matches)
+    void eval(InputKind kind)(Thread!DataIndex* t, Group!DataIndex[] matches)
     {
         ThreadList!DataIndex worklist;
         debug(std_regex_matcher) writeln("---- Evaluating thread");
@@ -359,11 +347,15 @@ struct ThreadList(DataIndex)
                     writef(" %s ", x.pc);
                 writeln("]");
             }
+            debug(std_regex_matcher)
+                writefln("PC: %s\tCNT: %s\t%s \t src: %s",
+                    t.pc, t.counter, disassemble(re.ir, t.pc, re.dict),
+                    s.slice(s._index, s.lastIndex));
             switch(re.ir[t.pc].code)
             {
             case IR.End:
                 finish(t, matches);
-                matches[0].end = index; //fix endpoint of the whole match
+                matches[0].end = s._index; //fix endpoint of the whole match
                 recycle(t);
                 //cut off low priority threads
                 recycle(clist);
@@ -371,108 +363,81 @@ struct ThreadList(DataIndex)
                 debug(std_regex_matcher) writeln("Finished thread ", matches);
                 return;
             case IR.Wordboundary:
-                dchar back;
-                DataIndex bi;
                 //at start & end of input
-                if(atStart && wordTrie[front])
+                if(atStart)
                 {
-                    t.pc += IRL!(IR.Wordboundary);
-                    break;
+                    if(!atEnd && !wordTrie[s.peek])
+                        goto L_kill_thread;
                 }
-                else if(atEnd && s.loopBack(index).nextChar(back, bi)
-                        && wordTrie[back])
+                else if(atEnd)
                 {
-                    t.pc += IRL!(IR.Wordboundary);
-                    break;
+                    if(!wordTrie[s.loopBack(s._index).peek])
+                        goto L_kill_thread;
                 }
-                else if(s.loopBack(index).nextChar(back, bi))
+                else
                 {
-                    bool af = wordTrie[front];
-                    bool ab = wordTrie[back];
-                    if(af ^ ab)
-                    {
-                        t.pc += IRL!(IR.Wordboundary);
-                        break;
-                    }
+                    bool af = wordTrie[s.peek];
+                    bool ab = wordTrie[s.loopBack(s._index).peek];
+                    if((af ^ ab) == false)
+                        goto L_kill_thread;
                 }
-                recycle(t);
-                t = worklist.fetch();
-                if(!t)
-                    return;
+                t.pc += IRL!(IR.Wordboundary);
                 break;
             case IR.Notwordboundary:
-                dchar back;
-                DataIndex bi;
                 //at start & end of input
-                if(atStart && wordTrie[front])
+                if(atStart)
                 {
-                    recycle(t);
-                    t = worklist.fetch();
-                    if(!t)
-                        return;
-                    break;
+                    if(atEnd || wordTrie[s.peek])
+                        goto L_kill_thread;
                 }
-                else if(atEnd && s.loopBack(index).nextChar(back, bi)
-                        && wordTrie[back])
+                else if(atEnd)
                 {
-                    recycle(t);
-                    t = worklist.fetch();
-                    if(!t)
-                        return;
-                    break;
+                    if(wordTrie[s.loopBack(s._index).peek])
+                        goto L_kill_thread;
                 }
-                else if(s.loopBack(index).nextChar(back, bi))
+                else
                 {
-                    bool af = wordTrie[front];
-                    bool ab = wordTrie[back]  != 0;
-                    if(af ^ ab)
-                    {
-                        recycle(t);
-                        t = worklist.fetch();
-                        if(!t)
-                            return;
-                        break;
-                    }
+                    bool af = wordTrie[s.peek];
+                    bool ab = wordTrie[s.loopBack(s._index).peek];
+                    if((af ^ ab) == true)
+                        goto L_kill_thread;
                 }
                 t.pc += IRL!(IR.Wordboundary);
                 break;
             case IR.Bol:
-                dchar back;
-                DataIndex bi;
-                if(atStart
-                    ||( (re.flags & RegexOption.multiline)
-                    && s.loopBack(index).nextChar(back,bi)
-                    && startOfLine(back, front == '\n')))
+                if(atStart)
                 {
                     t.pc += IRL!(IR.Bol);
+                    break;
                 }
-                else
+                else if(re.flags & RegexOption.multiline)
                 {
-                    recycle(t);
-                    t = worklist.fetch();
-                    if(!t)
-                        return;
+                    dchar back = s.loopBack(s._index).peek;
+                    bool seenNl = !atEnd && s.peek == '\n';
+                    if(startOfLine(back, seenNl))
+                    {
+                        t.pc += IRL!(IR.Eol);
+                        break;
+                    }
                 }
-                break;
+                goto L_kill_thread;
             case IR.Eol:
-                debug(std_regex_matcher) writefln("EOL (front 0x%x) %s",  front, s.slice(index, s.lastIndex));
-                dchar back;
-                DataIndex bi;
                 //no matching inside \r\n
-                if(atEnd || ((re.flags & RegexOption.multiline)
-                    && endOfLine(front, s.loopBack(index).nextChar(back, bi)
-                        && back == '\r')))
+                if(atEnd)
                 {
                     t.pc += IRL!(IR.Eol);
+                    break;
                 }
-                else
+                else if(re.flags & RegexOption.multiline)
                 {
-                    recycle(t);
-                    t = worklist.fetch();
-                    if(!t)
-                        return;
+                    bool seenCr = !atStart && s.loopBack(s._index).peek == '\r';
+                    if(endOfLine(s.peek, seenCr))
+                    {
+                        t.pc += IRL!(IR.Eol);
+                        break;
+                    }
                 }
-                break;
+                goto L_kill_thread;
             case IR.InfiniteStart, IR.InfiniteQStart:
                 t.pc += re.ir[t.pc].data + IRL!(IR.InfiniteStart);
                 goto case IR.InfiniteEnd; //both Q and non-Q
@@ -494,13 +459,13 @@ struct ThreadList(DataIndex)
                 if(merge[re.ir[t.pc + 1].raw+t.counter] < genCounter)
                 {
                     debug(std_regex_matcher) writefln("A thread(pc=%s) passed there : %s ; GenCounter=%s mergetab=%s",
-                                    t.pc, index, genCounter, merge[re.ir[t.pc + 1].raw+t.counter] );
+                                    t.pc, s._index, genCounter, merge[re.ir[t.pc + 1].raw+t.counter] );
                     merge[re.ir[t.pc + 1].raw+t.counter] = genCounter;
                 }
                 else
                 {
                     debug(std_regex_matcher) writefln("A thread(pc=%s) got merged there : %s ; GenCounter=%s mergetab=%s",
-                                    t.pc, index, genCounter, merge[re.ir[t.pc + 1].raw+t.counter] );
+                                    t.pc, s._index, genCounter, merge[re.ir[t.pc + 1].raw+t.counter] );
                     recycle(t);
                     t = worklist.fetch();
                     if(!t)
@@ -536,13 +501,13 @@ struct ThreadList(DataIndex)
                 if(merge[re.ir[t.pc + 1].raw+t.counter] < genCounter)
                 {
                     debug(std_regex_matcher) writefln("A thread(pc=%s) passed there : %s ; GenCounter=%s mergetab=%s",
-                                    t.pc, index, genCounter, merge[re.ir[t.pc + 1].raw+t.counter] );
+                                    t.pc, s._index, genCounter, merge[re.ir[t.pc + 1].raw+t.counter] );
                     merge[re.ir[t.pc + 1].raw+t.counter] = genCounter;
                 }
                 else
                 {
                     debug(std_regex_matcher) writefln("A thread(pc=%s) got merged there : %s ; GenCounter=%s mergetab=%s",
-                                    t.pc, index, genCounter, merge[re.ir[t.pc + 1].raw+t.counter] );
+                                    t.pc, s._index, genCounter, merge[re.ir[t.pc + 1].raw+t.counter] );
                     recycle(t);
                     t = worklist.fetch();
                     if(!t)
@@ -561,9 +526,9 @@ struct ThreadList(DataIndex)
                     pc1 = t.pc + IRL!(IR.InfiniteEnd);
                     pc2 = t.pc - len;
                 }
-                static if(withInput)
+                static if(kind)
                 {
-                    int test = quickTestFwd(pc1, front, re);
+                    int test = quickTestNonDec(pc1, s, re);
                     if(test >= 0)
                     {
                         worklist.insertFront(fork(t, pc2, t.counter));
@@ -582,14 +547,14 @@ struct ThreadList(DataIndex)
                 if(merge[re.ir[t.pc + 1].raw+t.counter] < genCounter)
                 {
                     debug(std_regex_matcher) writefln("A thread(pc=%s) passed there : %s ; GenCounter=%s mergetab=%s",
-                                    t.pc, s.slice(index ,  s.lastIndex), genCounter, merge[re.ir[t.pc + 1].raw + t.counter] );
+                                    t.pc, s.slice(s._index ,  s.lastIndex), genCounter, merge[re.ir[t.pc + 1].raw + t.counter] );
                     merge[re.ir[t.pc + 1].raw+t.counter] = genCounter;
                     t.pc += IRL!(IR.OrEnd);
                 }
                 else
                 {
                     debug(std_regex_matcher) writefln("A thread(pc=%s) got merged there : %s ; GenCounter=%s mergetab=%s",
-                                    t.pc, s.slice(index ,  s.lastIndex), genCounter, merge[re.ir[t.pc + 1].raw + t.counter] );
+                                    t.pc, s.slice(s._index ,  s.lastIndex), genCounter, merge[re.ir[t.pc + 1].raw + t.counter] );
                     recycle(t);
                     t = worklist.fetch();
                     if(!t)
@@ -613,12 +578,12 @@ struct ThreadList(DataIndex)
                 goto case IR.OrEnd;
             case IR.GroupStart:
                 uint n = re.ir[t.pc].data;
-                t.matches.ptr[n].begin = index;
+                t.matches.ptr[n].begin = s._index;
                 t.pc += IRL!(IR.GroupStart);
                 break;
             case IR.GroupEnd:
                 uint n = re.ir[t.pc].data;
-                t.matches.ptr[n].end = index;
+                t.matches.ptr[n].end = s._index;
                 t.pc += IRL!(IR.GroupEnd);
                 break;
             case IR.Backref:
@@ -629,25 +594,27 @@ struct ThreadList(DataIndex)
                 {
                     t.pc += IRL!(IR.Backref);
                 }
-                else static if(withInput)
-                {
+                else static if(kind)
+                { //non zero-width backref
+                    if(t.uopCounter == 0) // eager test
+                    {
+                        auto refed = s.slice(source[n].begin, source[n].end);
+                        import std.algorithm, std.string;
+                        if(s.length < refed.length || !s.startsWith(refed.representation))
+                        {
+                            goto L_kill_thread;
+                        }
+                    }
                     size_t idx = source[n].begin + t.uopCounter;
                     size_t end = source[n].end;
-                    if(s.slice(idx, end).front == front)
+                    // just keep incrementing till it ends, everyting is tested just once
+                    t.uopCounter += std.utf.stride(s.slice(idx, end), 0);
+                    if(t.uopCounter + source[n].begin == source[n].end) // last codepoint
                     {
-                        t.uopCounter += std.utf.stride(s.slice(idx, end), 0);
-                        if(t.uopCounter + source[n].begin == source[n].end)
-                        {//last codepoint
-                            t.pc += IRL!(IR.Backref);
-                            t.uopCounter = 0;
-                        }
-                        nlist.insertBack(t);
+                        t.pc += IRL!(IR.Backref);
+                        t.uopCounter = 0;
                     }
-                    else
-                        recycle(t);
-                    t = worklist.fetch();
-                    if(!t)
-                        return;
+                    nlist.insertBack(t);
                     break;
                 }
                 else
@@ -666,16 +633,18 @@ struct ThreadList(DataIndex)
                 uint end = t.pc + len + IRL!(IR.LookbehindEnd) + IRL!(IR.LookbehindStart);
                 bool positive = re.ir[t.pc].code == IR.LookbehindStart;
                 static if(Stream.isLoopback)
-                    auto matcher = fwdMatcher(re.ir[t.pc .. end], subCounters.get(t.pc, 0));
+                    auto matcher = fwdMatcher(re.ir[t.pc + IRL!(IR.LookbehindStart) .. end],
+                        subCounters.get(t.pc, 0));
                 else
-                    auto matcher = bwdMatcher(re.ir[t.pc .. end], subCounters.get(t.pc, 0));
+                    auto matcher = bwdMatcher(re.ir[t.pc + IRL!(IR.LookbehindStart) .. end],
+                        subCounters.get(t.pc, 0));
                 matcher.re.ngroup = me - ms;
                 matcher.backrefed = backrefed.empty ? t.matches : backrefed;
                 //backMatch
-                auto mRes = matcher.matchOneShot(t.matches.ptr[ms .. me], IRL!(IR.LookbehindStart));
+                auto mRes = matcher.matchOneShot(t.matches.ptr[ms .. me]);
                 freelist = matcher.freelist;
                 subCounters[t.pc] = matcher.genCounter;
-                if((mRes == MatchResult.Match) ^ positive)
+                if(mRes ^ positive)
                 {
                     recycle(t);
                     t = worklist.fetch();
@@ -688,23 +657,24 @@ struct ThreadList(DataIndex)
                 break;
             case IR.LookaheadStart:
             case IR.NeglookaheadStart:
-                auto save = index;
+                auto save = s._index;
                 uint len = re.ir[t.pc].data;
                 uint ms = re.ir[t.pc+1].raw, me = re.ir[t.pc+2].raw;
                 uint end = t.pc+len+IRL!(IR.LookaheadEnd)+IRL!(IR.LookaheadStart);
                 bool positive = re.ir[t.pc].code == IR.LookaheadStart;
                 static if(Stream.isLoopback)
-                    auto matcher = bwdMatcher(re.ir[t.pc .. end], subCounters.get(t.pc, 0));
+                    auto matcher = bwdMatcher(re.ir[t.pc + IRL!(IR.LookaheadStart) .. end],
+                        subCounters.get(t.pc, 0));
                 else
-                    auto matcher = fwdMatcher(re.ir[t.pc .. end], subCounters.get(t.pc, 0));
+                    auto matcher = fwdMatcher(re.ir[t.pc + IRL!(IR.LookaheadStart) .. end],
+                        subCounters.get(t.pc, 0));
                 matcher.re.ngroup = me - ms;
                 matcher.backrefed = backrefed.empty ? t.matches : backrefed;
-                auto mRes = matcher.matchOneShot(t.matches.ptr[ms .. me], IRL!(IR.LookaheadStart));
+                auto mRes = matcher.matchOneShot(t.matches.ptr[ms .. me]);
                 freelist = matcher.freelist;
                 subCounters[t.pc] = matcher.genCounter;
-                s.reset(index);
-                next();
-                if((mRes == MatchResult.Match) ^ positive)
+                s.reset(save);
+                if(mRes ^ positive)
                 {
                     recycle(t);
                     t = worklist.fetch();
@@ -729,14 +699,14 @@ struct ThreadList(DataIndex)
                 t.pc += IRL!(IR.Nop);
                 break;
 
-                static if(withInput)
+                static if(kind)
                 {
             case IR.OrChar:
                       uint len = re.ir[t.pc].sequence;
                       uint end = t.pc + len;
                       static assert(IRL!(IR.OrChar) == 1);
                       for(; t.pc < end; t.pc++)
-                          if(re.ir[t.pc].data == front)
+                          if(s.testDChar(re.ir[t.pc].data))
                               break;
                       if(t.pc != end)
                       {
@@ -750,7 +720,7 @@ struct ThreadList(DataIndex)
                           return;
                       break;
             case IR.Char:
-                      if(front == re.ir[t.pc].data)
+                      if(s.testDChar(re.ir[t.pc].data))
                       {
                           t.pc += IRL!(IR.Char);
                           nlist.insertBack(t);
@@ -764,7 +734,7 @@ struct ThreadList(DataIndex)
             case IR.Any:
                       t.pc += IRL!(IR.Any);
                       if(!(re.flags & RegexOption.singleline)
-                              && (front == '\r' || front == '\n'))
+                              && (s.front == '\r' || s.front == '\n'))
                           recycle(t);
                       else
                           nlist.insertBack(t);
@@ -773,21 +743,8 @@ struct ThreadList(DataIndex)
                           return;
                       break;
             case IR.CodepointSet:
-                      if(re.charsets[re.ir[t.pc].data].scanFor(front))
-                      {
-                          t.pc += IRL!(IR.CodepointSet);
-                          nlist.insertBack(t);
-                      }
-                      else
-                      {
-                          recycle(t);
-                      }
-                      t = worklist.fetch();
-                      if(!t)
-                          return;
-                      break;
             case IR.Trie:
-                      if(re.tries[re.ir[t.pc].data][front])
+                      if(s.testClass(re.matchers[re.ir[t.pc].data]))
                       {
                           t.pc += IRL!(IR.Trie);
                           nlist.insertBack(t);
@@ -802,10 +759,17 @@ struct ThreadList(DataIndex)
                       break;
                   default:
                       assert(0, "Unrecognized instruction " ~ re.ir[t.pc].mnemonic);
+            L_kill_thread:
+                        recycle(t);
+                        t = worklist.fetch();
+                        if(!t)
+                            return;
                 }
                 else
                 {
+
                     default:
+            L_kill_thread:
                         recycle(t);
                         t = worklist.fetch();
                         if(!t)
@@ -815,70 +779,11 @@ struct ThreadList(DataIndex)
         }
 
     }
-    enum uint RestartPc = uint.max;
-    //match the input, evaluating IR without searching
-    MatchResult matchOneShot(Group!DataIndex[] matches, uint startPc = 0)
-    {
-        debug(std_regex_matcher)
-        {
-            writefln("---------------single shot match ----------------- ");
-        }
-        alias evalFn = eval;
-        assert(clist == (ThreadList!DataIndex).init || startPc == RestartPc); // incorrect after a partial match
-        assert(nlist == (ThreadList!DataIndex).init || startPc == RestartPc);
-        if(!atEnd)//if no char
-        {
-            debug(std_regex_matcher)
-            {
-                writefln("-- Threaded matching threads at  %s",  s.slice(index, s.lastIndex));
-            }
-            if(startPc!=RestartPc)
-            {
-                auto startT = createStart(index, startPc);
-                genCounter++;
-                evalFn!true(startT, matches);
-            }
-            for(;;)
-            {
-                debug(std_regex_matcher) writeln("\n-- Started iteration of main cycle");
-                genCounter++;
-                debug(std_regex_matcher)
-                {
-                    foreach(t; clist[])
-                    {
-                        assert(t);
-                    }
-                }
-                for(Thread!DataIndex* t = clist.fetch(); t; t = clist.fetch())
-                {
-                    evalFn!true(t, matches);
-                }
-                if(nlist.empty)
-                {
-                    debug(std_regex_matcher) writeln("Stopped  matching before consuming full input");
-                    break;//not a partial match for sure
-                }
-                clist = nlist;
-                nlist = (ThreadList!DataIndex).init;
-                if(!next())
-                {
-                    if (!atEnd) return MatchResult.PartialMatch;
-                    break;
-                }
-                debug(std_regex_matcher) writeln("-- Ended iteration of main cycle\n");
-            }
-        }
-        genCounter++; //increment also on each end
-        debug(std_regex_matcher) writefln("-- Matching threads at end");
-        //try out all zero-width posibilities
-        for(Thread!DataIndex* t = clist.fetch(); t; t = clist.fetch())
-        {
-            evalFn!false(t, matches);
-        }
-        if(!matched)
-            evalFn!false(createStart(index, startPc), matches);
 
-        return (matched?MatchResult.Match:MatchResult.NoMatch);
+    //match the input, evaluating IR without searching
+    bool matchOneShot(Group!DataIndex[] matches)
+    {
+        return matchImpl!(false, false)(matches);
     }
 
     //get a dirty recycled Thread
