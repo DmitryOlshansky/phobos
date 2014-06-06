@@ -133,20 +133,6 @@ enum InputKind { None=0, Unit, Point };
     //true if it's end of input
     @property bool atEnd(){  return s.atEnd; }
 
-    static if(kicked)
-    {
-        bool search()
-        {
-
-            if(!s.search(re.kickstart, front, index))
-            {
-                index = s.lastIndex;
-                return false;
-            }
-            return true;
-        }
-    }
-
     void initExternalMemory(void[] memory)
     {
         threadSize = getThreadSize(re);
@@ -262,8 +248,7 @@ enum InputKind { None=0, Unit, Point };
                 {
                     static if(withKick)
                     {
-                        if(!search())
-                            break;
+                        s._index = kick.search(s._origin, s._index);
                     }
                     else if(!withSearch)
                         break;
