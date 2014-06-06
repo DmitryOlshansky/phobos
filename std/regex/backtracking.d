@@ -155,7 +155,6 @@ template BacktrackingMatcher(bool CTregex)
             MatchFn nativeFn; //native code for that program
         //Stream state
         Stream s;
-        dchar front;
         bool exhausted;
         //backtracking machine state
         uint pc, counter;
@@ -188,12 +187,6 @@ template BacktrackingMatcher(bool CTregex)
         @property bool atStart(){ return s._index == 0; }
 
         @property bool atEnd(){ return s.atEnd; }
-
-        bool next()
-        {
-            size_t dummy;
-            return s.nextChar(front, dummy);
-        }
 
         void search()
         {
@@ -267,8 +260,8 @@ template BacktrackingMatcher(bool CTregex)
                 matches[0].end = s._index;
                 if(!(re.flags & RegexOption.global) || atEnd)
                     exhausted = true;
-                if(start == s._index)//empty match advances input
-                    next();
+                if(start == s._index && !s.atEnd)//empty match advances input
+                    s.skipChar();
                 return true;
             }
             else
@@ -660,11 +653,8 @@ template BacktrackingMatcher(bool CTregex)
                         auto referenced = re.ir[pc].localRef
                                 ? s.slice(matches[n].begin, matches[n].end)
                                 : s.slice(backrefed[n].begin, backrefed[n].end);
-                        while(!referenced.empty && next() && front == referenced.front)
-                        {
-                            referenced.popFront();
-                        }
-                        if(referenced.empty)
+                        import std.string, std.algorithm;
+                        if(skipOver(s, referenced.representation))
                             pc++;
                         else
                             goto L_backtrack;
@@ -1266,22 +1256,23 @@ struct CtContext
     //D code for atom at ir using address addr, addr < 0 means quickTest
     string ctAtomCode(Bytecode[] ir, int addr)
     {
-        string code;
-        string load, bailOut, nextInstr;
+        string load, code;
+        string bailOut, nextInstr;
         if(addr < 0)
         {
-            load = "if(atEnd) return -1;\nfront = s.peek();";
+            load = "if(atEnd) return -1;";
             bailOut = "return -1;";
             nextInstr = "return 0;";
         }
         else
         {
-            load = "if(!next()) goto L_backtrack;";
+            load = "if(atEnd) goto L_backtrack;";
             bailOut = "goto L_backtrack;";
             nextInstr = ctSub("goto case $$;", addr+1);
             code ~=  ctSub( `
-                 case $$: debug(std_regex_matcher) writeln("#$$ $$");
-                    `, addr, addr, ir[0].mnemonic);
+                 case $$: debug(std_regex_matcher) writefln("#$$ $$ src: %s",
+                    s.slice(s._index, s._index+s.length));
+                `, addr, addr, ir[0].mnemonic);
         }
         switch(ir[0].code)
         {
@@ -1291,9 +1282,9 @@ struct CtContext
             for(uint i = 0; i < len; i++)
             {
                 code ~= ctSub( `
-                    if(front == $$)
+                    if(s.$$DChar($$))
                         $$
-                    `,  ir[i].data, nextInstr);
+                    `,  addr < 0 ? "test" : "match", ir[i].data, nextInstr);
             }
             code ~= ctSub( `
                     $$`, bailOut);
@@ -1301,31 +1292,26 @@ struct CtContext
         case IR.Char:
             code ~= load;
             code ~= ctSub( `
-                    if(front != $$)
+                    if(!s.$$DChar($$))
                         $$
-                    $$`, ir[0].data, bailOut, nextInstr);
+                    $$`, addr < 0 ? "test" : "match", ir[0].data, bailOut, nextInstr);
             break;
         case IR.Any:
             code ~= load;
             code ~= ctSub(`
-                    if((!(re.flags & RegexOption.singleline)
-                                && (front == '\r' || front == '\n')))
+                    if(!(re.flags & RegexOption.singleline)
+                                && (s.front == '\r' || s.front == '\n'))
                         $$
-                    $$`, bailOut, nextInstr);
+                    $$
+                    $$`, bailOut, addr < 0 ? "" : "s.skipChar();", nextInstr);
             break;
         case IR.CodepointSet:
-            code ~= load;
-            code ~= ctSub( `
-                    if(!re.charsets[$$].scanFor(front))
-                        $$
-                    $$`, ir[0].data, bailOut, nextInstr);
-            break;
         case IR.Trie:
             code ~= load;
             code ~= ctSub( `
-                    if(!re.tries[$$][front])
+                    if(!re.matchers[$$].$$(s))
                         $$
-                    $$`, ir[0].data, bailOut, nextInstr);
+                    $$`, ir[0].data, addr < 0 ? "test" : "skip", bailOut, nextInstr);
             break;
         case IR.Wordboundary:
             code ~= ctSub( `
@@ -1427,11 +1413,8 @@ struct CtContext
                     ir[0].data, ir[0].data);
             code ~= ctSub( `
                     $$
-                    while(!referenced.empty && next() && front == referenced.front)
-                    {
-                        referenced.popFront();
-                    }
-                    if(referenced.empty)
+                    import std.string, std.algorithm;
+                    if(skipOver(s, referenced.representation))
                         $$
                     else
                         $$`, mStr, nextInstr, bailOut);
