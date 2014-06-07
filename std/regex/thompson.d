@@ -89,6 +89,72 @@ struct ThreadList(DataIndex)
 // What is at front of range - nothing, single code unit (<= ASCII), full codepoint ( > ASCII)
 enum InputKind { None=0, Unit, Point };
 
+// Thompson doesn't do quick test on empty input, and it knowns ASCII vs non-ASCII
+int quickTestKnown(InputKind kind, RegEx, Stream)(uint pc, ref Stream s, ref RegEx re)
+{
+    for(;;)
+        switch(re.ir[pc].code) with (InputKind)
+        {
+            static if(kind == Point || is(dchar : typeof(s.front)))
+            {
+        case IR.OrChar:
+                uint len = re.ir[pc].sequence;
+                uint end = pc + len;
+                if(!s.testDChar(re.ir[pc].data) && !s.testDChar(re.ir[pc+1].data))
+                {
+                    for(pc = pc+2; pc < end; pc++)
+                        if(s.testDChar(re.ir[pc].data))
+                            break;
+                    if(pc == end)
+                        return -1;
+                }
+                return 0;
+        case IR.Char:
+                return s.testDChar(re.ir[pc].data) ? 0 : -1;
+        case IR.CodepointSet:
+        case IR.Trie:
+                if(s.testClass(re.matchers[re.ir[pc].data]))
+                    return 0;
+                else
+                    return -1;
+            }
+            else
+            {
+        case IR.OrChar:
+                uint len = re.ir[pc].sequence;
+                uint end = pc + len;
+                immutable c = s.front;
+                if(c != re.ir[pc].data && c != re.ir[pc+1].data)
+                {
+                    for(pc = pc+2; pc < end; pc++)
+                        if(c == re.ir[pc].data)
+                            break;
+                    if(pc == end)
+                        return -1;
+                }
+                return 0;
+        case IR.Char:
+                return s.front == re.ir[pc].data ? 0 : -1;
+        case IR.CodepointSet:
+        case IR.Trie:
+                if(re.matchers[re.ir[pc].data].subMatcher!1.test(s))
+                    return 0;
+                else
+                    return -1;
+            }
+        case IR.GroupStart, IR.GroupEnd:
+            pc += IRL!(IR.GroupStart);
+            break;
+
+        case IR.Any:
+        default:
+            return 0;
+        }
+    assert(0);
+}
+
+
+
 /+
    Thomspon matcher does all matching in lockstep,
    never looking at the same char twice
@@ -336,7 +402,7 @@ enum InputKind { None=0, Unit, Point };
                 writefln("PC: %s\tCNT: %s\t%s \t src: %s",
                     t.pc, t.counter, disassemble(re.ir, t.pc, re.dict),
                     s.slice(s._index, s.lastIndex));
-            switch(re.ir[t.pc].code)
+            switch(re.ir[t.pc].code) with(InputKind)
             {
             case IR.End:
                 finish(t, matches);
@@ -513,7 +579,7 @@ enum InputKind { None=0, Unit, Point };
                 }
                 static if(kind)
                 {
-                    int test = quickTestNonDec(pc1, s, re);
+                    int test = quickTestKnown!kind(pc1, s, re);
                     if(test >= 0)
                     {
                         worklist.insertFront(fork(t, pc2, t.counter));
@@ -691,8 +757,16 @@ enum InputKind { None=0, Unit, Point };
                       uint end = t.pc + len;
                       static assert(IRL!(IR.OrChar) == 1);
                       for(; t.pc < end; t.pc++)
-                          if(s.testDChar(re.ir[t.pc].data))
-                              break;
+                            static if(kind == Point)
+                            {
+                                if(s.testDChar(re.ir[t.pc].data))
+                                    break;
+                            }
+                            else
+                            {
+                                if(s.front == re.ir[t.pc].data)
+                                    break;
+                            }
                       if(t.pc != end)
                       {
                           t.pc = end;
@@ -729,14 +803,25 @@ enum InputKind { None=0, Unit, Point };
                       break;
             case IR.CodepointSet:
             case IR.Trie:
-                      if(s.testClass(re.matchers[re.ir[t.pc].data]))
+                      static if(kind == Point || is(dchar : Char))
                       {
-                          t.pc += IRL!(IR.Trie);
-                          nlist.insertBack(t);
+                          if(s.testClass(re.matchers[re.ir[t.pc].data]))
+                          {
+                              t.pc += IRL!(IR.Trie);
+                              nlist.insertBack(t);
+                          }
+                          else
+                              recycle(t);
                       }
                       else
                       {
-                          recycle(t);
+                          if(re.matchers[re.ir[t.pc].data].subMatcher!1.test(s))
+                          {
+                              t.pc += IRL!(IR.Trie);
+                              nlist.insertBack(t);
+                          }
+                          else
+                              recycle(t);
                       }
                       t = worklist.fetch();
                       if(!t)
