@@ -15,32 +15,9 @@ alias BasicElementOf(Range) = Unqual!(ElementEncodingType!Range);
 // heuristic value determines maximum CodepointSet length suitable for linear search
 enum maxCharsetUsed = 6;
 
-// another variable to tweak behavior of caching generated Tries for character classes
-enum maxCachedTries = 8;
-
 alias CodepointSetTrie!(13, 8) Trie;
 alias codepointSetTrie!(13, 8) makeTrie;
 
-Trie[CodepointSet] trieCache;
-
-//accessor with caching
-@trusted Trie getTrie(CodepointSet set)
-{// @@@BUG@@@ 6357 almost all properties of AA are not @safe
-    if(__ctfe || maxCachedTries == 0)
-        return makeTrie(set);
-    else
-    {
-        auto p = set in trieCache;
-        if(p)
-            return *p;
-        if(trieCache.length == maxCachedTries)
-        {
-            // flush entries in trieCache
-            trieCache = null;
-        }
-        return (trieCache[set] = makeTrie(set));
-    }
-}
 
 @trusted auto memoizeExpr(string expr)()
 {
@@ -495,7 +472,6 @@ package:
     uint hotspotTableSize; //number of entries in merge table
     uint threadCount;
     uint flags;         //global regex flags
-    public const(Trie)[]  tries; //
     public UtfMatcher!Char[] matchers; //
     uint[] backrefed; //bit array of backreferenced submatches
     Kickstart!Char kickstart;
@@ -922,7 +898,6 @@ int quickTestNonDec(RegEx, Stream)(uint pc, ref Stream s, const ref RegEx re)
             return 0;
         }
 }
-
 
 ///Exception object thrown in case of errors during regex compilation.
 public class RegexException : Exception

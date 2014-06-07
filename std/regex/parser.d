@@ -19,7 +19,6 @@ auto makeRegex(S)(Parser!S p)
         maxCounterDepth = p.counterDepth;
         flags = p.re_flags;
         charsets = p.charsets;
-        tries = p.tries;
         matchers = p.matchers;
         backrefed = p.backrefed;
         re.lightPostprocess();
@@ -198,31 +197,9 @@ dchar parseUniHex(Char)(ref Char[] str, size_t maxDigit)
 //heuristic value determines maximum CodepointSet length suitable for linear search
 enum maxCharsetUsed = 6;
 
-enum maxCachedTries = 8;
-
 alias CodepointSetTrie!(13, 8) Trie;
 alias codepointSetTrie!(13, 8) makeTrie;
 
-Trie[CodepointSet] trieCache;
-
-//accessor with caching
-@trusted Trie getTrie(CodepointSet set)
-{// @@@BUG@@@ 6357 almost all properties of AA are not @safe
-    if(__ctfe || maxCachedTries == 0)
-        return makeTrie(set);
-    else
-    {
-        auto p = set in trieCache;
-        if(p)
-            return *p;
-        if(trieCache.length == maxCachedTries)
-        {
-            // flush entries in trieCache
-            trieCache = null;
-        }
-        return (trieCache[set] = makeTrie(set));
-    }
-}
 
 
 auto caseEnclose(CodepointSet set)
@@ -303,7 +280,6 @@ struct Parser(R)
     uint lookaroundNest = 0;
     uint counterDepth = 0; //current depth of nested counted repetitions
     CodepointSet[] charsets;  //
-    const(Trie)[] tries; //
     UtfMatcher!Char[] matchers;
     uint[] backrefed; //bitarray for groups
 
@@ -1265,23 +1241,10 @@ struct Parser(R)
         }
         else
         {
-            auto ivals = set.byInterval;
-            if(ivals.length*2 > maxCharsetUsed)
-            {
-                auto t  = getTrie(set);
-                put(Bytecode(IR.Trie, cast(uint)tries.length));
-                tries ~= t;
-                matchers ~= utfMatcher!Char(set);
-                debug(std_regex_allocation) writeln("Trie generated");
-            }
-            else
-            {
-                put(Bytecode(IR.CodepointSet, cast(uint)charsets.length));
-                matchers ~= utfMatcher!Char(set);
-                tries ~= Trie.init;
-            }
+            put(Bytecode(IR.Trie, cast(uint)matchers.length));
+            matchers ~= utfMatcher!Char(set);
             charsets ~= set;
-            assert(charsets.length == tries.length);
+            assert(charsets.length == matchers.length);
         }
     }
 
