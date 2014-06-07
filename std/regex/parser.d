@@ -70,6 +70,11 @@ unittest
     assert(nc.equal(cp[1 .. $ - 1]));
 }
 
+unittest
+{
+    auto r = makeRegex("[0-9]/[0-9]/[0-9]");
+    assert(r.charsets.length == 1); //reuse slots
+}
 
 @trusted void reverseBytecode()(Bytecode[] code)
 {
@@ -1241,10 +1246,17 @@ struct Parser(R)
         }
         else
         {
-            put(Bytecode(IR.Trie, cast(uint)matchers.length));
-            matchers ~= utfMatcher!Char(set);
-            charsets ~= set;
-            assert(charsets.length == matchers.length);
+            import std.algorithm: countUntil;
+            auto n = charsets.countUntil(set);
+            if(n >= 0)
+                put(Bytecode(IR.Trie, cast(uint)n));
+            else
+            {
+                    put(Bytecode(IR.Trie, cast(uint)matchers.length));
+                matchers ~= utfMatcher!Char(set);
+                charsets ~= set;
+                assert(charsets.length == matchers.length);
+            }
         }
     }
 
