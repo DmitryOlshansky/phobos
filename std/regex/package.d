@@ -1313,7 +1313,7 @@ public @trusted void replaceAllInto(alias fun, Sink, R, RegEx)
 public R replace(alias scheme = match, R, C, RegEx)(R input, RegEx re, const(C)[] format)
     if(isSomeString!R && isRegexFor!(RegEx, R))
 {
-    return replaceAllWith!((m, sink) => replaceFmt(format, m, sink), match)(input, re);
+    return replaceAllWith!((m, sink) => replaceFmt(format, m, sink), scheme)(input, re);
 }
 
 ///ditto

@@ -176,7 +176,7 @@ int quickTestKnown(InputKind kind, RegEx, Stream)(uint pc, ref Stream s, ref Reg
     bool exhausted;
     static if(__traits(hasMember,Stream, "search"))
     {
-        enum kicked = false;
+        enum kicked = true;
     }
     else
         enum kicked = false;
@@ -314,7 +314,8 @@ int quickTestKnown(InputKind kind, RegEx, Stream)(uint pc, ref Stream s, ref Reg
                 {
                     static if(withKick)
                     {
-                        s._index = kick.search(s._origin, s._index);
+                        s._index = re.kickstart.search(s._origin,
+                            s._index);
                     }
                     else if(!withSearch)
                         break;
