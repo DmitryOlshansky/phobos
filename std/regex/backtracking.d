@@ -46,6 +46,82 @@ template BacktrackingMatcher(bool CTregex)
         size_t[] memory;
         //local slice of matches, global for backref
         Group!DataIndex[] matches, backrefed;
+        int[size_t] optimalFilter;
+        static struct Entry
+        {
+            ptrdiff_t ofs;
+            enum RANGE = bitmap.sizeof*8;
+            ulong bitmap;
+            int yes, no;
+            bool firstTime(ptrdiff_t new_idx)
+            {
+                auto delta = new_idx - ofs + RANGE/2;
+
+                if (delta >= RANGE)
+                {
+                    if (delta < RANGE*3/2) //shift back by 16 places, keep history
+                    {
+                        auto shift = delta - RANGE/2;
+                        ofs += shift;
+                        bitmap >>= shift;
+                        delta -= shift;
+                    }
+                    else //throw away history
+                    {
+                        ofs = new_idx;
+                        bitmap = 0;
+                        delta = RANGE/2;
+                    }
+                }
+                else if(delta < 0)
+                {
+                    if (delta > -RANGE/2) //shift forward by 16 places, keep history
+                    {
+                        auto shift = -delta;
+                        ofs -= shift;
+                        bitmap <<= shift;
+                        delta += shift;
+                    }
+                    else //throw away history
+                    {
+                        ofs = new_idx;
+                        bitmap = 0;
+                        delta = RANGE/2;
+                    }
+                }
+                auto mask = cast(typeof(bitmap))1<<delta;
+                if(bitmap & mask)
+                {
+                    yes++;
+                    return true;
+                }
+                bitmap |= mask;
+                no++;
+                return false;
+            }
+        }
+        Entry[size_t] traceFilter;
+
+        void printTrace()
+        {
+            size_t[size_t] yes;
+            size_t[size_t] no;
+            foreach(k, v; optimalFilter)
+            {
+                yes[k % re.ir.length] += v - 1; //total times seen - the first one
+                no[k % re.ir.length] += 1;
+            }
+            import std.stdio;
+            foreach(k, v; traceFilter)
+            {
+                auto trate = cast(double)v.yes/(v.yes+v.no);
+                auto orate = cast(double)yes[k]/(yes[k]+no[k]);
+                writefln("%d => %d/%d, %g; optimal %d / %d, %g rate; In %g of optimum",
+                    k, v.yes, v.yes+v.no, trate, yes[k], yes[k]+no[k], orate, trate == orate ? 1.0 : trate/orate);
+                //writef("%g,", trate == orate ? 1.0 : trate/orate);
+            }
+            writeln();
+        }
 
         static if(__traits(hasMember,Stream, "search"))
         {
@@ -157,7 +233,10 @@ template BacktrackingMatcher(bool CTregex)
                 writeln("------------------------------------------");
             }
             if(exhausted) //all matches collected
+            {
+                printTrace();
                 return false;
+            }
             this.matches = matches;
             if(re.flags & RegexInfo.oneShot)
             {
@@ -198,11 +277,13 @@ template BacktrackingMatcher(bool CTregex)
                     s.skipChar();
                     if(atEnd)
                     {
+                        printTrace();
                         exhausted = true;
                         return matchFinalize();
                     }
                 }
             }
+            printTrace();
             exhausted = true;
             return false;
         }
@@ -349,6 +430,14 @@ template BacktrackingMatcher(bool CTregex)
                         trackers[infiniteNesting+1] = s._index;
                         pc += re.ir[pc].data + IRL!(IR.InfiniteStart);
                         //now pc is at end IR.Infininite(Q)End
+                        auto fullIndex = pc + s._index*re.ir.length;
+                        if(fullIndex !in optimalFilter)
+                            optimalFilter[fullIndex] = 1;
+                        else
+                            optimalFilter[fullIndex]++;
+                        if(pc !in traceFilter)
+                            traceFilter[pc] = Entry();
+                        traceFilter[pc].firstTime(s._index);
                         uint len = re.ir[pc].data;
                         int test;
                         if(re.ir[pc].code == IR.InfiniteEnd)
@@ -409,6 +498,14 @@ template BacktrackingMatcher(bool CTregex)
                         break;
                     case IR.InfiniteEnd:
                     case IR.InfiniteQEnd:
+                        auto fullIndex = pc + s._index*re.ir.length;
+                        if(fullIndex !in optimalFilter)
+                            optimalFilter[fullIndex] = 1;
+                        else
+                            optimalFilter[fullIndex]++;
+                        if(pc !in traceFilter)
+                            traceFilter[pc] = Entry();
+                        traceFilter[pc].firstTime(s._index);
                         uint len = re.ir[pc].data;
                         debug(std_regex_matcher) writeln("Infinited nesting:", infiniteNesting);
                         assert(infiniteNesting < trackers.length);
