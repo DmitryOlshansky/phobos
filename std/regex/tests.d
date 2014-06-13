@@ -333,6 +333,13 @@ unittest
 //mixed lookaround
         TestVectors(   `a(?<=a(?=b))b`,    "ab", "y",      "$&", "ab"),
         TestVectors(   `a(?<=a(?!b))c`,    "ac", "y",      "$&", "ac"),
+//exercise more of Unicode and back-refs in lookbehind
+        TestVectors(   `(?<=\p{Cyrillic}+)!`,    "йа!", "y",      "$&", "!"),
+        TestVectors(   `(\p{Cyrillic}*)!(?<=\1!)`,    "аф!", "y",      "$1", "аф"),
+//TODO: need a way to wed out this pattern and support the 2nd one
+//In lookbehind "back-ref" has reverse dependecy
+//        TestVectors(   `(?<=([a-z]+)\1!)`,    "аф!", "y",      "$1", "аф"),
+//        TestVectors(   `(?<=\1([a-z]+)!)`,    "аф!", "y",      "$1", "аф"),
         ];
     string produceExpected(M,String)(auto ref M m, String fmt)
     {

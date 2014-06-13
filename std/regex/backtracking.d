@@ -531,12 +531,23 @@ template BacktrackingMatcher(bool CTregex)
                                 ? s.slice(matches[n].begin, matches[n].end)
                                 : s.slice(backrefed[n].begin, backrefed[n].end);
                         import std.string, std.algorithm;
-                        if(skipOver(s, referenced.representation))
-                            pc++;
+                        static if(Stream.isLoopback)
+                        {
+                            import std.range;
+                            if(skipOver(s, referenced.representation.retro))
+                                pc++;
+                            else
+                                goto L_backtrack;
+                        }
                         else
-                            goto L_backtrack;
+                        {
+                            if(skipOver(s, referenced.representation))
+                                pc++;
+                            else
+                                goto L_backtrack;
+                        }
                         break;
-                        case IR.Nop:
+                    case IR.Nop:
                         pc += IRL!(IR.Nop);
                         break;
                     case IR.LookaheadEnd:

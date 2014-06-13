@@ -652,9 +652,19 @@ int quickTestKnown(InputKind kind, RegEx, Stream)(uint pc, ref Stream s, ref Reg
                     {
                         auto refed = s.slice(source[n].begin, source[n].end);
                         import std.algorithm, std.string;
-                        if(s.length < refed.length || !s.startsWith(refed.representation))
+                        static if(Stream.isLoopback)
                         {
-                            goto L_kill_thread;
+                            if(s.length < refed.length || !s.startsWith(refed.representation.retro))
+                            {
+                                goto L_kill_thread;
+                            }
+                        }
+                        else
+                        {
+                            if(s.length < refed.length || !s.startsWith(refed.representation))
+                            {
+                                goto L_kill_thread;
+                            }
                         }
                     }
                     size_t idx = source[n].begin + t.uopCounter;

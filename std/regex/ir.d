@@ -675,7 +675,7 @@ struct Input(Char)
         void reset(size_t index){   _index = index;  }
 
         //slice using global offsets
-        String slice(size_t start, size_t end){  return _origin[end..start]; }
+        String slice(size_t start, size_t end){  return _origin[start..end]; }
 
         //index of at End position
         @property size_t lastIndex(){   return 0; }
