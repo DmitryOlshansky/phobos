@@ -1,0 +1,6 @@
+std.regex.internal.backtracking:CtContext.*
+std.regex.internal.backtracking:ct*
+std.typecons:MemberFunctionGenerator.*
+std.internal.digest.sha_SSSE3:*
+std.typecons:Tuple.injectNamedFields
+std.uni:InversionList.toSourceCode*
