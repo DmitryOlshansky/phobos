@@ -1,0 +1,53 @@
+std.algorithm:SplitterResult.front:If <tt>version(assert)</tt> is defined this will throw a <tt>new RangeError</tt> for an empty range. 
+std.algorithm:SplitterResult.popFront:If <tt>version(assert)</tt> is defined this will throw a <tt>new RangeError</tt> for an empty range. 
+std.algorithm:back:If <tt>version(assert)</tt> is defined this will throw a <tt>new RangeError</tt> for an empty range. 
+std.algorithm:front:If <tt>version(assert)</tt> is defined this will throw a <tt>new RangeError</tt> for an empty range.
+std.algorithm:popBack:If <tt>version(assert)</tt> is defined this will throw a <tt>new RangeError</tt> for an empty range.
+std.algorithm:popFront:If <tt>version(assert)</tt> is defined this will throw a <tt>new RangeError</tt> for an empty range.
+std.algorithm:reduce.reduceImpl:This is a <tt>throw</tt> when empty range and no seed.
+std.algorithm:splitter.front:If <tt>version(assert)</tt> is defined this will throw a <tt>new RangeError</tt> for an empty range. 
+std.algorithm:splitter.popFront:If <tt>version(assert)</tt> is defined this will throw a <tt>new RangeError</tt> for an empty range. 
+std.bitmanip:BitArray.toString:CL2
+std.complex:Complex.toString:CL3
+std.concurrency:this:CL4
+std.datetime:Interval._enforceNotEmpty:Throws a new DateTimeException on bad input. This could be changed to a pre-allocated exception, but then the line number would not be in the correct spot, since it's essentially like enforce. A better approach would be to get rid of the function and then pre-allocate an exception for each place it was being called, but that would be pre-allocating several exceptions, since many of Interval's functions call it.
+std.datetime:Interval.begin:Throws a DateTimeException on bad input. This could be changed to a pre-allocated exception.
+std.datetime:Interval.end:Throws a DateTimeException on bad input. This could be changed to a pre-allocated exception.
+std.datetime:Interval.expand:Throws a new DateTimeException on bad input. This could be changed to a pre-allocated exception.
+std.datetime:Interval.intersection:Throws a new DateTimeException on bad input. This could be changed to a pre-allocated exception, but then the error message wouldn't contain the bad input and would therefore be less informative.
+std.datetime:Interval.merge:Throws a new DateTimeException on bad input. This could be changed to a pre-allocated exception, but then the error message wouldn't contain the bad input and would therefore be less informative.
+std.datetime:Interval.shift:Throws a new DateTimeException on bad input. This could be changed to a pre-allocated exception.
+std.datetime:Interval.this:Throws a DateTimeException on bad input. This could be changed to a pre-allocated exception.
+std.datetime:dayOfYear:Throws a new DateTimeException on bad input. This could be changed to a pre-allocated exception.
+std.datetime:everyDayOfWeek:CL5
+std.datetime:everyDuration:CL5
+std.datetime:expand:CL5
+std.datetime:fromISOExtString:Throws a new DateTimeException on bad input. This could be changed to a pre-allocated exception, but then the error message wouldn't contain the bad input and would therefore be less informative.
+std.datetime:fromISOString:Throws a new DateTimeException on bad input. This could be changed to a pre-allocated exception, but then the error message wouldn't contain the bad input and would therefore be less informative.
+std.datetime:fromSimpleString:Throws a new DateTimeException on bad input. This could be changed to a pre-allocated exception, but then the error message wouldn't contain the bad input and would therefore be less informative.
+std.datetime:func:CL5
+std.digest.digest:toHexString:string toHexString(ubyte[] data): Provide ouput range and/or RCString overload
+std.net.curl:WorkerThreadProtocol.wait:CL3
+std.net.curl:_basicHTTP:CL1
+std.net.curl:_finalizeAsyncChunks:CL3
+std.net.curl:_getForRange:CL3
+std.net.curl:_receiveAsyncLines:CL3
+std.net.curl:clearIfSupported:CL5
+std.net.curl:decodeLineInto:CL5
+std.net.curl:del:CL1
+std.net.curl:download:CL1
+std.net.curl:dup:CL5
+std.net.curl:onReceive:CL5
+std.net.curl:onReceiveHeader:CL5
+std.net.curl:onSeek:CL5
+std.net.curl:onSend:CL5
+std.net.curl:onSocketOption:CL5
+std.net.curl:push:CL5
+std.net.isemail:substr:CL2
+std.parallelism:parallel:CL4
+std.parallelism:popFront:CL4
+std.string:format:CL6
+std.uni:testAll:CL5
+std.uuid:parseUUID.parserError:throws Exception
+std.uuid:this:throws Exception
+std.xml:assertNot:CL6
