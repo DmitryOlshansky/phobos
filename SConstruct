@@ -55,7 +55,7 @@ env.Append(DFLAGS = Split("-w -m$MODEL -I$DRUNTIME_IMPORT $PIC"))
 env.Append(DDOC=env.subst("$DMD $DFLAGS -o- -version=StdDdoc"))
 if OS == "linux":
         env.Append(DFLAGS="-L-ldl")
-print env.Dump()
+#print env.Dump()
 # old OS-specific druntime paths
 if OS == "windows":
     if MODEL == 32:
@@ -99,11 +99,12 @@ else: # all other OS & compilers supported y SCons
 # In particular it can't represent the same build steps 
 # as previous makefiles did. So let's keep it compatible and simple for starters.
 dobj = Builder(action="$DMD -c $DFLAGS $SOURCE -of$TARGET",
-              suffix = env["OBJSUFFIX"],
-              src_suffix = ".d")
+            suffix = env["OBJSUFFIX"],
+            src_suffix = ".d")
 dlib = Builder(action="$DMD -lib -c $DFLAGS $SOURCES -of$TARGET",
-              suffix = env["LIBSUFFIX"],
-              src_suffix = env["OBJSUFFIX"])
+            prefix=env["LIBPREFIX"],
+            suffix = env["LIBSUFFIX"],
+            src_suffix = env["OBJSUFFIX"])
 
 env.Append(BUILDERS={
     'CObj' : cobj,

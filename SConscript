@@ -22,13 +22,12 @@ zlib = env.CLib("zlib", zobjs)
 # May use more of Python to get fully recursive listing.
 dsources = Glob("std/*.d") + Glob("etc/*.d") + Glob("std/*/*.d") + Glob("std/*/*/*.d") + \
     Glob("std/*/*/*/*.d")
-
-# Table to filter out foreign OS-specific modules
-osList = [ "windows", "linux", "freebsd", "osx"]
-osList.remove(OS) # remove our OS from the list
-
+# Table to filter out some paths
+blacklist = [ "windows", "linux", "freebsd", "osx"]
+blacklist.remove(OS) # remove our OS from the list
+blacklist.append(relpath("std/c/"))
 def ourPlatfrom(f):
-    for os in osList:
+    for os in blacklist:
         if f.path.find(os) != -1:
             return False
     return True
