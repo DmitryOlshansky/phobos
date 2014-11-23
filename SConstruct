@@ -94,12 +94,13 @@ else: # all other OS & compilers supported y SCons
     cobj = env["BUILDERS"]["Object"]
     clib = env["BUILDERS"]["Library"]
 
-# custom builders for D: object file, library, dll and executable
+# print env.Dump()
+# custom builders for D: library, dll and test
 # Note: there is native Scons support for D, but it's not as flexible as needed.
 # In particular it can't represent the same build steps 
 # as previous makefiles did. So let's keep it compatible and simple for starters.
-dobj = Builder(action="$DMD -c $DFLAGS $SOURCE -of$TARGET",
-            suffix = env["OBJSUFFIX"],
+dtest = Builder(action="$DMD -main -unittest $DFLAGS $SOURCES -of$TARGET",
+            suffix = env["PROGSUFFIX"],
             src_suffix = ".d")
 dlib = Builder(action="$DMD -lib -c $DFLAGS $SOURCES -of$TARGET",
             prefix=env["LIBPREFIX"],
@@ -109,8 +110,8 @@ dlib = Builder(action="$DMD -lib -c $DFLAGS $SOURCES -of$TARGET",
 env.Append(BUILDERS={
     'CObj' : cobj,
     'CLib' : clib,
-    'DObj' : dobj,
     'DLib' : dlib,
+    'DTest' : dtest,
   #  'DDll' : ddll,
   #  'DExe' : dexe
 })
