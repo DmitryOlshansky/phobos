@@ -4,7 +4,7 @@
 #
 #   Correct environment, build commands, etc. are defined by SConstruct.
 import os
-from os.path import relpath
+from os.path import splitext, relpath
 from glob import glob
 from fnmatch import fnmatch
 Import('env', 'OS')
@@ -38,5 +38,5 @@ druntime = [env.subst("$DRUNTIME")]
 phobos = env.DLib("phobos", dsources + zlib + druntime)
 
 for t in dsources:
-    env.DTest([File(t), phobos])
-    
+    noext = splitext("tests/"+t)[0]
+    env.DTest(noext, [File(t), phobos])
