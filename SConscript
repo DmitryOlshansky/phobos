@@ -5,7 +5,6 @@
 #   Correct environment, build commands, etc. are defined by SConstruct.
 import os
 from os.path import splitext, relpath
-from glob import glob
 from fnmatch import fnmatch
 Import('env', 'OS')
 
@@ -21,22 +20,22 @@ zlib = env.CLib("zlib", zobjs)
 
 # Hackish glob to include 4 levels for now.
 # May use more of Python to get fully recursive listing.
-dsources = glob("std/*.d") + glob("etc/*.d") + glob("std/*/*.d") + glob("std/*/*/*.d") + \
-    glob("std/*/*/*/*.d")
+dsources = Glob("std/*.d") + Glob("etc/*.d") + Glob("std/*/*.d") + Glob("std/*/*/*.d") + \
+    Glob("std/*/*/*/*.d")
 # Table to filter out some paths
 blacklist = [ "windows", "linux", "freebsd", "osx"]
 blacklist.remove(OS) # remove our OS from the list
 def blacklisted(f):
     for os in blacklist:
-        if f.find(os) != -1:
+        if f.path.find(os) != -1:
             return False
-    if fnmatch(f, "std/c/*"):
+    if fnmatch(f.path, "std/c/*"):
         return False
     return True
 dsources = filter(blacklisted, dsources)
 druntime = [env.subst("$DRUNTIME")]
 phobos = env.DLib("phobos", dsources + zlib + druntime)
-
 for t in dsources:
-    noext = splitext("tests/"+t)[0]
-    env.DTest(noext, [File(t), phobos])
+    objDep = env.DTestObj(t)
+    print objDep
+    env.DTest(source=[objDep, phobos])

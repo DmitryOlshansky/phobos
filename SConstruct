@@ -5,6 +5,7 @@
 
 import platform
 import os
+import re
 from os.path import relpath, abspath # used to normalize unix path to OS path (might be better way?)
 
 osNames = { # python's uname() --> standardized identifier
@@ -53,6 +54,7 @@ env.Replace(
 env.Append(DRUNTIME_IMPORT = relpath(env.subst("$DRUNTIME_PATH/import")))
 env.Append(DFLAGS = Split("-w -m$MODEL -I$DRUNTIME_IMPORT $PIC"))
 env.Append(DDOC=env.subst("$DMD $DFLAGS -o- -version=StdDdoc"))
+env.Append(TESTRUNNER=abspath(env.subst("$DRUNTIME_PATH/src/test_runner.d")))
 if OS == "linux":
         env.Append(DFLAGS="-L-ldl")
 #print env.Dump()
@@ -95,15 +97,52 @@ else: # all other OS & compilers supported by SCons
     clib = env["BUILDERS"]["Library"]
 
 # print env.Dump()
-# custom builders for D: library, dll and test
 # Note: there is native Scons support for D, but it's not as flexible as needed.
 # In particular it can't represent the same build steps 
-# as previous makefiles did. So let's keep it compatible and simple for starters.
+# as previous makefiles did. Thus we use custom builder to do that.
+# Let's keep it compatible and simple for starters.
 
-# compile object file with unitest flag to tests/*.{o,obj}, write out dependencies to tests/*.dep
+# Handling DMD's deps output
+depPattern = re.compile(""".*\((\S+)\)""")
+
+def add_deps_target(target, source, env):
+    for s in source:
+        if s.path.endswith(".d"):
+            target.append(File(target[0].get_path() + ".deps"))
+    return target,source
+
+def dtest(target, source, env):
+    extras = []
+    for s in source:
+        if s.path.endswith(".deps"):
+            deps = []
+            print os.getcwd()
+            for line in open(s.path):
+                m = re.match(depPattern, line)
+                if not m is None:
+                    deps.append(m.groups()[0].replace("\\\\", "\\"))
+            # filter, use "set" to sort & unique
+            deps = set(filter(lambda x: x.find("druntime") < 0, deps))
+            source.remove(s)
+            extras += list(map(lambda p: File(p), deps))
+    source += extras
+    src = join(source.path)
+    cmd = env.subst("$DMD $DFLAGS %s -of%s")
+    subprocess.call(cmd % (src, target[0].path)
+    print target, "<===", source
+    return 1
+
+# compile object file with unitest flag to tests/*.{o,obj}, write out dependencies to tests/*.dep files
+# emitter used to notify SCons we actually get many targets out of 1 file
 dtest_obj = Builder(action="$DMD -c -unittest $DFLAGS $SOURCES -deps=${TARGET}.deps -of$TARGET",
             suffix = env["OBJSUFFIX"],
-            src_suffix = ".d")
+            src_suffix = ".d",
+            emitter = add_deps_target)
+
+# build test runner from deps file, main obj and phobos library
+dtest = Builder(action = dtest,
+        suffix = env['PROGSUFFIX'],
+        src_suffix = env["OBJSUFFIX"])
 
 # build whole library in one compiler run
 dlib = Builder(action="$DMD -lib -c $DFLAGS $SOURCES -of$TARGET",
@@ -113,11 +152,11 @@ dlib = Builder(action="$DMD -lib -c $DFLAGS $SOURCES -of$TARGET",
 
 env.Append(BUILDERS={
     'CObj' : cobj,
-    'CLib' : clib,
+    'CLib' : clib, 
     'DLib' : dlib,
-    'DTestObj' : dtest_obj,
-    'DTest' : 
-  #  'DDll' : ddll,
+    'DTestObj' : dtest_obj, # object file of the test + deps list
+    'DTest' : dtest # test executable itself from deps & obj file
+  #  'DSharedLib' : dshlib,
   #  'DExe' : dexe
 })
 
