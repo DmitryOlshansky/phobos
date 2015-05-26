@@ -335,21 +335,21 @@ int quickTestKnown(InputKind kind, RegEx, Stream)(uint pc, ref Stream s, ref Reg
         if(matched)
         {
             // in case NFA found match along the way
-         //and last possible longer alternative ultimately failed
+            //and last possible longer alternative ultimately failed
             static if(withSearch) // no point in any of this for one-shot mode
             {
-            s.reset(matches[0].end);//reset to last successful match
-            exhausted = atEnd || !(re.flags & RegexOption.global);
-            //+ empty match advances the input
-            if(!exhausted && matches[0].begin == matches[0].end)
-                    s.skipChar();
-        }
+                s.reset(matches[0].end);//reset to last successful match
+                exhausted = atEnd || !(re.flags & RegexOption.global);
+                //+ empty match advances the input
+                if(!exhausted && matches[0].begin == matches[0].end)
+                        s.skipChar();
+            }
         }
         return matched;
     }
 
     /+
-        handle succesful threads
+        handle successful threads
     +/
     void finish(const(Thread!DataIndex)* t, Group!DataIndex[] matches)
     {
@@ -649,7 +649,7 @@ int quickTestKnown(InputKind kind, RegEx, Stream)(uint pc, ref Stream s, ref Reg
                 else static if(kind)
                 { //non zero-width backref
                     if(t.uopCounter == 0) // eager test
-                {
+                    {
                         auto refed = s.slice(source[n].begin, source[n].end);
                         import std.algorithm, std.string;
                         static if(Stream.isLoopback)
@@ -682,6 +682,7 @@ int quickTestKnown(InputKind kind, RegEx, Stream)(uint pc, ref Stream s, ref Reg
                             t.uopCounter = 0;
                         }
                         nlist.insertBack(t);
+                    }
                     break;
                 }
                 else
@@ -776,7 +777,7 @@ int quickTestKnown(InputKind kind, RegEx, Stream)(uint pc, ref Stream s, ref Reg
                             static if(kind == Point)
                             {
                                 if(s.testDChar(re.ir[t.pc].data))
-                              break;
+                                    break;
                             }
                             else
                             {
@@ -824,20 +825,20 @@ int quickTestKnown(InputKind kind, RegEx, Stream)(uint pc, ref Stream s, ref Reg
                           if(s.testClass(re.matchers[re.ir[t.pc].data]))
                           {
                               t.pc += IRL!(IR.Trie);
-                          nlist.insertBack(t);
-                      }
-                      else
-                          recycle(t);
+                              nlist.insertBack(t);
+                          }
+                          else
+                              recycle(t);
                       }
                       else
                       {
                           if(re.matchers[re.ir[t.pc].data].subMatcher!1.test(s))
                           {
-                          t.pc += IRL!(IR.Trie);
-                          nlist.insertBack(t);
-                      }
-                      else
-                          recycle(t);
+                              t.pc += IRL!(IR.Trie);
+                              nlist.insertBack(t);
+                          }
+                          else
+                               recycle(t);
                       }
                       t = worklist.fetch();
                       if(!t)
@@ -863,14 +864,13 @@ int quickTestKnown(InputKind kind, RegEx, Stream)(uint pc, ref Stream s, ref Reg
                 }
             }
         }
-
     }
 
     //match the input, evaluating IR without searching
     bool matchOneShot(Group!DataIndex[] matches)
     {
         return matchImpl!(false, false)(matches);
-        }
+    }
 
     //get a dirty recycled Thread
     Thread!DataIndex* allocate()
