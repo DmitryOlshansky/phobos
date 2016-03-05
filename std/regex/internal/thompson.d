@@ -12,7 +12,7 @@ package(std.regex):
 
 import std.regex.internal.ir;
 import std.range;
-
+static import std.utf;
 debug(std_regex_matcher) import std.stdio;
 
 //State of VM thread
@@ -670,19 +670,14 @@ int quickTestKnown(InputKind kind, RegEx, Stream)(uint pc, ref Stream s, ref Reg
                     size_t idx = source[n].begin + t.uopCounter;
                     size_t end = source[n].end;
                     // just keep incrementing till it ends, everything is tested just once
-                    t.uopCounter += std.utf.stride(s.slice(idx, end), 0);
-                    if(t.uopCounter + source[n].begin == source[n].end) // last codepoint
-                    {
-                        import std.utf : stride;
-
-                        t.uopCounter += stride(s[idx..end], 0);
-                        if(t.uopCounter + source[n].begin == source[n].end)
-                        {//last codepoint
-                            t.pc += IRL!(IR.Backref);
-                            t.uopCounter = 0;
-                        }
+                    if(t.uopCounter + source[n].begin == source[n].end)
+                    {//last codepoint
+                        t.pc += IRL!(IR.Backref);
+                        t.uopCounter = 0;
                         nlist.insertBack(t);
                     }
+                    else
+                        t.uopCounter += std.utf.stride(s.slice(idx, end), 0);
                     break;
                 }
                 else
@@ -903,14 +898,12 @@ int quickTestKnown(InputKind kind, RegEx, Stream)(uint pc, ref Stream s, ref Reg
     //dispose list of threads
     void recycle(ref ThreadList!DataIndex list)
     {
-        auto t = list.tip;
-        while(t)
+        if(list.tip)
         {
-            auto next = t.next;
-            recycle(t);
-            t = next;
+            list.toe.next = freelist;
+            freelist = list.tip;
+            list = list.init;
         }
-        list = list.init;
     }
 
     //creates a copy of master thread with given pc
