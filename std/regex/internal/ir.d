@@ -347,9 +347,9 @@ struct NamedGroup
 }
 
 //holds pair of start-end markers for a submatch
-struct Group(DataIndex)
+struct Group(Offset)
 {
-    DataIndex begin, end;
+    Offset begin, end;
     @trusted string toString()() const
     {
         import std.format;
@@ -572,7 +572,7 @@ struct Input(Char)
     if(is(Char :dchar))
 {
     import std.utf;
-    alias DataIndex = size_t;
+    alias Offset = size_t;
     enum { isLoopback = false };
     alias String = const(Char)[];
     String _origin;
@@ -614,7 +614,7 @@ struct Input(Char)
 
     struct BackLooper
     {
-        alias DataIndex = size_t;
+        alias Offset = size_t;
         enum { isLoopback = true };
         String _origin;
         size_t _index;

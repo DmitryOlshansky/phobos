@@ -18,10 +18,10 @@ template BacktrackingMatcher(bool CTregex)
     @trusted struct BacktrackingMatcher(Char, Stream = Input!Char)
         if(is(Char : dchar))
     {
-        alias DataIndex = Stream.DataIndex;
+        alias Offset = Stream.Offset;
         struct State
         {//top bit in pc is set if saved along with matches
-            DataIndex index;
+            Offset index;
             uint pc, counter, infiniteNesting;
         }
         static assert(State.sizeof % size_t.sizeof == 0);
@@ -35,18 +35,18 @@ template BacktrackingMatcher(bool CTregex)
             MatchFn nativeFn; //native code for that program
         //Stream state
         Stream s;
-        DataIndex index;
+        Offset index;
         dchar front;
         bool exhausted;
         //backtracking machine state
         uint pc, counter;
-        DataIndex lastState = 0;    //top of state stack
-        DataIndex[] trackers;
+        Offset lastState = 0;    //top of state stack
+        Offset[] trackers;
         static if(!CTregex)
             uint infiniteNesting;
         size_t[] memory;
         //local slice of matches, global for backref
-        Group!DataIndex[] matches, backrefed;
+        Group!Offset[] matches, backrefed;
 
         static if(__traits(hasMember,Stream, "search"))
         {
@@ -57,13 +57,13 @@ template BacktrackingMatcher(bool CTregex)
 
         static size_t initialMemory(const ref RegEx re)
         {
-            return (re.ngroup+1)*DataIndex.sizeof //trackers
+            return (re.ngroup+1)*Offset.sizeof //trackers
                 + stackSize(re)*size_t.sizeof;
         }
 
         static size_t stackSize(const ref RegEx re)
         {
-            return initialStack*(stateSize + re.ngroup*(Group!DataIndex).sizeof/size_t.sizeof)+1;
+            return initialStack*(stateSize + re.ngroup*(Group!Offset).sizeof/size_t.sizeof)+1;
         }
 
         @property bool atStart(){ return index == 0; }
@@ -99,7 +99,7 @@ template BacktrackingMatcher(bool CTregex)
 
         void initExternalMemory(void[] memBlock)
         {
-            trackers = arrayInChunk!(DataIndex)(re.ngroup+1, memBlock);
+            trackers = arrayInChunk!(Offset)(re.ngroup+1, memBlock);
             memory = cast(size_t[])memBlock;
             memory[0] = 0; //hidden pointer
             memory = memory[1..$];
@@ -121,7 +121,7 @@ template BacktrackingMatcher(bool CTregex)
             return tmp;
         }
 
-        this(ref RegEx program, Stream stream, void[] memBlock, dchar ch, DataIndex idx)
+        this(ref RegEx program, Stream stream, void[] memBlock, dchar ch, Offset idx)
         {
             initialize(program, stream, memBlock);
             front = ch;
@@ -170,7 +170,7 @@ template BacktrackingMatcher(bool CTregex)
         }
 
         //lookup next match, fill matches with indices into input
-        bool match(Group!DataIndex[] matches)
+        bool match(Group!Offset[] matches)
         {
             debug(std_regex_matcher)
             {
@@ -182,7 +182,7 @@ template BacktrackingMatcher(bool CTregex)
             if(re.flags & RegexInfo.oneShot)
             {
                 exhausted = true;
-                DataIndex start = index;
+                Offset start = index;
                 auto m = matchImpl();
                 if(m)
                 {
@@ -308,7 +308,7 @@ template BacktrackingMatcher(bool CTregex)
                         break;
                     case IR.Wordboundary:
                         dchar back;
-                        DataIndex bi;
+                        Offset bi;
                         //at start & end of input
                         if(atStart && wordTrie[front])
                         {
@@ -334,7 +334,7 @@ template BacktrackingMatcher(bool CTregex)
                         goto L_backtrack;
                     case IR.Notwordboundary:
                         dchar back;
-                        DataIndex bi;
+                        Offset bi;
                         //at start & end of input
                         if(atStart && wordTrie[front])
                             goto L_backtrack;
@@ -352,7 +352,7 @@ template BacktrackingMatcher(bool CTregex)
                         break;
                     case IR.Bol:
                         dchar back;
-                        DataIndex bi;
+                        Offset bi;
                         if(atStart)
                             pc += IRL!(IR.Bol);
                         else if((re.flags & RegexOption.multiline)
@@ -366,7 +366,7 @@ template BacktrackingMatcher(bool CTregex)
                         break;
                     case IR.Eol:
                         dchar back;
-                        DataIndex bi;
+                        Offset bi;
                         debug(std_regex_matcher) writefln("EOL (front 0x%x) %s", front, s[index..s.lastIndex]);
                         //no matching inside \r\n
                         if(atEnd || ((re.flags & RegexOption.multiline)
@@ -814,7 +814,7 @@ struct CtContext
     string saveCode(uint pc, string count_expr="counter")
     {
         string text = ctSub("
-                    if(stackAvail < $$*(Group!(DataIndex)).sizeof/size_t.sizeof + trackers.length + $$)
+                    if(stackAvail < $$*(Group!(Offset)).sizeof/size_t.sizeof + trackers.length + $$)
                     {
                         newStack();
                         lastState = 0;
@@ -1016,7 +1016,7 @@ struct CtContext
         {
         case IR.InfiniteStart, IR.InfiniteQStart:
             r ~= ctSub( `
-                    trackers[$$] = DataIndex.max;
+                    trackers[$$] = Offset.max;
                     goto case $$;`, curInfLoop, fixup);
             ir = ir[ir[0].length..$];
             break;
@@ -1240,7 +1240,7 @@ struct CtContext
         case IR.Wordboundary:
             code ~= ctSub( `
                     dchar back;
-                    DataIndex bi;
+                    Offset bi;
                     if(atStart && wordTrie[front])
                     {
                         $$
@@ -1264,7 +1264,7 @@ struct CtContext
         case IR.Notwordboundary:
             code ~= ctSub( `
                     dchar back;
-                    DataIndex bi;
+                    Offset bi;
                     //at start & end of input
                     if(atStart && wordTrie[front])
                         $$
@@ -1284,7 +1284,7 @@ struct CtContext
         case IR.Bol:
             code ~= ctSub(`
                     dchar back;
-                    DataIndex bi;
+                    Offset bi;
                     if(atStart || ((re.flags & RegexOption.multiline)
                         && s.loopBack(index).nextChar(back,bi)
                         && endOfLine(back, front == '\n')))
@@ -1299,7 +1299,7 @@ struct CtContext
         case IR.Eol:
             code ~= ctSub(`
                     dchar back;
-                    DataIndex bi;
+                    Offset bi;
                     debug(std_regex_matcher) writefln("EOL (front 0x%x) %s", front, s[index..s.lastIndex]);
                     //no matching inside \r\n
                     if(atEnd || ((re.flags & RegexOption.multiline)

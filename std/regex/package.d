@@ -368,7 +368,7 @@ enum isRegexFor(RegEx, R) = is(RegEx == Regex!(BasicElementOf!R))
 @trusted public struct Captures(R, DIndex = size_t)
     if(isSomeString!R)
 {//@trusted because of union inside
-    alias DataIndex = DIndex;
+    alias Offset = DIndex;
     alias String = R;
 private:
     import std.conv;
@@ -377,8 +377,8 @@ private:
     enum smallString = 3;
     union
     {
-        Group!DataIndex[] big_matches;
-        Group!DataIndex[smallString] small_matches;
+        Group!Offset[] big_matches;
+        Group!Offset[smallString] small_matches;
     }
     uint _f, _b;
     uint _ngroup;
@@ -404,7 +404,7 @@ private:
         _f = 0;
     }
 
-    @property Group!DataIndex[] matches()
+    @property Group!Offset[] matches()
     {
        return _ngroup > smallString ? big_matches : small_matches[0 .. _ngroup];
     }
@@ -412,7 +412,7 @@ private:
     void newMatches()
     {
         if(_ngroup > smallString)
-            big_matches = new Group!DataIndex[_ngroup];
+            big_matches = new Group!Offset[_ngroup];
     }
 
 public:
@@ -556,7 +556,7 @@ private:
     alias EngineType = Engine!Char;
     EngineType _engine;
     R _input;
-    Captures!(R,EngineType.DataIndex) _captures;
+    Captures!(R,EngineType.Offset) _captures;
     void[] _memory;//is ref-counted
 
     this(RegEx)(R input, RegEx prog)
@@ -569,7 +569,7 @@ private:
         _engine = EngineType(prog, Input!Char(input), _memory[size_t.sizeof..$]);
         static if(is(RegEx == StaticRegex!(BasicElementOf!R)))
             _engine.nativeFn = prog.nativeFn;
-        _captures = Captures!(R,EngineType.DataIndex)(this);
+        _captures = Captures!(R,EngineType.Offset)(this);
         _captures._empty = !_engine.match(_captures.matches);
         debug(std_regex_allocation) writefln("RefCount (ctor): %x %d", _memory.ptr, counter);
     }
@@ -671,7 +671,7 @@ private @trusted auto matchOnce(alias Engine, RegEx, R)(R input, RegEx re)
     size_t size = EngineType.initialMemory(re);
     void[] memory = enforce(malloc(size), "malloc failed")[0..size];
     scope(exit) free(memory.ptr);
-    auto captures = Captures!(R, EngineType.DataIndex)(input, re.ngroup, re.dict);
+    auto captures = Captures!(R, EngineType.Offset)(input, re.ngroup, re.dict);
     auto engine = EngineType(re, Input!Char(input), memory);
     static if(is(RegEx == StaticRegex!(BasicElementOf!R)))
         engine.nativeFn = re.nativeFn;

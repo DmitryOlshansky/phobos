@@ -14,21 +14,21 @@ import std.regex.internal.ir;
 import std.range;
 
 //State of VM thread
-struct Thread(DataIndex)
+struct Node(Offset)
 {
-    Thread* next;    //intrusive linked list
+    Node* next;    //intrusive linked list
     uint pc;
     uint counter;    //loop counter
     uint uopCounter; //counts micro operations inside one macro instruction (e.g. BackRef)
-    Group!DataIndex[1] matches;
+    Group!Offset[1] matches;
 }
 
 //head-tail singly-linked list
-struct ThreadList(DataIndex)
+struct HeadTailList(Node)
 {
-    Thread!DataIndex* tip = null, toe = null;
+    Node* tip = null, toe = null;
     //add new thread to the start of list
-    void insertFront(Thread!DataIndex* t)
+    void insertFront(Node* t)
     {
         if(tip)
         {
@@ -42,7 +42,7 @@ struct ThreadList(DataIndex)
         }
     }
     //add new thread to the end of list
-    void insertBack(Thread!DataIndex* t)
+    void insertBack(Node* t)
     {
         if(toe)
         {
@@ -54,7 +54,7 @@ struct ThreadList(DataIndex)
         toe.next = null;
     }
     //move head element out of list
-    Thread!DataIndex* fetch()
+    Node* fetch()
     {
         auto t = tip;
         if(tip == toe)
@@ -63,13 +63,13 @@ struct ThreadList(DataIndex)
             tip = tip.next;
         return t;
     }
-    //non-destructive iteration of ThreadList
+    // non-destructive iteration of head-tail list
     struct ThreadRange
     {
-        const(Thread!DataIndex)* ct;
-        this(ThreadList tlist){ ct = tlist.tip; }
+        const(Node)* ct;
+        this(HeadTailList tlist){ ct = tlist.tip; }
         @property bool empty(){ return ct is null; }
-        @property const(Thread!DataIndex)* front(){ return ct; }
+        @property const(Node)* front(){ return ct; }
         @property popFront()
         {
             assert(ct);
@@ -93,16 +93,18 @@ struct ThreadList(DataIndex)
 @trusted struct ThompsonMatcher(Char, Stream = Input!Char)
     if(is(Char : dchar))
 {
-    alias DataIndex = Stream.DataIndex;
-    Thread!DataIndex* freelist;
-    ThreadList!DataIndex clist, nlist;
-    DataIndex[] merge;
-    Group!DataIndex[] backrefed;
+    alias Offset = Stream.Offset;
+    alias Thread = Node!Offset;
+    alias ThreadList = HeadTailList!Thread;
+    Thread* freelist;
+    ThreadList clist, nlist;
+    Offset[] merge;
+    Group!Offset[] backrefed;
     Regex!Char re;           //regex program
     Stream s;
     dchar front;
-    DataIndex index;
-    DataIndex genCounter;    //merge trace counter, goes up on every dchar
+    Offset index;
+    Offset genCounter;    //merge trace counter, goes up on every dchar
     size_t[size_t] subCounters; //a table of gen counter per sub-engine: PC -> counter
     size_t threadSize;
     bool matched;
@@ -117,8 +119,8 @@ struct ThreadList(DataIndex)
     static size_t getThreadSize(const ref Regex!Char re)
     {
         return re.ngroup
-            ? (Thread!DataIndex).sizeof + (re.ngroup-1)*(Group!DataIndex).sizeof
-            : (Thread!DataIndex).sizeof - (Group!DataIndex).sizeof;
+            ? (Thread).sizeof + (re.ngroup-1)*(Group!Offset).sizeof
+            : (Thread).sizeof - (Group!Offset).sizeof;
     }
 
     static size_t initialMemory(const ref Regex!Char re)
@@ -162,7 +164,7 @@ struct ThreadList(DataIndex)
         prepareFreeList(re.threadCount, memory);
         if(re.hotspotTableSize)
         {
-            merge = arrayInChunk!(DataIndex)(re.hotspotTableSize, memory);
+            merge = arrayInChunk!(Offset)(re.hotspotTableSize, memory);
             merge[] = 0;
         }
     }
@@ -217,7 +219,7 @@ struct ThreadList(DataIndex)
         Match,
     }
 
-    bool match(Group!DataIndex[] matches)
+    bool match(Group!Offset[] matches)
     {
         debug(std_regex_matcher)
             writeln("------------------------------------------");
@@ -238,7 +240,7 @@ struct ThreadList(DataIndex)
     }
 
     //match the input and fill matches
-    bool matchImpl(bool withSearch)(Group!DataIndex[] matches)
+    bool matchImpl(bool withSearch)(Group!Offset[] matches)
     {
         if(!matched && clist.empty)
         {
@@ -267,7 +269,7 @@ struct ThreadList(DataIndex)
                         writeln();
                     }
                 }
-                for(Thread!DataIndex* t = clist.fetch(); t; t = clist.fetch())
+                for(Thread* t = clist.fetch(); t; t = clist.fetch())
                 {
                     eval!true(t, matches);
                 }
@@ -279,7 +281,7 @@ struct ThreadList(DataIndex)
                     break;//not a partial match for sure
                 }
                 clist = nlist;
-                nlist = (ThreadList!DataIndex).init;
+                nlist = ThreadList.init;
                 if(clist.tip is null)
                 {
                     static if(withSearch)
@@ -304,7 +306,7 @@ struct ThreadList(DataIndex)
         genCounter++; //increment also on each end
         debug(std_regex_matcher) writefln("Threaded matching threads at end");
         //try out all zero-width posibilities
-        for(Thread!DataIndex* t = clist.fetch(); t; t = clist.fetch())
+        for(Thread* t = clist.fetch(); t; t = clist.fetch())
         {
             eval!false(t, matches);
         }
@@ -327,7 +329,7 @@ struct ThreadList(DataIndex)
     /+
         handle succesful threads
     +/
-    void finish(const(Thread!DataIndex)* t, Group!DataIndex[] matches)
+    void finish(const(Thread)* t, Group!Offset[] matches)
     {
         matches.ptr[0..re.ngroup] = t.matches.ptr[0..re.ngroup];
         debug(std_regex_matcher)
@@ -346,9 +348,9 @@ struct ThreadList(DataIndex)
         match thread against codepoint, cutting trough all 0-width instructions
         and taking care of control flow, then add it to nlist
     +/
-    void eval(bool withInput)(Thread!DataIndex* t, Group!DataIndex[] matches)
+    void eval(bool withInput)(Thread* t, Group!Offset[] matches)
     {
-        ThreadList!DataIndex worklist;
+        ThreadList worklist;
         debug(std_regex_matcher) writeln("---- Evaluating thread");
         for(;;)
         {
@@ -372,7 +374,7 @@ struct ThreadList(DataIndex)
                 return;
             case IR.Wordboundary:
                 dchar back;
-                DataIndex bi;
+                Offset bi;
                 //at start & end of input
                 if(atStart && wordTrie[front])
                 {
@@ -402,7 +404,7 @@ struct ThreadList(DataIndex)
                 break;
             case IR.Notwordboundary:
                 dchar back;
-                DataIndex bi;
+                Offset bi;
                 //at start & end of input
                 if(atStart && wordTrie[front])
                 {
@@ -438,7 +440,7 @@ struct ThreadList(DataIndex)
                 break;
             case IR.Bol:
                 dchar back;
-                DataIndex bi;
+                Offset bi;
                 if(atStart
                     ||( (re.flags & RegexOption.multiline)
                     && s.loopBack(index).nextChar(back,bi)
@@ -457,7 +459,7 @@ struct ThreadList(DataIndex)
             case IR.Eol:
                 debug(std_regex_matcher) writefln("EOL (front 0x%x) %s",  front, s[index..s.lastIndex]);
                 dchar back;
-                DataIndex bi;
+                Offset bi;
                 //no matching inside \r\n
                 if(atEnd || ((re.flags & RegexOption.multiline)
                     && endOfLine(front, s.loopBack(index).nextChar(back, bi)
@@ -617,7 +619,7 @@ struct ThreadList(DataIndex)
                 break;
             case IR.Backref:
                 uint n = re.ir[t.pc].data;
-                Group!DataIndex* source = re.ir[t.pc].localRef ? t.matches.ptr : backrefed.ptr;
+                Group!Offset* source = re.ir[t.pc].localRef ? t.matches.ptr : backrefed.ptr;
                 assert(source);
                 if(source[n].begin == source[n].end)//zero-width Backref!
                 {
@@ -813,15 +815,15 @@ struct ThreadList(DataIndex)
     }
     enum uint RestartPc = uint.max;
     //match the input, evaluating IR without searching
-    MatchResult matchOneShot(Group!DataIndex[] matches, uint startPc = 0)
+    MatchResult matchOneShot(Group!Offset[] matches, uint startPc = 0)
     {
         debug(std_regex_matcher)
         {
             writefln("---------------single shot match ----------------- ");
         }
         alias evalFn = eval;
-        assert(clist == (ThreadList!DataIndex).init || startPc == RestartPc); // incorrect after a partial match
-        assert(nlist == (ThreadList!DataIndex).init || startPc == RestartPc);
+        assert(clist == ThreadList.init || startPc == RestartPc); // incorrect after a partial match
+        assert(nlist == ThreadList.init || startPc == RestartPc);
         if(!atEnd)//if no char
         {
             debug(std_regex_matcher)
@@ -845,7 +847,7 @@ struct ThreadList(DataIndex)
                         assert(t);
                     }
                 }
-                for(Thread!DataIndex* t = clist.fetch(); t; t = clist.fetch())
+                for(Thread* t = clist.fetch(); t; t = clist.fetch())
                 {
                     evalFn!true(t, matches);
                 }
@@ -855,7 +857,7 @@ struct ThreadList(DataIndex)
                     break;//not a partial match for sure
                 }
                 clist = nlist;
-                nlist = (ThreadList!DataIndex).init;
+                nlist = ThreadList.init;
                 if(!next())
                 {
                     if (!atEnd) return MatchResult.PartialMatch;
@@ -867,7 +869,7 @@ struct ThreadList(DataIndex)
         genCounter++; //increment also on each end
         debug(std_regex_matcher) writefln("-- Matching threads at end");
         //try out all zero-width posibilities
-        for(Thread!DataIndex* t = clist.fetch(); t; t = clist.fetch())
+        for(Thread* t = clist.fetch(); t; t = clist.fetch())
         {
             evalFn!false(t, matches);
         }
@@ -878,10 +880,10 @@ struct ThreadList(DataIndex)
     }
 
     //get a dirty recycled Thread
-    Thread!DataIndex* allocate()
+    Thread* allocate()
     {
         assert(freelist, "not enough preallocated memory");
-        Thread!DataIndex* t = freelist;
+        Thread* t = freelist;
         freelist = freelist.next;
         return t;
     }
@@ -891,22 +893,22 @@ struct ThreadList(DataIndex)
     {
         void[] mem = memory[0 .. threadSize*size];
         memory = memory[threadSize * size .. $];
-        freelist = cast(Thread!DataIndex*)&mem[0];
+        freelist = cast(Thread*)&mem[0];
         size_t i;
         for(i = threadSize; i < threadSize*size; i += threadSize)
-            (cast(Thread!DataIndex*)&mem[i-threadSize]).next = cast(Thread!DataIndex*)&mem[i];
-        (cast(Thread!DataIndex*)&mem[i-threadSize]).next = null;
+            (cast(Thread*)&mem[i-threadSize]).next = cast(Thread*)&mem[i];
+        (cast(Thread*)&mem[i-threadSize]).next = null;
     }
 
     //dispose a thread
-    void recycle(Thread!DataIndex* t)
+    void recycle(Thread* t)
     {
         t.next = freelist;
         freelist = t;
     }
 
     //dispose list of threads
-    void recycle(ref ThreadList!DataIndex list)
+    void recycle(ref ThreadList!Thread list)
     {
         if(list.tip)
         {
@@ -918,7 +920,7 @@ struct ThreadList(DataIndex)
     }
 
     //creates a copy of master thread with given pc
-    Thread!DataIndex* fork(Thread!DataIndex* master, uint pc, uint counter)
+    Thread* fork(Thread* master, uint pc, uint counter)
     {
         auto t = allocate();
         t.matches.ptr[0..re.ngroup] = master.matches.ptr[0..re.ngroup];
@@ -929,10 +931,10 @@ struct ThreadList(DataIndex)
     }
 
     //creates a start thread
-    Thread!DataIndex* createStart(DataIndex index, uint pc = 0)
+    Thread* createStart(Offset index, uint pc = 0)
     {
         auto t = allocate();
-        t.matches.ptr[0..re.ngroup] = (Group!DataIndex).init;
+        t.matches.ptr[0..re.ngroup] = (Group!Offset).init;
         t.matches[0].begin = index;
         t.pc = pc;
         t.counter = 0;
