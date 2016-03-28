@@ -115,13 +115,13 @@ template ThompsonOps(E, S, bool withInput:true)
             if(atStart && wordMatcher[front])
             {
                 t.pc += IRL!(IR.Wordboundary);
-                return true;
+                return syncState!(code, true)(e);
             }
             else if(atEnd && s.loopBack(index).nextChar(back, bi)
                     && wordMatcher[back])
             {
                 t.pc += IRL!(IR.Wordboundary);
-                return true;
+                return syncState!(code, true)(e);
             }
             else if(s.loopBack(index).nextChar(back, bi))
             {
@@ -130,10 +130,10 @@ template ThompsonOps(E, S, bool withInput:true)
                 if(af ^ ab)
                 {
                     t.pc += IRL!(IR.Wordboundary);
-                    return true;
+                    return syncState!(code, true)(e);
                 }
             }
-            return popState(e);
+            return popState!(code, true)(e);
         }
     }
 
@@ -146,12 +146,12 @@ template ThompsonOps(E, S, bool withInput:true)
             //at start & end of input
             if(atStart && wordMatcher[front])
             {
-                return popState(e);
+                return popState!(code, true)(e);
             }
             else if(atEnd && s.loopBack(index).nextChar(back, bi)
                     && wordMatcher[back])
             {
-                return popState(e);
+                return popState!(code, true)(e);
             }
             else if(s.loopBack(index).nextChar(back, bi))
             {
@@ -159,12 +159,12 @@ template ThompsonOps(E, S, bool withInput:true)
                 bool ab = wordMatcher[back]  != 0;
                 if(af ^ ab)
                 {
-                    return popState(e);
+                    return popState!(code, true)(e);
                 }
             }
             t.pc += IRL!(IR.Notwordboundary);
+            return syncState!(code, true)(e);
         }
-        return true;
     }
 
     static bool op(IR code:IR.Bol)(E* e, S* state)
@@ -179,11 +179,11 @@ template ThompsonOps(E, S, bool withInput:true)
                 && startOfLine(back, front == '\n')))
             {
                 t.pc += IRL!(IR.Bol);
-                return true;
+                return syncState!(code, true)(e);
             }
             else
             {
-                return popState(e);
+                return popState!(code, true)(e);
             }
         }
     }
@@ -201,13 +201,12 @@ template ThompsonOps(E, S, bool withInput:true)
                     && back == '\r')))
             {
                 t.pc += IRL!(IR.Eol);
-                return true;
+                return syncState!(code, true)(e);
             }
             else
             {
-                return popState(e);
+                return popState!(code, true)(e);
             }
-
         }
     }
 
@@ -259,7 +258,7 @@ template ThompsonOps(E, S, bool withInput:true)
                 {
                     t.counter += step;
                     t.pc -= len;
-                    return true;
+                    return syncState!(code, true)(e);
                 }
                 if(merge[re.ir[t.pc + 1].raw+t.counter] < genCounter)
                 {
@@ -271,7 +270,7 @@ template ThompsonOps(E, S, bool withInput:true)
                 {
                     debug(std_regex_matcher) writefln("A thread(pc=%s) got merged there : %s ; GenCounter=%s mergetab=%s",
                                     t.pc, index, genCounter, merge[re.ir[t.pc + 1].raw+t.counter] );
-                    return popState(e);
+                    return popState!(code, true)(e);
                 }
                 uint max = re.ir[t.pc+4].raw;
                 if(t.counter < max)
@@ -296,7 +295,7 @@ template ThompsonOps(E, S, bool withInput:true)
                     t.counter %= step;
                     t.pc += IRL!(IR.RepeatEnd);
                 }
-                return true;
+                return syncState!(code, true)(e);
         }
     }
 
@@ -315,7 +314,7 @@ template ThompsonOps(E, S, bool withInput:true)
             {
                 debug(std_regex_matcher) writefln("A thread(pc=%s) got merged there : %s ; GenCounter=%s mergetab=%s",
                                 t.pc, index, genCounter, merge[re.ir[t.pc + 1].raw+t.counter] );
-                return popState(e);
+                return popState!(code, true)(e);
             }
             uint len = re.ir[t.pc].data;
             uint pc1, pc2; //branches to take in priority order
@@ -331,7 +330,7 @@ template ThompsonOps(E, S, bool withInput:true)
             }
             worklist.insertFront(fork(t, pc2, t.counter));
             t.pc = pc1;
-            return true;
+            return syncState!(code, true)(e);
         }
     }
 
@@ -350,7 +349,7 @@ template ThompsonOps(E, S, bool withInput:true)
             {
                 debug(std_regex_matcher) writefln("A thread(pc=%s) got merged there : %s ; GenCounter=%s mergetab=%s",
                                 t.pc, index, genCounter, merge[re.ir[t.pc + 1].raw+t.counter] );
-                return popState(e);
+                return popState!(code, true)(e);
             }
             uint len = re.ir[t.pc].data;
             uint pc1, pc2; //branches to take in priority order
@@ -360,7 +359,7 @@ template ThompsonOps(E, S, bool withInput:true)
             if (re.filters[filterIndex][front])
                 worklist.insertFront(fork(t, pc2, t.counter));
             t.pc = pc1;
-            return true;
+            return syncState!(code, true)(e);
         }
     }
 
@@ -379,9 +378,9 @@ template ThompsonOps(E, S, bool withInput:true)
             {
                 debug(std_regex_matcher) writefln("A thread(pc=%s) got merged there : %s ; GenCounter=%s mergetab=%s",
                                 t.pc, s[index .. s.lastIndex], genCounter, merge[re.ir[t.pc + 1].raw + t.counter] );
-                return popState(e);
+                return popState!(code, true)(e);
             }
-            return true;
+            return syncState!(code, true)(e);
         }
     }
 
@@ -405,7 +404,7 @@ template ThompsonOps(E, S, bool withInput:true)
                 worklist.insertFront(fork(t, next, t.counter));
             }
             t.pc += IRL!(IR.Option);
-            return true;
+            return syncState!(code, true)(e);
         }
     }
 
@@ -425,7 +424,7 @@ template ThompsonOps(E, S, bool withInput:true)
             uint n = re.ir[t.pc].data;
             t.matches.ptr[n].begin = index;
             t.pc += IRL!(IR.GroupStart);
-            return true;
+            return syncState!(code, true)(e);
         }
     }
     static bool op(IR code:IR.GroupEnd)(E* e, S* state)
@@ -435,7 +434,7 @@ template ThompsonOps(E, S, bool withInput:true)
             uint n = re.ir[t.pc].data;
             t.matches.ptr[n].end = index;
             t.pc += IRL!(IR.GroupEnd);
-            return true;
+            return syncState!(code, true)(e);
         }
     }
 
@@ -449,7 +448,7 @@ template ThompsonOps(E, S, bool withInput:true)
             if(source[n].begin == source[n].end)//zero-width Backref!
             {
                 t.pc += IRL!(IR.Backref);
-                return true;
+                return syncState!(code, true)(e);
             }
             else
             {
@@ -469,8 +468,7 @@ template ThompsonOps(E, S, bool withInput:true)
                 }
                 else
                     recycle(t);
-                t = worklist.fetch();
-                return t != null;
+                return switchState!(code, true)(e);
             }
         }
     }
@@ -497,10 +495,10 @@ template ThompsonOps(E, S, bool withInput:true)
             subCounters[t.pc] = matcher.genCounter;
             if((mRes == MatchResult.Match) ^ positive)
             {
-                return popState(e);
+                return popState!(code, true)(e);
             }
             t.pc = end;
-            return true;
+            return syncState!(code, true)(e);
         }
     }
 
@@ -527,10 +525,10 @@ template ThompsonOps(E, S, bool withInput:true)
             next();
             if((mRes == MatchResult.Match) ^ positive)
             {
-                return popState(e);
+                return popState!(code, true)(e);
             }
             t.pc = end;
-            return true;
+            return syncState!(code, true)(e);
         }
     }
 
@@ -540,19 +538,22 @@ template ThompsonOps(E, S, bool withInput:true)
     {
         with(e) with(state)
         {
-                finish(t, matches.ptr[0 .. re.ngroup]);
-                recycle(t);
-                //cut off low priority threads
-                recycle(clist);
-                recycle(worklist);
-                return false; // no more state
+            finish(t, matches.ptr[0 .. re.ngroup]);
+            recycle(t);
+            //cut off low priority threads
+            recycle(clist);
+            recycle(worklist);
+            return false; // no more state
         }
     }
 
     static bool op(IR code:IR.Nop)(E* e, S* state)
     {
-        with(state) t.pc += IRL!(IR.Nop);
-        return true;
+        with(state) 
+        {
+            t.pc += IRL!(IR.Nop);
+            return syncState!(code, true)(e);
+        }
     }
 
     static bool op(IR code:IR.OrChar)(E* e, S* state)
@@ -572,8 +573,7 @@ template ThompsonOps(E, S, bool withInput:true)
             }
             else
                 recycle(t);
-            t = worklist.fetch();
-            return t != null;
+            return switchState!(code, true)(e);
         }
     }
 
@@ -588,8 +588,7 @@ template ThompsonOps(E, S, bool withInput:true)
             }
             else
                 recycle(t);
-            t = worklist.fetch();
-            return t != null;
+            return switchState!(code, true)(e);
         }
     }
 
@@ -603,8 +602,7 @@ template ThompsonOps(E, S, bool withInput:true)
               recycle(t);
             else
               nlist.insertBack(t);
-            t = worklist.fetch();
-            return t != null;
+            return switchState!(code, true)(e);
         }
     }
 
@@ -621,8 +619,7 @@ template ThompsonOps(E, S, bool withInput:true)
             {
                 recycle(t);
             }
-            t = worklist.fetch();
-            return t != null;
+            return switchState!(code, true)(e);
         }
     }
 
@@ -639,8 +636,7 @@ template ThompsonOps(E, S, bool withInput:true)
             {
                 recycle(t);
             }
-            t = worklist.fetch();
-            return t != null;
+            return switchState!(code, true)(e);
         }
     }
 
@@ -654,7 +650,7 @@ template ThompsonOps(E,S, bool withInput:false)
         if (code == IR.Char || code == IR.OrChar || code == IR.CodepointSet
         || code == IR.Trie || code == IR.Char || code == IR.Any)
     {
-        return state.popState(e);
+        return state.popState!(code,false)(e);
     }
 
     // special case of zero-width backref
@@ -668,10 +664,10 @@ template ThompsonOps(E,S, bool withInput:false)
             if(source[n].begin == source[n].end)//zero-width Backref!
             {
                 t.pc += IRL!(IR.Backref);
-                return true;
+                return syncState!(code, false)(e);
             }
             else
-                return popState(e);
+                return popState!(code,false)(e);
         }
     }
 
@@ -719,15 +715,33 @@ template ThompsonOps(E,S, bool withInput:false)
         Thread!DataIndex* t;
         ThreadList!DataIndex worklist;
         Group!DataIndex[] matches;
-
-        bool popState(E)(E* e)
+        // template to make multiple copies of function per each opcode
+        bool popState(IR code, bool withInput)(ThompsonMatcher* e)
         {
             with(e)
             {
                 recycle(t);
-                t = worklist.fetch();
-                return t != null;
+                return switchState!(code, withInput)(e);
             }
+        }
+
+        bool switchState(IR code, bool withInput)(ThompsonMatcher* e)
+        {
+            t = worklist.fetch();
+            if(t != null)
+            {
+                return syncState!(code, withInput)(e);
+            }
+            else
+                return false;
+        }
+
+        bool syncState(IR code, bool withInput)(ThompsonMatcher* e)
+        {
+            static if(withInput)
+                return e.opCacheTrue[t.pc](e, &this);
+            else
+                return e.opCacheFalse[t.pc](e, &this);
         }
 
     }
@@ -1032,9 +1046,9 @@ template ThompsonOps(E,S, bool withInput:false)
     {
         debug(std_regex_matcher) writeln("---- Evaluating thread");
         static if(withInput)
-            while(opCacheTrue.ptr[state.t.pc](&this, state)){}
-        else
-            while(opCacheFalse.ptr[state.t.pc](&this, state)){}
+            opCacheTrue.ptr[state.t.pc](&this, state);
+         else
+            opCacheFalse.ptr[state.t.pc](&this, state);
     }
     enum uint RestartPc = uint.max;
     //match the input, evaluating IR without searching
@@ -1170,3 +1184,97 @@ template ThompsonOps(E,S, bool withInput:false)
         return t;
     }
 }
+
+
+
+interface Codegen{
+    void* getIP();
+    void genProlog();
+    void genFunctionCall(void* arg1, void* arg2, void* func);
+    void genTwoWayDispatch(void* inside);
+    void genDispatch();
+    void genEpilog();
+};
+
+class CodegenX86_64{
+private:
+    ubyte[] code;
+    size_t idx;
+
+    void resize()
+    {
+
+    }
+
+    void put(ubyte[] bytes...)
+    {
+        if(idx + bytes.length > code.length)
+        {
+            //TODO: use mmap with PROTECTION
+            code.length = (code.length*3+1)/2;
+        }
+        code[idx..idx+bytes.length] = bytes[];
+        idx += bytes.length;
+    }
+
+    void putReverse(T)(T arg)
+    {
+        foreach(_; 0..arg.sizeof)
+        {
+            put(arg & 0xFF);
+            arg >>= 8;
+        }
+    }
+
+public:
+    void* getIP()
+    {
+        return code.ptr + idx;
+    }
+
+    void genProlog()
+    {
+        put(0x41, 0x54); // push R12
+        put(0x41, 0x55); // push R13
+        put(0x49, 0x89, 0xfc); // mov r12, rdi
+        put(0x49, 0x89, 0xf5); // mov r13, rsi
+    }
+
+    void genEpilog()
+    {
+        put(0x41, 0x5d);                // pop r13
+        put(0x41, 0x5c);                // pop r12
+        put(0xc3);                      // ret
+    }
+
+    void genFunctionCall(void* arg1, void* arg2, void* func)
+    {
+        put(0x4c, 0x89, 0xe7);      // mov rdi, r12
+        put(0x4c, 0x89, 0xee);      // mov rsi, r13
+        put(0x48, 0xb8);            // mov abs xxxxx
+        putReverse(cast(ulong)func);
+        put(0xff, 0xd0);            // call rax
+        put(0x83, 0xf8, 0x00);      // cmp eax, 0
+    }
+
+    void genTwoWayDispatch(void* inside)
+    {
+        void* cur = getIP;
+        put(0x0F, 0x86);  // ja xxx
+        putReverse(cast(uint)(inside - cur));
+        genDispatch();
+    }
+
+    void genDispatch()
+    {
+        put(0x0F, 0x82); // jb xxx
+        putReverse(cast(uint)4 + 3 + 2 + 3 + 2*2 + 1);
+        put(0x48, 0x8b, 0x47, 0x20);    // mov rax, [RDI+offset]
+        put(0x48, 0x85, 0xc0);          // test rax, rax
+        put(0x74, 0x03);                // je +3
+        put(0x48, 0xff, 0xe0);          // jmp rax
+        put(0x41, 0x5d);                // pop r13
+        put(0x41, 0x5c);                // pop r12
+        put(0xc3);                      // ret
+    }
+};
