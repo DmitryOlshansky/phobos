@@ -89,7 +89,7 @@ struct ThreadList(DataIndex)
 template ThompsonOps(E, S, bool withInput:true)
 {
 @trusted:
-    static bool op(IR code:IR.End)(E* e, S* state)
+    static int op(IR code:IR.End)(E* e, S* state)
     {
         with(e) with(state)
         {
@@ -101,11 +101,11 @@ template ThompsonOps(E, S, bool withInput:true)
             recycle(clist);
             recycle(worklist);
             debug(std_regex_matcher) writeln("Finished thread ", matches);
-            return false; // no more state to eval
+            return 0; // no more state to eval
         }
     }
 
-    static bool op(IR code:IR.Wordboundary)(E* e, S* state)
+    static int op(IR code:IR.Wordboundary)(E* e, S* state)
     {
         with(e) with(state)
         {
@@ -137,7 +137,7 @@ template ThompsonOps(E, S, bool withInput:true)
         }
     }
 
-    static bool op(IR code:IR.Notwordboundary)(E* e, S* state)
+    static int op(IR code:IR.Notwordboundary)(E* e, S* state)
     {
         with(e) with(state)
         {
@@ -167,7 +167,7 @@ template ThompsonOps(E, S, bool withInput:true)
         }
     }
 
-    static bool op(IR code:IR.Bol)(E* e, S* state)
+    static int op(IR code:IR.Bol)(E* e, S* state)
     {
         with(e) with(state)
         {
@@ -188,7 +188,7 @@ template ThompsonOps(E, S, bool withInput:true)
         }
     }
 
-    static bool op(IR code:IR.Eol)(E* e, S* state)
+    static int op(IR code:IR.Eol)(E* e, S* state)
     {
         with(e) with(state)
         {
@@ -210,42 +210,42 @@ template ThompsonOps(E, S, bool withInput:true)
         }
     }
 
-    static bool op(IR code:IR.InfiniteStart)(E* e, S* state)
+    static int op(IR code:IR.InfiniteStart)(E* e, S* state)
     {
         with(e) with(state)
             t.pc += re.ir[t.pc].data + IRL!(IR.InfiniteStart);
         return op!(IR.InfiniteEnd)(e,state);
     }
 
-    static bool op(IR code:IR.InfiniteBloomStart)(E* e, S* state)
+    static int op(IR code:IR.InfiniteBloomStart)(E* e, S* state)
     {
         with(e) with(state)
             t.pc += re.ir[t.pc].data + IRL!(IR.InfiniteBloomStart);
         return op!(IR.InfiniteBloomEnd)(e,state);
     }
 
-    static bool op(IR code:IR.InfiniteQStart)(E* e, S* state)
+    static int op(IR code:IR.InfiniteQStart)(E* e, S* state)
     {
         with(e) with(state)
             t.pc += re.ir[t.pc].data + IRL!(IR.InfiniteQStart);
         return op!(IR.InfiniteQEnd)(e,state);
     }
 
-    static bool op(IR code:IR.RepeatStart)(E* e, S* state)
+    static int op(IR code:IR.RepeatStart)(E* e, S* state)
     {
         with(e) with(state)
             t.pc += re.ir[t.pc].data + IRL!(IR.RepeatStart);
         return op!(IR.RepeatEnd)(e,state);
     }
 
-    static bool op(IR code:IR.RepeatQStart)(E* e, S* state)
+    static int op(IR code:IR.RepeatQStart)(E* e, S* state)
     {
         with(e) with(state)
             t.pc += re.ir[t.pc].data + IRL!(IR.RepeatQStart);
         return op!(IR.RepeatQEnd)(e,state);
     }
 
-    static bool op(IR code)(E* e, S* state)
+    static int op(IR code)(E* e, S* state)
         if(code == IR.RepeatEnd || code == IR.RepeatQEnd)
     {
         with(e) with(state)
@@ -299,7 +299,7 @@ template ThompsonOps(E, S, bool withInput:true)
         }
     }
 
-    static bool op(IR code)(E* e, S* state)
+    static int op(IR code)(E* e, S* state)
         if(code == IR.InfiniteEnd || code == IR.InfiniteQEnd)
     {
         with(e) with(state)
@@ -334,7 +334,7 @@ template ThompsonOps(E, S, bool withInput:true)
         }
     }
 
-    static bool op(IR code)(E* e, S* state)
+    static int op(IR code)(E* e, S* state)
         if(code == IR.InfiniteBloomEnd)
     {
         with(e) with(state)
@@ -363,7 +363,7 @@ template ThompsonOps(E, S, bool withInput:true)
         }
     }
 
-    static bool op(IR code:IR.OrEnd)(E* e, S* state)
+    static int op(IR code:IR.OrEnd)(E* e, S* state)
     {
         with(e) with(state)
         {
@@ -384,7 +384,7 @@ template ThompsonOps(E, S, bool withInput:true)
         }
     }
 
-    static bool op(IR code:IR.OrStart)(E* e, S* state)
+    static int op(IR code:IR.OrStart)(E* e, S* state)
     {
         with(e) with(state)
         {
@@ -393,7 +393,7 @@ template ThompsonOps(E, S, bool withInput:true)
         }
     }
 
-    static bool op(IR code:IR.Option)(E* e, S* state)
+    static int op(IR code:IR.Option)(E* e, S* state)
     {
         with(e) with(state)
         {
@@ -408,7 +408,7 @@ template ThompsonOps(E, S, bool withInput:true)
         }
     }
 
-    static bool op(IR code:IR.GotoEndOr)(E* e, S* state)
+    static int op(IR code:IR.GotoEndOr)(E* e, S* state)
     {
         with(e) with(state)
         {
@@ -417,7 +417,7 @@ template ThompsonOps(E, S, bool withInput:true)
         }
     }
 
-    static bool op(IR code:IR.GroupStart)(E* e, S* state)
+    static int op(IR code:IR.GroupStart)(E* e, S* state)
     {
         with(e) with(state)
         {
@@ -427,7 +427,7 @@ template ThompsonOps(E, S, bool withInput:true)
             return syncState!(code, true)(e);
         }
     }
-    static bool op(IR code:IR.GroupEnd)(E* e, S* state)
+    static int op(IR code:IR.GroupEnd)(E* e, S* state)
     {
         with(e) with(state)
         {
@@ -438,7 +438,7 @@ template ThompsonOps(E, S, bool withInput:true)
         }
     }
 
-    static bool op(IR code:IR.Backref)(E* e, S* state)
+    static int op(IR code:IR.Backref)(E* e, S* state)
     {
         with(e) with(state)
         {
@@ -474,7 +474,7 @@ template ThompsonOps(E, S, bool withInput:true)
     }
 
 
-    static bool op(IR code)(E* e, S* state)
+    static int op(IR code)(E* e, S* state)
         if(code == IR.LookbehindStart || code == IR.NeglookbehindStart)
     {
         with(e) with(state)
@@ -502,7 +502,7 @@ template ThompsonOps(E, S, bool withInput:true)
         }
     }
 
-    static bool op(IR code)(E* e, S* state)
+    static int op(IR code)(E* e, S* state)
         if(code == IR.LookaheadStart || code == IR.NeglookaheadStart)
     {
         with(e) with(state)
@@ -532,7 +532,7 @@ template ThompsonOps(E, S, bool withInput:true)
         }
     }
 
-    static bool op(IR code)(E* e, S* state)
+    static int op(IR code)(E* e, S* state)
         if(code == IR.LookaheadEnd || code == IR.NeglookaheadEnd ||
             code == IR.LookbehindEnd || code == IR.NeglookbehindEnd)
     {
@@ -547,7 +547,7 @@ template ThompsonOps(E, S, bool withInput:true)
         }
     }
 
-    static bool op(IR code:IR.Nop)(E* e, S* state)
+    static int op(IR code:IR.Nop)(E* e, S* state)
     {
         with(state) 
         {
@@ -556,7 +556,7 @@ template ThompsonOps(E, S, bool withInput:true)
         }
     }
 
-    static bool op(IR code:IR.OrChar)(E* e, S* state)
+    static int op(IR code:IR.OrChar)(E* e, S* state)
     {
         with(e) with(state)
         {
@@ -577,7 +577,7 @@ template ThompsonOps(E, S, bool withInput:true)
         }
     }
 
-    static bool op(IR code:IR.Char)(E* e, S* state)
+    static int op(IR code:IR.Char)(E* e, S* state)
     {
         with(e) with(state)
         {
@@ -592,7 +592,7 @@ template ThompsonOps(E, S, bool withInput:true)
         }
     }
 
-    static bool op(IR code:IR.Any)(E* e, S* state)
+    static int op(IR code:IR.Any)(E* e, S* state)
     {
         with(e) with(state)
         {
@@ -606,7 +606,7 @@ template ThompsonOps(E, S, bool withInput:true)
         }
     }
 
-    static bool op(IR code:IR.CodepointSet)(E* e, S* state)
+    static int op(IR code:IR.CodepointSet)(E* e, S* state)
     {
         with(e) with(state)
         {
@@ -623,7 +623,7 @@ template ThompsonOps(E, S, bool withInput:true)
         }
     }
 
-    static bool op(IR code:IR.Trie)(E* e, S* state)
+    static int op(IR code:IR.Trie)(E* e, S* state)
     {
         with(e) with(state)
         {
@@ -646,7 +646,7 @@ template ThompsonOps(E,S, bool withInput:false)
 {
 @trusted:
     // can't match these without input
-    static bool op(IR code)(E* e, S* state)
+    static int op(IR code)(E* e, S* state)
         if (code == IR.Char || code == IR.OrChar || code == IR.CodepointSet
         || code == IR.Trie || code == IR.Char || code == IR.Any)
     {
@@ -654,7 +654,7 @@ template ThompsonOps(E,S, bool withInput:false)
     }
 
     // special case of zero-width backref
-    static bool op(IR code:IR.Backref)(E* e, S* state)
+    static int op(IR code:IR.Backref)(E* e, S* state)
     {
         with(e) with(state)
         {
@@ -672,7 +672,7 @@ template ThompsonOps(E,S, bool withInput:false)
     }
 
     // forward all control flow to normal versions
-    static bool op(IR code)(E* e, S* state)
+    static int op(IR code)(E* e, S* state)
         if (code != IR.Char && code != IR.OrChar && code != IR.CodepointSet
         && code != IR.Trie && code != IR.Char && code != IR.Any && code != IR.Backref)
     {
@@ -689,9 +689,9 @@ template ThompsonOps(E,S, bool withInput:false)
 {
     alias DataIndex = Stream.DataIndex;
     alias Stream = StreamType;
-    alias OpFunc = bool function(ThompsonMatcher*, State*);
+    alias OpFunc = int function(ThompsonMatcher*, State*);
     alias BackMatcher = ThompsonMatcher!(Char, BackLooper!(Stream));
-    alias OpBackFunc = bool function(BackMatcher*, BackMatcher.State*);
+    alias OpBackFunc = int function(BackMatcher*, BackMatcher.State*);
     Thread!DataIndex* freelist;
     ThreadList!DataIndex clist, nlist;
     DataIndex[] merge;
@@ -706,6 +706,8 @@ template ThompsonOps(E,S, bool withInput:false)
     OpFunc[] opCacheFalse;  // ditto
     OpBackFunc[] opCacheBackTrue;   // ditto
     OpBackFunc[] opCacheBackFalse;  // ditto
+    Codegen jitCacheTrue;
+    Codegen jitCacheFalse;
     size_t threadSize;
     bool matched;
     bool exhausted;
@@ -716,7 +718,7 @@ template ThompsonOps(E,S, bool withInput:false)
         ThreadList!DataIndex worklist;
         Group!DataIndex[] matches;
         // template to make multiple copies of function per each opcode
-        bool popState(IR code, bool withInput)(ThompsonMatcher* e)
+        int popState(IR code, bool withInput)(ThompsonMatcher* e)
         {
             with(e)
             {
@@ -725,7 +727,7 @@ template ThompsonOps(E,S, bool withInput:false)
             }
         }
 
-        bool switchState(IR code, bool withInput)(ThompsonMatcher* e)
+        int switchState(IR code, bool withInput)(ThompsonMatcher* e)
         {
             t = worklist.fetch();
             if(t != null)
@@ -733,10 +735,10 @@ template ThompsonOps(E,S, bool withInput:false)
                 return syncState!(code, withInput)(e);
             }
             else
-                return false;
+                return 0;
         }
 
-        bool syncState(IR code, bool withInput)(ThompsonMatcher* e)
+        int syncState(IR code, bool withInput)(ThompsonMatcher* e)
         {
             static if(withInput)
                 return e.opCacheTrue[t.pc](e, &this);
@@ -810,6 +812,9 @@ template ThompsonOps(E,S, bool withInput:false)
         opCacheBackTrue = arrayInChunk!(OpBackFunc)(re.ir.length, memory);
         opCacheBackFalse = arrayInChunk!(OpBackFunc)(re.ir.length, memory);
 
+        jitCacheFalse = new CodegenX86_64().genProlog;
+        jitCacheTrue = new CodegenX86_64().genProlog;
+        
         for(uint pc = 0; pc<re.ir.length; pc += re.ir[pc].length)
         {
         L_dispatch:
@@ -822,6 +827,10 @@ template ThompsonOps(E,S, bool withInput:false)
                     opCacheBackTrue[pc] = &BackOps!(true).op!(IR.`~e~`);
                     opCacheFalse[pc] = &Ops!(false).op!(IR.`~e~`);
                     opCacheBackFalse[pc] = &BackOps!(false).op!(IR.`~e~`);
+                    jitCacheFalse.genFunctionCall(&Ops!(true).op!(IR.`~e~`));
+                    jitCacheFalse.genDispatch();
+                    jitCacheFalse.genFunctionCall(&Ops!(false).op!(IR.`~e~`));
+                    jitCacheFalse.genDispatch();
                 break L_dispatch;
                 `);
                 }
@@ -829,6 +838,8 @@ template ThompsonOps(E,S, bool withInput:false)
                 assert(0, "Unrecognized instruction "~re.ir[pc].mnemonic);
             }
         }
+        jitCacheTrue.genEpilog();
+        jitCacheFalse.genEpilog();
     }
 
     this()(Regex!Char program, Stream stream, void[] memory)
@@ -1189,29 +1200,43 @@ template ThompsonOps(E,S, bool withInput:false)
 
 interface Codegen{
     void* getIP();
-    void genProlog();
-    void genFunctionCall(void* arg1, void* arg2, void* func);
-    void genTwoWayDispatch(void* inside);
-    void genDispatch();
-    void genEpilog();
+    Codegen genProlog();
+    Codegen genFunctionCall(void* func);
+    Codegen genTwoWayDispatch(void* inside);
+    Codegen genDispatch();
+    Codegen genEpilog();
 };
 
-class CodegenX86_64{
+abstract class CodegenBase : Codegen{
 private:
+    enum pageSize = 4<<10, pageMask = ~(pageSize-1);
     ubyte[] code;
     size_t idx;
-
-    void resize()
+protected:
+    void resize(size_t size)
     {
-
+        import core.sys.linux.sys.mman;
+        size = (size+pageSize-1)&pageMask;
+        if(code.ptr == null)
+        {
+            auto p = cast(ubyte*)mmap(null, size, 
+                PROT_EXEC | PROT_WRITE | PROT_READ, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+            enforce(p != MAP_FAILED, "failed to map JIT region");
+            code = p[0..size];
+        }
+        else
+        {
+            auto p = cast(ubyte*)mremap(code.ptr, code.length, size, MREMAP_MAYMOVE);
+            enforce(p != MAP_FAILED, "failed to remap JIT region");
+            code = p[0..size];
+        }
     }
 
     void put(ubyte[] bytes...)
     {
         if(idx + bytes.length > code.length)
         {
-            //TODO: use mmap with PROTECTION
-            code.length = (code.length*3+1)/2;
+            resize((code.length*3+1)/2);
         }
         code[idx..idx+bytes.length] = bytes[];
         idx += bytes.length;
@@ -1226,28 +1251,55 @@ private:
         }
     }
 
+    void finalize()
+    {
+        // flush CPU cache on windows
+        import std.file;
+        write("dump.bin", code[0..idx]);
+    }
+
 public:
+    this()
+    {
+        resize(pageSize);
+    }
+
     void* getIP()
     {
         return code.ptr + idx;
     }
 
-    void genProlog()
+    ~this()
+    {
+        import core.sys.linux.sys.mman;
+        if(code.ptr)
+        {
+            munmap(code.ptr, code.length);
+        }
+    }
+}
+
+class CodegenX86_64 : CodegenBase{
+
+    Codegen genProlog()
     {
         put(0x41, 0x54); // push R12
         put(0x41, 0x55); // push R13
         put(0x49, 0x89, 0xfc); // mov r12, rdi
         put(0x49, 0x89, 0xf5); // mov r13, rsi
+        return this;
     }
 
-    void genEpilog()
+    Codegen genEpilog()
     {
         put(0x41, 0x5d);                // pop r13
         put(0x41, 0x5c);                // pop r12
         put(0xc3);                      // ret
+        finalize();
+        return this;
     }
 
-    void genFunctionCall(void* arg1, void* arg2, void* func)
+    Codegen genFunctionCall(void* func)
     {
         put(0x4c, 0x89, 0xe7);      // mov rdi, r12
         put(0x4c, 0x89, 0xee);      // mov rsi, r13
@@ -1255,17 +1307,19 @@ public:
         putReverse(cast(ulong)func);
         put(0xff, 0xd0);            // call rax
         put(0x83, 0xf8, 0x00);      // cmp eax, 0
+        return this;
     }
 
-    void genTwoWayDispatch(void* inside)
+    Codegen genTwoWayDispatch(void* inside)
     {
         void* cur = getIP;
         put(0x0F, 0x86);  // ja xxx
         putReverse(cast(uint)(inside - cur));
         genDispatch();
+        return this;
     }
 
-    void genDispatch()
+    Codegen genDispatch()
     {
         put(0x0F, 0x82); // jb xxx
         putReverse(cast(uint)4 + 3 + 2 + 3 + 2*2 + 1);
@@ -1276,5 +1330,6 @@ public:
         put(0x41, 0x5d);                // pop r13
         put(0x41, 0x5c);                // pop r12
         put(0xc3);                      // ret
+        return this;
     }
 };
