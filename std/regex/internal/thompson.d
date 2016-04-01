@@ -91,6 +91,8 @@ template ThompsonOps(E, S, bool withInput:true)
 @trusted:
     static int op(IR code:IR.End)(E* e, S* state)
     {
+        import std.stdio;
+        writeln("End!");
         with(e) with(state)
         {
             finish(t, matches);
@@ -100,9 +102,11 @@ template ThompsonOps(E, S, bool withInput:true)
             //cut off low priority threads
             recycle(clist);
             recycle(worklist);
+            jitTarget = null;
             debug(std_regex_matcher) writeln("Finished thread ", matches);
             return 0; // no more state to eval
         }
+
     }
 
     static int op(IR code:IR.Wordboundary)(E* e, S* state)
@@ -115,13 +119,13 @@ template ThompsonOps(E, S, bool withInput:true)
             if(atStart && wordMatcher[front])
             {
                 t.pc += IRL!(IR.Wordboundary);
-                return syncState!(code, true)(e);
+                return -1;
             }
             else if(atEnd && s.loopBack(index).nextChar(back, bi)
                     && wordMatcher[back])
             {
                 t.pc += IRL!(IR.Wordboundary);
-                return syncState!(code, true)(e);
+                return -1;
             }
             else if(s.loopBack(index).nextChar(back, bi))
             {
@@ -163,7 +167,7 @@ template ThompsonOps(E, S, bool withInput:true)
                 }
             }
             t.pc += IRL!(IR.Notwordboundary);
-            return syncState!(code, true)(e);
+            return -1;
         }
     }
 
@@ -179,7 +183,7 @@ template ThompsonOps(E, S, bool withInput:true)
                 && startOfLine(back, front == '\n')))
             {
                 t.pc += IRL!(IR.Bol);
-                return syncState!(code, true)(e);
+                return -1;
             }
             else
             {
@@ -201,7 +205,7 @@ template ThompsonOps(E, S, bool withInput:true)
                     && back == '\r')))
             {
                 t.pc += IRL!(IR.Eol);
-                return syncState!(code, true)(e);
+                return -1;
             }
             else
             {
@@ -302,6 +306,8 @@ template ThompsonOps(E, S, bool withInput:true)
     static int op(IR code)(E* e, S* state)
         if(code == IR.InfiniteEnd || code == IR.InfiniteQEnd)
     {
+        import std.stdio;
+        writeln("InfiniteEnd");
         with(e) with(state)
         {
             if(merge[re.ir[t.pc + 1].raw+t.counter] < genCounter)
@@ -380,7 +386,7 @@ template ThompsonOps(E, S, bool withInput:true)
                                 t.pc, s[index .. s.lastIndex], genCounter, merge[re.ir[t.pc + 1].raw + t.counter] );
                 return popState!(code, true)(e);
             }
-            return syncState!(code, true)(e);
+            return -1;
         }
     }
 
@@ -404,7 +410,7 @@ template ThompsonOps(E, S, bool withInput:true)
                 worklist.insertFront(fork(t, next, t.counter));
             }
             t.pc += IRL!(IR.Option);
-            return syncState!(code, true)(e);
+            return -1;
         }
     }
 
@@ -413,6 +419,7 @@ template ThompsonOps(E, S, bool withInput:true)
         with(e) with(state)
         {
             t.pc = t.pc + re.ir[t.pc].data + IRL!(IR.GotoEndOr);
+            syncState!(code, true)(e);
             return op!(IR.OrEnd)(e, state);
         }
     }
@@ -424,7 +431,7 @@ template ThompsonOps(E, S, bool withInput:true)
             uint n = re.ir[t.pc].data;
             t.matches.ptr[n].begin = index;
             t.pc += IRL!(IR.GroupStart);
-            return syncState!(code, true)(e);
+            return -1;
         }
     }
     static int op(IR code:IR.GroupEnd)(E* e, S* state)
@@ -434,7 +441,7 @@ template ThompsonOps(E, S, bool withInput:true)
             uint n = re.ir[t.pc].data;
             t.matches.ptr[n].end = index;
             t.pc += IRL!(IR.GroupEnd);
-            return syncState!(code, true)(e);
+            return -1;
         }
     }
 
@@ -448,7 +455,7 @@ template ThompsonOps(E, S, bool withInput:true)
             if(source[n].begin == source[n].end)//zero-width Backref!
             {
                 t.pc += IRL!(IR.Backref);
-                return syncState!(code, true)(e);
+                return -1;
             }
             else
             {
@@ -552,7 +559,7 @@ template ThompsonOps(E, S, bool withInput:true)
         with(state) 
         {
             t.pc += IRL!(IR.Nop);
-            return syncState!(code, true)(e);
+            return -1;
         }
     }
 
@@ -579,6 +586,8 @@ template ThompsonOps(E, S, bool withInput:true)
 
     static int op(IR code:IR.Char)(E* e, S* state)
     {
+        import std.stdio;
+        writeln("Char!");
         with(e) with(state)
         {
             if(front == re.ir[t.pc].data)
@@ -664,7 +673,7 @@ template ThompsonOps(E,S, bool withInput:false)
             if(source[n].begin == source[n].end)//zero-width Backref!
             {
                 t.pc += IRL!(IR.Backref);
-                return syncState!(code, false)(e);
+                return -1;
             }
             else
                 return popState!(code,false)(e);
@@ -696,18 +705,19 @@ template ThompsonOps(E,S, bool withInput:false)
     ThreadList!DataIndex clist, nlist;
     DataIndex[] merge;
     Group!DataIndex[] backrefed;
-    Regex!Char re;           //regex program
+    Regex!Char re;                  //regex program
     Stream s;
     dchar front;
     DataIndex index;
-    DataIndex genCounter;    //merge trace counter, goes up on every dchar
-    size_t[size_t] subCounters; //a table of gen counter per sub-engine: PC -> counter
-    OpFunc[] opCacheTrue;   // pointers to Op!(IR.xyz) for each bytecode
-    OpFunc[] opCacheFalse;  // ditto
+    DataIndex genCounter;           //merge trace counter, goes up on every dchar
+    size_t[size_t] subCounters;     //a table of gen counter per sub-engine: PC -> counter
+    OpFunc[] opCacheTrue;           // pointers to Op!(IR.xyz) for each bytecode
+    OpFunc[] opCacheFalse;          // ditto
     OpBackFunc[] opCacheBackTrue;   // ditto
     OpBackFunc[] opCacheBackFalse;  // ditto
     Codegen jitCacheTrue;
     Codegen jitCacheFalse;
+    size_t[] ir2jit;                // IR PC --> JIT address
     size_t threadSize;
     bool matched;
     bool exhausted;
@@ -717,6 +727,8 @@ template ThompsonOps(E,S, bool withInput:false)
         Thread!DataIndex* t;
         ThreadList!DataIndex worklist;
         Group!DataIndex[] matches;
+        void* jitTarget;
+
         // template to make multiple copies of function per each opcode
         int popState(IR code, bool withInput)(ThompsonMatcher* e)
         {
@@ -735,15 +747,26 @@ template ThompsonOps(E,S, bool withInput:false)
                 return syncState!(code, withInput)(e);
             }
             else
+            {
+                jitTarget = null;
                 return 0;
+            }
         }
 
         int syncState(IR code, bool withInput)(ThompsonMatcher* e)
         {
             static if(withInput)
-                return e.opCacheTrue[t.pc](e, &this);
+            {
+                jitTarget = e.jitCacheTrue.base + e.ir2jit[t.pc];
+            }
             else
-                return e.opCacheFalse[t.pc](e, &this);
+            {
+                jitTarget = e.jitCacheFalse.base + e.ir2jit[t.pc];
+            }
+            import std.stdio;
+            writefln("JIT = 0x%x", jitTarget);
+            return 0;
+                
         }
 
     }
@@ -812,11 +835,12 @@ template ThompsonOps(E,S, bool withInput:false)
         opCacheBackTrue = arrayInChunk!(OpBackFunc)(re.ir.length, memory);
         opCacheBackFalse = arrayInChunk!(OpBackFunc)(re.ir.length, memory);
 
-        jitCacheFalse = new CodegenX86_64().genProlog;
-        jitCacheTrue = new CodegenX86_64().genProlog;
-        
+        jitCacheFalse = new CodegenX86_64();
+        jitCacheTrue = new CodegenX86_64();
+        ir2jit = new size_t[re.ir.length];
         for(uint pc = 0; pc<re.ir.length; pc += re.ir[pc].length)
         {
+            ir2jit[pc] = pc == 0 ? 0 : jitCacheTrue.offset; //account for prolog
         L_dispatch:
             switch(re.ir[pc].code)
             {
@@ -827,8 +851,8 @@ template ThompsonOps(E,S, bool withInput:false)
                     opCacheBackTrue[pc] = &BackOps!(true).op!(IR.`~e~`);
                     opCacheFalse[pc] = &Ops!(false).op!(IR.`~e~`);
                     opCacheBackFalse[pc] = &BackOps!(false).op!(IR.`~e~`);
-                    jitCacheFalse.genFunctionCall(&Ops!(true).op!(IR.`~e~`));
-                    jitCacheFalse.genDispatch();
+                    jitCacheTrue.genFunctionCall(&Ops!(true).op!(IR.`~e~`));
+                    jitCacheTrue.genDispatch();
                     jitCacheFalse.genFunctionCall(&Ops!(false).op!(IR.`~e~`));
                     jitCacheFalse.genDispatch();
                 break L_dispatch;
@@ -1057,9 +1081,17 @@ template ThompsonOps(E,S, bool withInput:false)
     {
         debug(std_regex_matcher) writeln("---- Evaluating thread");
         static if(withInput)
-            opCacheTrue.ptr[state.t.pc](&this, state);
-         else
-            opCacheFalse.ptr[state.t.pc](&this, state);
+        {
+            auto func = cast(OpFunc)(jitCacheTrue.base+ir2jit[state.t.pc]);
+            import std.stdio;
+            writefln("pc=%s offset=%s addr=%x", state.t.pc, ir2jit[state.t.pc], func);
+            func(&this, state);
+        }
+        else
+        {
+            auto func = cast(OpFunc)(jitCacheFalse.base+ir2jit[state.t.pc]);
+            func(&this, state);
+        }
     }
     enum uint RestartPc = uint.max;
     //match the input, evaluating IR without searching
@@ -1197,17 +1229,7 @@ template ThompsonOps(E,S, bool withInput:false)
 }
 
 
-
-interface Codegen{
-    void* getIP();
-    Codegen genProlog();
-    Codegen genFunctionCall(void* func);
-    Codegen genTwoWayDispatch(void* inside);
-    Codegen genDispatch();
-    Codegen genEpilog();
-};
-
-abstract class CodegenBase : Codegen{
+abstract class Codegen{
 private:
     enum pageSize = 4<<10, pageMask = ~(pageSize-1);
     ubyte[] code;
@@ -1269,6 +1291,16 @@ public:
         return code.ptr + idx;
     }
 
+    final void* base()
+    {
+        return code.ptr;
+    }
+
+    final size_t offset()
+    {
+        return idx;
+    }
+
     ~this()
     {
         import core.sys.linux.sys.mman;
@@ -1277,11 +1309,17 @@ public:
             munmap(code.ptr, code.length);
         }
     }
+// architecture specifics
+    abstract Codegen genProlog();
+    abstract Codegen genEpilog();
+    abstract Codegen genFunctionCall(void* func);
+    abstract Codegen genTwoWayDispatch(void* inside);
+    abstract Codegen genDispatch();
 }
 
-class CodegenX86_64 : CodegenBase{
+class CodegenX86_64 : Codegen {
 
-    Codegen genProlog()
+    override Codegen genProlog()
     {
         put(0x41, 0x54); // push R12
         put(0x41, 0x55); // push R13
@@ -1290,17 +1328,15 @@ class CodegenX86_64 : CodegenBase{
         return this;
     }
 
-    Codegen genEpilog()
+    override Codegen genEpilog()
     {
-        put(0x41, 0x5d);                // pop r13
-        put(0x41, 0x5c);                // pop r12
-        put(0xc3);                      // ret
         finalize();
         return this;
     }
 
-    Codegen genFunctionCall(void* func)
+    override Codegen genFunctionCall(void* func)
     {
+        genProlog();
         put(0x4c, 0x89, 0xe7);      // mov rdi, r12
         put(0x4c, 0x89, 0xee);      // mov rsi, r13
         put(0x48, 0xb8);            // mov abs xxxxx
@@ -1310,7 +1346,7 @@ class CodegenX86_64 : CodegenBase{
         return this;
     }
 
-    Codegen genTwoWayDispatch(void* inside)
+    override Codegen genTwoWayDispatch(void* inside)
     {
         void* cur = getIP;
         put(0x0F, 0x86);  // ja xxx
@@ -1319,11 +1355,11 @@ class CodegenX86_64 : CodegenBase{
         return this;
     }
 
-    Codegen genDispatch()
+    override Codegen genDispatch()
     {
         put(0x0F, 0x82); // jb xxx
-        putReverse(cast(uint)4 + 3 + 2 + 3 + 2*2 + 1);
-        put(0x48, 0x8b, 0x47, 0x20);    // mov rax, [RDI+offset]
+        putReverse(cast(uint)4 + 3 + 2 + 3 + 2*2 + 1 + 10); // 10 - sizeof of prolog
+        put(0x49, 0x8b, 0x45, 0x28);    // mov rax, [R13+offset]
         put(0x48, 0x85, 0xc0);          // test rax, rax
         put(0x74, 0x03);                // je +3
         put(0x48, 0xff, 0xe0);          // jmp rax
