@@ -13,6 +13,8 @@ package(std.regex):
 import std.regex.internal.ir;
 import std.range;
 
+debug(std_regex_matcher) import std.stdio;
+
 //State of VM thread
 struct Thread(DataIndex)
 {
@@ -494,6 +496,7 @@ template ThompsonOps(E, S, bool withInput:true)
             //backMatch
             auto mRes = matcher.matchOneShot(t.matches.ptr[ms .. me], IRL!(IR.LookbehindStart));
             freelist = matcher.freelist;
+            memTop = matcher.memTop;
             subCounters[t.pc] = matcher.genCounter;
             if((mRes == MatchResult.Match) ^ positive)
             {
@@ -522,6 +525,7 @@ template ThompsonOps(E, S, bool withInput:true)
             matcher.backrefed = backrefed.empty ? t.matches : backrefed;
             auto mRes = matcher.matchOneShot(t.matches.ptr[ms .. me], IRL!(IR.LookaheadStart));
             freelist = matcher.freelist;
+            memTop = matcher.memTop;
             subCounters[t.pc] = matcher.genCounter;
             s.reset(index);
             next();
@@ -710,7 +714,8 @@ template ThompsonOps(E,S, bool withInput:false)
     OpFunc[] opCacheFalse;  // ditto
     OpBackFunc[] opCacheBackTrue;   // ditto
     OpBackFunc[] opCacheBackFalse;  // ditto
-    size_t threadSize;
+    size_t threadSize, memTop;
+    void[] memRegion;
     bool matched;
     bool exhausted;
 
@@ -833,6 +838,8 @@ template ThompsonOps(E,S, bool withInput:false)
         threadSize = matcher.threadSize;
         merge = matcher.merge;
         freelist = matcher.freelist;
+        memRegion = matcher.memRegion;
+        memTop = matcher.memTop;
         opCacheTrue = matcher.opCacheTrue[lo..hi];
         opCacheBackTrue = matcher.opCacheBackTrue[lo..hi];
         opCacheFalse = matcher.opCacheFalse[lo..hi];
@@ -849,6 +856,8 @@ template ThompsonOps(E,S, bool withInput:false)
         threadSize = matcher.threadSize;
         merge = matcher.merge;
         freelist = matcher.freelist;
+        memRegion = matcher.memRegion;
+        memTop = matcher.memTop;
         opCacheTrue = matcher.opCacheBackTrue[lo..hi];
         opCacheBackTrue = matcher.opCacheTrue[lo..hi];
         opCacheFalse = matcher.opCacheBackFalse[lo..hi];
@@ -1110,22 +1119,27 @@ template ThompsonOps(E,S, bool withInput:false)
     //get a dirty recycled Thread
     Thread!DataIndex* allocate()
     {
-        assert(freelist, "not enough preallocated memory");
-        Thread!DataIndex* t = freelist;
-        freelist = freelist.next;
-        return t;
+        if(!freelist)
+        {
+            Thread!DataIndex* t = cast(Thread!DataIndex*)(memRegion.ptr+memTop);
+            memTop += threadSize;
+            return t;
+        }
+        else
+        {
+            Thread!DataIndex* t = freelist;
+            freelist = freelist.next;
+            return t;
+        }
     }
 
     //link memory into a free list of Threads
     void prepareFreeList(size_t size, ref void[] memory)
     {
-        void[] mem = memory[0 .. threadSize*size];
+        freelist = null;
+        memTop = 0;
+        memRegion = memory[0 .. threadSize*size];
         memory = memory[threadSize * size .. $];
-        freelist = cast(Thread!DataIndex*)&mem[0];
-        size_t i;
-        for(i = threadSize; i < threadSize*size; i += threadSize)
-            (cast(Thread!DataIndex*)&mem[i-threadSize]).next = cast(Thread!DataIndex*)&mem[i];
-        (cast(Thread!DataIndex*)&mem[i-threadSize]).next = null;
     }
 
     //dispose a thread

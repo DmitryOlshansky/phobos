@@ -9,6 +9,7 @@ package(std.regex):
 import std.regex.internal.ir;
 import std.range, std.typecons, std.traits, core.stdc.stdlib;
 
+debug(std_regex_matcher) import std.stdio;
 /+
     BacktrackingMatcher implements backtracking scheme of matching
     regular expressions.
