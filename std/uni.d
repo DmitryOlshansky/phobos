@@ -6138,22 +6138,23 @@ package @property @safe CodepointSet wordCharacter()
 //basic stack, just in case it gets used anywhere else then Parser
 package struct Stack(T)
 {
-@safe:
+@safe pure:
     T[] data;
-    @property bool empty(){ return data.empty; }
+    @property bool empty(){ return data.length == 0; }
 
     @property size_t length(){ return data.length; }
 
-    void push(T val){ data ~= val;  }
+    void push(T val)
+    {
+        data ~= val;
+    }
 
     @trusted T pop()
     {
         assert(!empty);
-        auto val = data[$ - 1];
+        auto t = data[$ - 1];
         data = data[0 .. $ - 1];
-        if (!__ctfe)
-            cast(void) data.assumeSafeAppend();
-        return val;
+        return t;
     }
 
     @property ref T top()

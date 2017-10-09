@@ -15,6 +15,8 @@ auto makeRegex(S, CG)(Parser!(S, CG) p)
     import std.regex.internal.backtracking : BacktrackingMatcher;
     import std.regex.internal.thompson : ThompsonMatcher;
     import std.algorithm.searching : canFind;
+    import std.algorithm.iteration : map;
+    import std.array : array;
     alias Char = BasicElementOf!S;
     Regex!Char re;
     auto g = p.g;
@@ -25,7 +27,9 @@ auto makeRegex(S, CG)(Parser!(S, CG) p)
         ngroup = g.ngroup;
         maxCounterDepth = g.counterDepth;
         flags = p.re_flags;
-        charsets = g.charsets;
+        charsets = g.charsets.map!(x =>
+            x.byInterval.map!(x=>Interval(x.a,x.b)).array
+        ).array;
         matchers = g.matchers;
         backrefed = g.backrefed;
         re.postprocess();
@@ -1031,6 +1035,8 @@ if (isForwardRange!R && is(ElementType!R : dchar))
 +/
 @trusted void postprocess(Char)(ref Regex!Char zis)
 {//@@@BUG@@@ write is @system
+    import std.regex.internal.shiftor : ShiftOr;
+    import std.regex.internal.bitnfa : BitMatcher;
     with(zis)
     {
         struct FixedStack(T)
@@ -1091,7 +1097,15 @@ if (isForwardRange!R && is(ElementType!R : dchar))
         }
         checkIfOneShot();
         if (!(flags & RegexInfo.oneShot))
-            kickstart = Kickstart!Char(zis, new uint[](256));
+        {
+            kickstart = new ShiftOr!Char(zis);
+            if (kickstart.empty)
+            {
+                kickstart = new BitMatcher!Char(zis);
+                if (kickstart.empty)
+                    kickstart = null;
+            }
+        }
         debug(std_regex_allocation) writefln("IR processed, max threads: %d", threadCount);
         optimize(zis);
     }
@@ -1141,7 +1155,7 @@ void fixupBytecode()(Bytecode[] ir)
     assert(fixups.empty);
 }
 
-void optimize(Char)(ref Regex!Char zis)
+void optimize(Char)(ref Regex!Char zis) pure
 {
     import std.array : insertInPlace;
     CodepointSet nextSet(uint idx)
@@ -1158,7 +1172,7 @@ void optimize(Char)(ref Regex!Char zis)
                     goto default;
                 //TODO: OrChar
                 case Trie, CodepointSet:
-                    set = zis.charsets[ir[i].data];
+                    set = .CodepointSet(zis.charsets[ir[i].data]);
                     goto default;
                 case GroupStart,GroupEnd:
                     break;

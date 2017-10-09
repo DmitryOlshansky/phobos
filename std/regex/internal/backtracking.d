@@ -43,6 +43,7 @@ template BacktrackingMatcher(bool CTregex)
         uint infiniteNesting;
         size_t[] memory;
         Trace[]  merge;
+        const(Kickstart!Char) kickstart;
         static struct Trace
         {
             ulong mask;
@@ -106,7 +107,7 @@ template BacktrackingMatcher(bool CTregex)
         {
             static if (kicked)
             {
-                if (!s.search(re.kickstart, front, index))
+                if (!s.search(kickstart, front, index))
                 {
                     index = s.lastIndex;
                 }
@@ -178,17 +179,19 @@ template BacktrackingMatcher(bool CTregex)
         {
             _refCount = 1;
             re = program;
+            kickstart = re.kickstart;
             initialize(program, stream, memBlock);
             front = ch;
             index = idx;
         }
 
-        this(ref const RegEx program, MatchFn func, Stream stream, void[] memBlock)
+        this(ref const RegEx program, MatchFn func, const Kickstart!Char kick, Stream stream, void[] memBlock)
         {
             _refCount = 1;
             re = program;
             initialize(program, stream, memBlock);
             nativeFn = func;
+            kickstart = kick;
             next();
         }
 
@@ -196,6 +199,7 @@ template BacktrackingMatcher(bool CTregex)
         {
             _refCount = 1;
             re = program;
+            kickstart = re.kickstart;
             initialize(program, stream, memBlock);
             next();
         }
@@ -260,7 +264,7 @@ template BacktrackingMatcher(bool CTregex)
             }
             static if (kicked)
             {
-                if (!re.kickstart.empty)
+                if (kickstart)
                 {
                     for (;;)
                     {
@@ -824,7 +828,7 @@ struct CtContext
     //to mark the portion of matches to save
     int match, total_matches;
     int reserved;
-    const(CodepointInterval)[][] charsets;
+    const(CodepointInterval[])[] charsets;
 
 
     //state of codegenerator
@@ -839,10 +843,7 @@ struct CtContext
         match = 1;
         reserved = 1; //first match is skipped
         total_matches = re.ngroup;
-        foreach (ref set; re.charsets)
-        {
-            charsets ~= set.intervals;
-        }
+        charsets = re.charsets;
     }
 
     CtContext lookaround(uint s, uint e)

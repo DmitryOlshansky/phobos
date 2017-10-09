@@ -9,7 +9,7 @@ module std.regex.internal.ir;
 
 package(std.regex):
 
-import std.exception, std.meta, std.range.primitives, std.traits, std.uni;
+import std.exception, std.meta, std.range.primitives, std.traits, std.typecons, std.uni;
 
 debug(std_regex_parser) import std.stdio;
 // just a common trait, may be moved elsewhere
@@ -68,7 +68,7 @@ enum RegexOption: uint {
 //do not reorder this list
 alias RegexOptionNames = AliasSeq!('g', 'i', 'x', 'U', 'm', 's');
 static assert( RegexOption.max < 0x80);
-// flags that allow guide execution of engine
+// flags that guide execution of engine
 enum RegexInfo : uint { oneShot = 0x80 }
 
 // IR bit pattern: 0b1_xxxxx_yy
@@ -144,7 +144,8 @@ template IRL(IR code)
 static assert(IRL!(IR.LookaheadStart) == 3);
 
 //how many parameters follow the IR, should be optimized fixing some IR bits
-int immediateParamsIR(IR i){
+int immediateParamsIR(IR i) pure
+{
     switch (i)
     {
     case IR.OrEnd,IR.InfiniteEnd,IR.InfiniteQEnd:
@@ -161,43 +162,43 @@ int immediateParamsIR(IR i){
 }
 
 //full length of IR instruction inlcuding all parameters that might follow it
-int lengthOfIR(IR i)
+int lengthOfIR(IR i) pure
 {
     return 1 + immediateParamsIR(i);
 }
 
 //full length of the paired IR instruction inlcuding all parameters that might follow it
-int lengthOfPairedIR(IR i)
+int lengthOfPairedIR(IR i) pure
 {
     return 1 + immediateParamsIR(pairedIR(i));
 }
 
 //if the operation has a merge point (this relies on the order of the ops)
-bool hasMerge(IR i)
+bool hasMerge(IR i) pure
 {
     return (i&0b11)==0b10 && i <= IR.RepeatQEnd;
 }
 
 //is an IR that opens a "group"
-bool isStartIR(IR i)
+bool isStartIR(IR i) pure
 {
     return (i&0b11)==0b01;
 }
 
 //is an IR that ends a "group"
-bool isEndIR(IR i)
+bool isEndIR(IR i) pure
 {
     return (i&0b11)==0b10;
 }
 
 //is a standalone IR
-bool isAtomIR(IR i)
+bool isAtomIR(IR i) pure
 {
     return (i&0b11)==0b00;
 }
 
 //makes respective pair out of IR i, swapping start/end bits of instruction
-IR pairedIR(IR i)
+IR pairedIR(IR i) pure
 {
     assert(isStartIR(i) || isEndIR(i));
     return cast(IR) (i ^ 0b11);
@@ -206,6 +207,7 @@ IR pairedIR(IR i)
 //encoded IR instruction
 struct Bytecode
 {
+pure:
     uint raw;
     //natural constraints
     enum maxSequence = 2+4;
@@ -352,7 +354,7 @@ struct Group(DataIndex)
 }
 
 //debugging tool, prints out instruction along with opcodes
-@trusted string disassemble(in Bytecode[] irb, uint pc, in NamedGroup[] dict=[])
+@trusted pure string disassemble(in Bytecode[] irb, uint pc, in NamedGroup[] dict=[])
 {
     import std.array : appender;
     import std.format : formattedWrite;
@@ -421,6 +423,113 @@ struct Group(DataIndex)
     import std.stdio : writeln;
     for (uint pc=0; pc<slice.length; pc += slice[pc].length)
         writeln("\t", disassemble(slice, pc, dict));
+}
+
+@trusted void reverseBytecode()(Bytecode[] code) pure
+{
+    Bytecode[] rev = new Bytecode[code.length];
+    uint revPc = cast(uint)rev.length;
+    Stack!(Tuple!(uint, uint, uint)) stack;
+    uint start = 0;
+    uint end = cast(uint)code.length;
+    for (;;)
+    {
+        for (uint pc = start; pc < end; )
+        {
+            uint len = code[pc].length;
+            if (code[pc].code == IR.GotoEndOr)
+                break; //pick next alternation branch
+            if (code[pc].isAtom)
+            {
+                rev[revPc - len .. revPc] = code[pc .. pc + len];
+                revPc -= len;
+                pc += len;
+            }
+            else if (code[pc].isStart || code[pc].isEnd)
+            {
+                //skip over other embedded lookbehinds they are reversed
+                if (code[pc].code == IR.LookbehindStart
+                    || code[pc].code == IR.NeglookbehindStart)
+                {
+                    uint blockLen = len + code[pc].data
+                         + code[pc].pairedLength;
+                    rev[revPc - blockLen .. revPc] = code[pc .. pc + blockLen];
+                    pc += blockLen;
+                    revPc -= blockLen;
+                    continue;
+                }
+                uint second = code[pc].indexOfPair(pc);
+                uint secLen = code[second].length;
+                rev[revPc - secLen .. revPc] = code[second .. second + secLen];
+                revPc -= secLen;
+                if (code[pc].code == IR.OrStart)
+                {
+                    //we pass len bytes forward, but secLen in reverse
+                    uint revStart = revPc - (second + len - secLen - pc);
+                    uint r = revStart;
+                    uint i = pc + IRL!(IR.OrStart);
+                    while (code[i].code == IR.Option)
+                    {
+                        if (code[i - 1].code != IR.OrStart)
+                        {
+                            assert(code[i - 1].code == IR.GotoEndOr);
+                            rev[r - 1] = code[i - 1];
+                        }
+                        rev[r] = code[i];
+                        auto newStart = i + IRL!(IR.Option);
+                        auto newEnd = newStart + code[i].data;
+                        auto newRpc = r + code[i].data + IRL!(IR.Option);
+                        if (code[newEnd].code != IR.OrEnd)
+                        {
+                            newRpc--;
+                        }
+                        stack.push(tuple(newStart, newEnd, newRpc));
+                        r += code[i].data + IRL!(IR.Option);
+                        i += code[i].data + IRL!(IR.Option);
+                    }
+                    pc = i;
+                    revPc = revStart;
+                    assert(code[pc].code == IR.OrEnd);
+                }
+                else
+                    pc += len;
+            }
+        }
+        if (stack.empty)
+            break;
+        start = stack.top[0];
+        end = stack.top[1];
+        revPc = stack.top[2];
+        stack.pop();
+    }
+    code[] = rev[];
+}
+
+alias Interval = CodepointInterval;
+
+bool scanFor()(const(Interval)[] ivals, dchar ch)
+{
+    immutable len = ivals.length;
+    for (size_t i = 0; i < len; i++)
+    {
+        if (ch < ivals[i].a)
+            return false;
+        if (ch < ivals[i].b)
+            return true;
+    }
+    return false;
+}
+
+/+
+    Generic interface for kickstart engine components.
+    The goal of kickstart is to advance input to the next potential match,
+    the more accurate & fast the better.
++/
+interface Kickstart(Char){
+@trusted:
+    bool search(ref Input!Char input) const;
+    bool match(ref Input!Char input) const;
+    @property bool empty() const pure;
 }
 
 // Encapsulates memory management, explicit ref counting
@@ -500,13 +609,19 @@ class RuntimeFactory(alias EngineType, Char) : GenericFactory!(EngineType, Char)
 }
 
 // A factory for compile-time engine
-class CtfeFactory(alias EngineType, Char, alias func) : GenericFactory!(EngineType, Char)
+class CtfeFactory(alias EngineType, Char, alias func, alias kickstart) : GenericFactory!(EngineType, Char)
 {
+    import std.regex.internal.shiftor : ShiftOr;
+
     override EngineType!Char construct(const Regex!Char re, in Char[] input, void[] memory) const
     {
         import std.conv : emplace;
-        return emplace!(EngineType!Char)(memory[0 .. classSize],
-            re, &func, Input!Char(input), memory[classSize .. $]);
+        if (re.kickstart && cast(ShiftOr!Char)re.kickstart !is null)
+            return emplace!(EngineType!Char)(memory[0 .. classSize],
+                re, &func, re.kickstart, Input!Char(input), memory[classSize .. $]);
+        else
+            return emplace!(EngineType!Char)(memory[0 .. classSize],
+                re, &func, kickstart, Input!Char(input), memory[classSize .. $]);
     }
 }
 
@@ -559,11 +674,6 @@ abstract:
 +/
 struct Regex(Char)
 {
-    //temporary workaround for identifier lookup
-    CodepointSet[] charsets; //
-    Bytecode[] ir;      //compiled bytecode of pattern
-
-
     @safe @property bool empty() const nothrow {  return ir is null; }
 
     @safe @property auto namedCaptures()
@@ -612,18 +722,36 @@ struct Regex(Char)
     }
 
 package(std.regex):
-    import std.regex.internal.kickstart : Kickstart; //TODO: get rid of this dependency
+    Bytecode[] ir;                         // compiled bytecode of pattern
     const(NamedGroup)[] dict;              // maps name -> user group number
     uint ngroup;                           // number of internal groups
     uint maxCounterDepth;                  // max depth of nested {n,m} repetitions
     uint hotspotTableSize;                 // number of entries in merge table
     uint threadCount;                      // upper bound on number of Thompson VM threads
     uint flags;                            // global regex flags
+    Interval[][] charsets;       
     public const(CharMatcher)[]  matchers; // tables that represent character sets
     public const(BitTable)[] filters;      // bloom filters for conditional loops
     uint[] backrefed;                      // bit array of backreferenced submatches
     Kickstart!Char kickstart;
     MatcherFactory!Char factory;           // produces optimal matcher for this pattern
+
+    this(immutable Regex re, immutable Kickstart!Char kick, immutable MatcherFactory!Char f) immutable
+    {
+        ir = re.ir;
+        dict = re.dict;
+        ngroup = re.ngroup;
+        maxCounterDepth = re.maxCounterDepth;
+        hotspotTableSize = re.hotspotTableSize;
+        threadCount = re.threadCount;
+        flags = re.flags;
+        charsets = re.charsets;
+        matchers = re.matchers;
+        filters = re.filters;
+        backrefed = re.backrefed;
+        kickstart = kick;
+        factory = f;
+    }
 
     const(Regex) withFactory(MatcherFactory!Char factory) pure const @trusted
     {
@@ -686,10 +814,10 @@ package(std.regex):
     {//@@@BUG@@@ write is system
         for (uint i = 0; i < ir.length; i += ir[i].length)
         {
-            writefln("%d\t%s ", i, disassemble(ir, i, dict));
+            debug(std_regex_parser) writefln("%d\t%s ", i, disassemble(ir, i, dict));
         }
-        writeln("Total merge table size: ", hotspotTableSize);
-        writeln("Max counter nesting depth: ", maxCounterDepth);
+        debug(std_regex_parser) writeln("Total merge table size: ", hotspotTableSize);
+        debug(std_regex_parser) writeln("Max counter nesting depth: ", maxCounterDepth);
     }
 
 }
@@ -730,10 +858,10 @@ if (is(Char :dchar))
     @property bool atEnd(){
         return _index == _origin.length;
     }
-    bool search(Kickstart)(ref const Kickstart kick, ref dchar res, ref size_t pos)
+
+    bool search(const Kickstart!Char kick, ref dchar res, ref size_t pos)
     {
-        size_t idx = kick.search(_origin, _index);
-        _index = idx;
+        kick.search(this);
         return nextChar(res, pos);
     }
 
@@ -813,8 +941,8 @@ template BackLooper(E)
 }
 
 //
-@trusted uint lookupNamedGroup(String)(const(NamedGroup)[] dict, String name)
-{//equal is @system?
+@safe uint lookupNamedGroup(String)(const(NamedGroup)[] dict, String name)
+{
     import std.algorithm.comparison : equal;
     import std.algorithm.iteration : map;
     import std.conv : text;
@@ -850,6 +978,7 @@ public class RegexException : Exception
 
 // simple 128-entry bit-table used with a hash function
 struct BitTable {
+pure:
     uint[4] filter;
 
     this(CodepointSet set){
@@ -878,7 +1007,7 @@ struct BitTable {
 struct CharMatcher {
     BitTable ascii; // fast path for ASCII
     Trie trie;      // slow path for Unicode
-
+pure:
     this(CodepointSet set)
     {
         auto asciiSet = set & unicode.ASCII;

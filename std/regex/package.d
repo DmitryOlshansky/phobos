@@ -425,7 +425,7 @@ if (isSomeString!(S))
 
 template ctRegexImpl(alias pattern, string flags=[])
 {
-    import std.regex.internal.backtracking, std.regex.internal.parser;
+    import std.regex.internal.backtracking, std.regex.internal.parser, std.regex.internal.bitnfa;
     static immutable r = cast(immutable) regex(pattern, flags);
     alias Char = BasicElementOf!(typeof(pattern));
     enum source = ctGenRegExCode(r);
@@ -435,7 +435,8 @@ template ctRegexImpl(alias pattern, string flags=[])
         debug(std_regex_ctr) pragma(msg, source);
         mixin(source);
     }
-    static immutable staticRe = cast(immutable) r.withFactory(new CtfeFactory!(CtMatcher, Char, func));
+    static immutable bitnfa = new BitMatcher!(Char, r);
+    static immutable staticRe = cast(immutable) r.withFactory(new CtfeFactory!(CtMatcher, Char, func, bitnfa));
     struct Wrapper
     {
         // allow code that expects mutable Regex to still work
