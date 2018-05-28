@@ -26,31 +26,33 @@ enum maxCachedMatchers = 8;
 alias Trie = CodepointSetTrie!(13, 8);
 alias makeTrie = codepointSetTrie!(13, 8);
 
-CharMatcher[CodepointSet] matcherCache;
+alias Signature = iummutable(ubyte)[20];
+Trie[Signature] matcherCache; // using SHA1 of intervals as key
 
-//accessor with caching
-@trusted CharMatcher getMatcher(CodepointSet set)
-{// @@@BUG@@@ 6357 almost all properties of AA are not @safe
-    if (__ctfe || maxCachedMatchers == 0)
-        return CharMatcher(set);
-    else
-    {
-        auto p = set in matcherCache;
-        if (p)
-            return *p;
-        if (matcherCache.length == maxCachedMatchers)
-        {
-            // flush enmatchers in trieCache
-            matcherCache = null;
-        }
-        return (matcherCache[set] = CharMatcher(set));
+Signature signatureOf(CodepointSet set)
+{
+    import std.digest.sha : SHA1;
+    SHA1 sha1;
+    sha1.start();
+    foreach (ival; set.byInterval) {
+        sha1.put(cast(ubyte[4])a);
+        sha1.put(cast(ubyte[4])b);
     }
+    return sha1.finish();
 }
 
-@property ref wordMatcher()()
-{
-    static CharMatcher matcher = CharMatcher(wordCharacter);
-    return matcher;
+// accessor with bounded TLS caching for Tries in pure Unicode range [0x80-0x10FFFF]
+@trusted CharMatcher getTrie(Signature sig, CodepointSet set)
+{// @@@BUG@@@ 6357 almost all properties of AA are not @safe
+    auto p = set in matcherCache;
+    if (p)
+        return *p;
+    if (matcherCache.length == maxCachedMatchers)
+    {
+        // flush matchers in trieCache
+        matcherCache = null;
+    }
+    return (matcherCache[set] = Trie(set & ~unicode.ASCII));
 }
 
 // some special Unicode white space characters
@@ -448,9 +450,9 @@ abstract class GenericFactory(alias EngineType, Char) : MatcherFactory!Char
     // round up to next multiple of size_t for alignment purposes
     enum classSize = (__traits(classInstanceSize, EngineType!Char) + size_t.sizeof - 1) & ~(size_t.sizeof - 1);
 
-    EngineType!Char construct(const ref Regex!Char re, in Char[] input, void[] memory) const;
+    Matcher!Char construct(const ref Regex!Char re, in Char[] input, void[] memory) const;
 
-    override EngineType!Char create(const ref Regex!Char re, in Char[] input) const @trusted
+    override Matcher!Char create(const ref Regex!Char re, in Char[] input) const @trusted
     {
         immutable size = EngineType!Char.initialMemory(re) + classSize;
         auto memory = enforce(malloc(size), "malloc failed")[0 .. size];
@@ -462,7 +464,7 @@ abstract class GenericFactory(alias EngineType, Char) : MatcherFactory!Char
         return engine;
     }
 
-    override EngineType!Char dup(Matcher!Char engine, in Char[] input) const @trusted
+    override Matcher!Char dup(Matcher!Char engine, in Char[] input) const @trusted
     {
         immutable size = EngineType!Char.initialMemory(engine.pattern) + classSize;
         auto memory = enforce(malloc(size), "malloc failed")[0 .. size];
@@ -554,13 +556,11 @@ abstract:
     void dupTo(Matcher!Char m, void[] memory);
     // The pattern loaded
     @property ref const(Regex!Char) pattern() @safe;
-    // Re-arm the engine with new Input
-    Matcher rearm(in Char[] stream);
 }
 
 /++
-    `Regex` object holds regular expression pattern in compiled form.
-    Instances of this object are constructed via calls to `regex`.
+    $(D Regex) object holds regular expression pattern in compiled form.
+    Instances of this object are constructed via calls to $(D regex).
     This is an intended form for caching and storage of frequently
     used regular expressions.
 +/
@@ -631,7 +631,6 @@ package(std.regex):
     uint[] backrefed;                      // bit array of backreferenced submatches
     Kickstart!Char kickstart;
     MatcherFactory!Char factory;           // produces optimal matcher for this pattern
-    immutable(Char)[] pattern;             // copy of pattern to serve as cache key
 
     const(Regex) withFactory(MatcherFactory!Char factory) pure const @trusted
     {
@@ -769,11 +768,6 @@ struct BackLooperImpl(Input)
         _origin = input._origin;
         _index = index;
     }
-    this(String input)
-    {
-        _origin = input;
-        _index = input.length;
-    }
     @trusted bool nextChar(ref dchar res,ref size_t pos)
     {
         pos = _index;
@@ -885,26 +879,6 @@ struct BitTable {
 
     static uint index()(dchar ch){
         return ((ch >> 7) ^ ch) & 0x7F;
-    }
-}
-
-struct CharMatcher {
-    BitTable ascii; // fast path for ASCII
-    Trie trie;      // slow path for Unicode
-
-    this(CodepointSet set)
-    {
-        auto asciiSet = set & unicode.ASCII;
-        ascii = BitTable(asciiSet);
-        trie = makeTrie(set);
-    }
-
-    bool opIndex()(dchar ch) const
-    {
-        if (ch < 0x80)
-            return ascii[ch];
-        else
-            return trie[ch];
     }
 }
 
